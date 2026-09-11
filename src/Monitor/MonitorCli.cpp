@@ -105,14 +105,24 @@ void MonitorCli::executeTokens(const std::vector<std::string>& a)
     else if (verb == "tu") showUnitBlock(a);
     else if (verb == "sched") sched();
     else if (verb == "conformance") conformance();
-    else if (verb == "breakm")
-        throw MonitorError("'breakm' is not ported yet (milestone 5): it resolves members through the loader");
-    else if (verb == "start" || verb == "stop" || verb == "wait" || verb == "timers" || verb == "actions" ||
-             verb == "tasklist" || verb == "mapstate" || verb == "sqsstate" || verb == "residency" ||
-             verb == "modules" || verb == "modstorage" || verb == "allocchain" || verb == "whereis" ||
-             verb == "patch" || verb == "stations" || verb == "listener-auto-signon" || verb == "xferid" ||
-             verb == "xferterm" || verb == "nuptermscan" || verb == "smf" || verb == "wddqstate")
-        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 4 or 5)");
+    else if (verb == "breakm") breakMember(a);
+    else if (verb == "whereis") whereIs(a);
+    else if (verb == "tasklist") taskList(a);
+    else if (verb == "mapstate") mapState(a);
+    else if (verb == "sqsstate") systemQueueSpaceState(a);
+    else if (verb == "modules") modules(a);
+    else if (verb == "modstorage") moduleStorage(a);
+    else if (verb == "residency") residency(a);
+    else if (verb == "smf") systemMeasurement(a);
+    else if (verb == "allocchain") allocationChain(a);
+    else if (verb == "xferid") transferById(a);
+    else if (verb == "xferterm") transferTerminationContinuation(a);
+    else if (verb == "nuptermscan") terminationDependencyScan(a);
+    else if (verb == "actions") actions();
+    else if (verb == "timers") timers(a);
+    else if (verb == "start" || verb == "stop" || verb == "wait" || verb == "stations" ||
+             verb == "listener-auto-signon" || verb == "wddqstate")
+        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 6)");
     else if (verb == "diskette" || verb == "tape" || verb == "dsktread" || verb == "dsktwrite" ||
              verb == "tapetest" || verb == "tapesvc" || verb == "savemain")
         throw MonitorError("'" + a[0] + "' is not ported yet (milestone 7)");
@@ -149,7 +159,7 @@ void MonitorCli::show(const std::vector<std::string>& a)
             fmt::print("{}\n", line);
         }
     } else if (what == "ptt") {
-        throw MonitorError("'show ptt' is not ported yet (milestone 5)");
+        showPtt();
     } else if (what == "csp") {
         fmt::print("model {}\n", m_.controlStorage().modelName());
         fmt::print("transient area busy={} queue={}\n", boolText(m_.controlStorage().transients().busy()),
@@ -398,12 +408,29 @@ void MonitorCli::disassemble(const std::vector<std::string>& a)
     }
 }
 
+// Step the MSP until it stops on its own or the cap is reached.  At each
+// preemption point a pending member breakpoint may arm; at the idle event
+// wait the native timers are serviced and, when one readied an SSP task,
+// execution resumes.  The host event pump (work station attention, the live
+// monitor) and the driver-idle park are milestone 6.
 long long MonitorCli::driveMachine(long long cap)
 {
-    // The host-event pump at preemption points and the driver-idle park are
-    // milestones 4 and 6; until then this is the bounded instruction loop.
+    auto& csp = m_.nativeControlStorage();
     long long total = 0;
-    while (total < cap && m_.msp().step()) ++total;
+    while (total < cap) {
+        while (total < cap && m_.msp().step()) {
+            ++total;
+            if (m_.msp().atPreemptionPoint()) armPendingMemberBreaks();
+        }
+        if (!m_.msp().stopped() || !csp.idleEventWait()) break;   // fault, or capped
+        int expiredTimers = 0;
+        if (csp.serviceDueNativeTimers(expiredTimers)) {
+            csp.signalNewWork("native timer expiry");
+            m_.msp().start();
+            continue;
+        }
+        break;
+    }
     return total;
 }
 

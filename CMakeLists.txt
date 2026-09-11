@@ -50,6 +50,7 @@ add_library(sim36core STATIC
     src/Host/StationMultiplexer.cpp
     src/Monitor/CommandLine.cpp
     src/Monitor/CommandRegistry.cpp
+    src/Monitor/CspCommands.cpp
     src/Monitor/MachineCommands.cpp
     src/Monitor/ConfigurationRenderer.cpp
     src/Monitor/MonitorCli.cpp
@@ -68,7 +69,10 @@ add_library(sim36core STATIC
     src/Processors/ControlStorage/ActionControlElementQueue.cpp
     src/Processors/ControlStorage/AllocationQueueElement.cpp
     src/Processors/ControlStorage/As36ControlStorageProcessor.cpp
+    src/Processors/ControlStorage/As36Dispatch.cpp
     src/Processors/ControlStorage/As36Storage.cpp
+    src/Processors/ControlStorage/As36TaskCreate.cpp
+    src/Processors/ControlStorage/As36Transfer.cpp
     src/Processors/ControlStorage/DirectArea.cpp
     src/Processors/ControlStorage/GuestHeap.cpp
     src/Processors/ControlStorage/GuestLowStorage.cpp
@@ -128,9 +132,18 @@ add_test(NAME msp_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/msp-parity.sh)
 add_test(NAME storage_svcs COMMAND sh ${CMAKE_SOURCE_DIR}/test/storage-svcs.sh)
 add_test(NAME udt_walk COMMAND sh ${CMAKE_SOURCE_DIR}/test/udt-walk.sh)
 add_test(NAME csp_scaffolding COMMAND sh ${CMAKE_SOURCE_DIR}/test/csp-scaffolding.sh)
-set_tests_properties(storage_svcs udt_walk PROPERTIES SKIP_RETURN_CODE 77)
+add_test(NAME csp_families COMMAND sh ${CMAKE_SOURCE_DIR}/test/csp-families.sh)
+# Milestone 5: the CSP families' vector suites and probes (volume only).
+set(SIM36_M5_GATES program_block_svcs work_area_svcs task_creation task_dispatcher action_controller
+    resource_svcs relocating_loader print_buffer system_queue_space system_queue_ownership
+    nupterm_probes timer_transient timer_op20 timer_op38 disk_write_wrap command_files ipl_command)
+foreach(gate IN LISTS SIM36_M5_GATES)
+    string(REPLACE "_" "-" script ${gate})
+    add_test(NAME ${gate} COMMAND sh ${CMAKE_SOURCE_DIR}/test/${script}.sh)
+endforeach()
+set_tests_properties(storage_svcs udt_walk ${SIM36_M5_GATES} PROPERTIES SKIP_RETURN_CODE 77)
 set_tests_properties(config_parity config_volume disk_layer decode_differential msp_parity
-    storage_svcs udt_walk csp_scaffolding PROPERTIES
+    storage_svcs udt_walk csp_scaffolding csp_families ${SIM36_M5_GATES} PROPERTIES
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
 
 # ---------------------------------------------------------------------------

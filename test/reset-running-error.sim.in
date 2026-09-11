@@ -1,0 +1,4 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ overlay
+ipl
+reset

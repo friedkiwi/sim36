@@ -1,0 +1,30 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ ro
+ipl pause
+trace csp
+
+# Four independent queue elements name the current IPL task (000F00). Their
+# addresses are outside the supervisor arena so this vector tests only the
+# guest queue contract, not allocator bookkeeping.
+# Q54: key ends +7, chain ends +11, +3 zero selects nutetqdq's explicit free.
+poke 0BD9 09 00 00
+poke 090000 00 00 00 00 00 00 0F 00 00 00 00 00
+# Q32/Q30/Q29: key ends +21, chain ends +4, +28 bit 80 clear selects dequeue.
+poke 0B81 09 01 00
+poke 090100 00 00 00 00 00
+poke 090113 00 0F 00
+poke 09011C 00
+poke 0B79 09 02 00
+poke 090200 00 00 00 00 00
+poke 090213 00 0F 00
+poke 09021C 00
+poke 0B75 09 03 00
+poke 090300 00 00 00 00 00
+poke 090313 00 0F 00
+poke 09031C 00
+# The IPL request block is a root. Execute SVC 11 through the MSP dispatcher.
+poke 1000 F4 00 11
+set iar 1000
+step 1
+dump 0B70 20
+quit

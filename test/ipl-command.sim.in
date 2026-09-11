@@ -1,0 +1,7 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ ro
+ipl pause
+show cpu
+step 1
+show cpu
+quit

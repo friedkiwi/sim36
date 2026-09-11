@@ -1,0 +1,13 @@
+# Keep this definition listener-free: stdout must contain replay commands only,
+# with no listener announcements mixed into the saved configuration.
+set machine memory 512K
+set terminal multiplex listen 127.0.0.1:4399
+set terminal multiplex off
+attach disk0 @VOLUME@ overlay
+
+# Deliberately insert these out of order; saved definitions are deterministic.
+set station 0.2 role display
+set station 0.0 role console
+set station 0.1 role display
+save config stdout
+quit

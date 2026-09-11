@@ -377,8 +377,13 @@ bool As36ControlStorageProcessor::svc(SvcRequest& req)
     // task that issued the immediate SVC or for another more important task
     // that is ready (if task switching is not disabled)".  Nothing happens
     // unless a wait or a post asked for it.
+    // The host action scheduler's turn is approximated here too: every
+    // action SVC 0B queued is executed before the dispatcher runs, because
+    // the dispatcher is itself one of those actions and the emulator has no
+    // other point at which it yields to host work between guest instructions.
     wasInSvc = inSupervisorCall_;
     inSupervisorCall_ = true;
+    drainActionScheduler(fmt::format("SVC {:02X}", req.r));
     dispatchIfRequested(fmt::format("SVC {:02X}", req.r));
     inSupervisorCall_ = wasInSvc;
     // A transfer switches request blocks mid-call, so the reload has to use
@@ -510,19 +515,44 @@ bool As36ControlStorageProcessor::service(SvcRequest& req)
             return deviceSvc(req, ace);
         }
 
-        // ---- families that arrive with milestone 5 ----------------------------
-        case 0x00: case 0x01: case 0x02: case 0x03: case 0x08: case 0x0B: case 0x17: case 0x19: case 0x1A:
-        case 0x1B: case 0x1D: case 0x1E: case 0x20: case 0x21: case 0x23: case 0x24: case 0x25: case 0x2B:
-        case 0x2E: case 0x30: case 0x31: case 0x32:
-            return refuse("SVC {:02X} ({}) is not ported yet (milestone 5: waits, posts, events and task control)",
-                          req.r, svcClassName(SvcTable::classify(req.r)));
-        case 0x04: case 0x05: case 0x0C: case 0x0D: case 0x10: case 0x11: case 0x14: case 0x22: case 0x52:
-            return refuse("SVC {:02X} ({}) is not ported yet (milestone 5: transfer control and the loader)", req.r,
-                          svcClassName(SvcTable::classify(req.r)));
-        case 0x12: case 0x13: case 0x26: case 0x33: case 0x34: case 0x35: case 0x36:
-            return refuse("SVC {:02X} ({}) is not ported yet (milestone 5: user area pages, work spaces and the task "
-                          "work area allocator)",
-                          req.r, svcClassName(SvcTable::classify(req.r)));
+        case 0x00: return generalWait(req);
+        case 0x17: return asynchronousTaskWait(req);
+        case 0x1E: return taskWait(req);
+        case 0x25: return asynchronousTaskReadyCheck(req);
+        case 0x30: return quickLock(req);
+        case 0x20: return specificResourceDequeue(req);
+        case 0x21: return resourceEnqueueDequeue(req);
+        case 0x2E: return timeOfDay(req);
+        case 0x31: return attachTask(req);
+        case 0x32: return detachTask(req);
+        case 0x01: return generalPost(req);
+        case 0x02: return eventWait(req);
+        case 0x03: return eventPost(req);
+        case 0x08: return incrementSystemEventCounters(req);
+        case 0x0B: return postActionControllerStatusWord(req);
+        case 0x19: return postActionControlElement(req);
+        case 0x1A: return logTraceInformation(req);
+        case 0x1B: return scanSystemQueue(req);
+        case 0x1D: return taskPost(req);
+        case 0x23: return testAndSet(req);
+        case 0x24: return taskBlockPriorityQueue(req);
+        case 0x2B: return postTaskByTaskId(req);
+        case 0x04: return transferControlById(req);
+        case 0x05: return freeSecondRequestBlock(req);
+        case 0x0C: return fastTransfer(req);
+        case 0x0D: return fastExit(req);
+        case 0x10: return transferControlByAddress(req);
+        case 0x14: return arrayTransfer(req);
+        case 0x11: return mainStorageExit(req);
+        case 0x22: return dumpTask(req);
+        case 0x12: return getPage(req);
+        case 0x13: return maintainUserAreaPages(req);
+        case 0x26: return preparePrintBuffer(req);
+        case 0x36: return smfc(req);
+        case 0x33: return taskWorkAreaAllocate(req);
+        case 0x34: return taskWorkAreaFree(req);
+        case 0x35: return workSpaceMaintenance(req);
+        case 0x52: return mainStorageRelocatingLoader(req);
 
         default:
             return refuse("SVC {:02X} ({}) is dispatched but not yet implemented - there is no handler for this R-byte",
@@ -889,15 +919,10 @@ bool As36ControlStorageProcessor::deviceSvc(SvcRequest& req, int ace)
         // here, so during phase 1 the requester is always running.
         int target = m_.readAddr24(ace + ActionControlElement::kOffTaskBlock);
         if ((m_.readByte(ace + ActionControlElement::kOffFlags) & ActionControlElement::kFlagsBase) != 0 &&
-            TaskBlock::isTaskBlock(m_, target) && (m_.readByte(target + TaskBlock::kOffStat2) & 0x80) != 0) {
-            // The delivery half (post to a waiting task) is milestone 5.
-            refuse("device event post: task block {:04X} is in an event wait and completion delivery to a waiting task "
-                   "is not ported yet (milestone 5)",
-                   target);
+            TaskBlock::isTaskBlock(m_, target) && (m_.readByte(target + TaskBlock::kOffStat2) & 0x80) != 0)
+            completeToTask(ace, 0, "device event post");
+        else
             aces_.release(ace);
-            return false;
-        }
-        aces_.release(ace);
     }
     return ok;
 }
@@ -972,27 +997,8 @@ void As36ControlStorageProcessor::readyQueueInsert(int tb, uint8_t flags)
     queueOperation(GuestLowStorage::queueHeader(kTaskReadyQueue), tb, TaskBlock::kChainLastQueue40, flags);
 }
 
-// Nothing in milestone 4 requests a redispatch: no wait or post is ported,
-// so the request flag stays clear and the dispatcher is never entered.  It
-// is refused by name if it ever is.
-void As36ControlStorageProcessor::dispatchIfRequested(const std::string& call)
-{
-    if (!redispatch_) return;
-    if (dispatchDepth_ >= kDispatchDepthLimit) {
-        redispatch_ = false;
-        return;
-    }
-    redispatch_ = false;
-    refuse("{}: the task dispatcher is not ported yet (milestone 5)", call);
-}
-
-bool As36ControlStorageProcessor::raiseStorageProtection(uint16_t, bool) { return false; }
-
-bool As36ControlStorageProcessor::runTransient(uint8_t transientId, uint8_t, uint8_t, int, int, int, int)
-{
-    refuse("SVC 50: control storage transient {:02X} is not ported yet (milestone 5)", transientId);
-    return false;
-}
+// dispatchIfRequested, raiseStorageProtection and controlStorageTerminate
+// are defined with the dispatcher in As36Dispatch.cpp.
 
 // ---- member attribution -------------------------------------------------------------
 
@@ -1007,16 +1013,21 @@ int As36ControlStorageProcessor::activeProgramBlock(int taskBlock) const
     return m.readAddr24(rb + RequestBlock::kOffProgramBlock);
 }
 
-bool As36ControlStorageProcessor::tryActiveMember(int taskBlock, int iar, LoadedMember& member, int& offset) const
+bool As36ControlStorageProcessor::tryProgramBlockMember(int programBlock, int iar, LoadedMember& member,
+                                                        int& offset) const
 {
     offset = 0;
-    int pb = activeProgramBlock(taskBlock);
-    if (pb == 0) return false;
-    auto it = memberByProgramBlock_.find(pb);
+    if (programBlock == 0) return false;
+    auto it = memberByProgramBlock_.find(programBlock);
     if (it == memberByProgramBlock_.end()) return false;
     member = it->second;
     offset = iar - member.logicalBase;
     return true;
+}
+
+bool As36ControlStorageProcessor::tryActiveMember(int taskBlock, int iar, LoadedMember& member, int& offset) const
+{
+    return tryProgramBlockMember(activeProgramBlock(taskBlock), iar, member, offset);
 }
 
 std::string As36ControlStorageProcessor::describeActiveMember(int taskBlock, int iar) const

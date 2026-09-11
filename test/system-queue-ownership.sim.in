@@ -1,0 +1,35 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ ro
+ipl pause
+loadfile @TMP@/sqs-ownership.bin 1000
+trace csp
+
+# Shape the lists so a nuptask-like 432-byte allocation at F970 is immediately
+# followed by a 256-byte JCB-like allocation at FB70.  The first two requests
+# consume the lower-address class-512 element and split the class-1024 element.
+set xr1 0200
+set iar 1000
+step 1
+set pxr1 00
+set xr1 0100
+set iar 1000
+step 1
+set pxr1 00
+set xr1 01B0
+set iar 1000
+step 1
+set pxr1 00
+set xr1 0100
+set iar 1000
+step 1
+
+# Free only the 272-byte RB tail at F970+0xC0.  Native nufree returns FA30..FB3F.
+# The old GuestHeap.RoundedSize(272) returned 512 bytes, ending at FC2F and
+# crossing 192 bytes into the still-live FB70..FC6F neighbor.
+set pxr1 00
+set xr1 FA30
+set wr6 0110
+set iar 1003
+step 1
+sqsstate FB70
+quit

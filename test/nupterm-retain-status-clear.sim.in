@@ -1,0 +1,24 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ ro
+ipl pause
+trace csp
+
+# NuEmul::nupterm c18a4fa0..c18a4fcc (the retain arm, taken when tb+32 bit
+# 0x40 is clear and there is no return ACE):
+#
+#   c18a4fa0  LBZ    r5, 32(r26)         ; tb+32 (TB_STAT)
+#   c18a4fa4  RLWINM. r7, r5, 0,24,24    ; r5 & 0x80
+#   c18a4fa8  BC 4,1 -> c18a4fd0         ; bit 0x80 clear: skip
+#   c18a4fb8  AND    r23, r5, ~0x80      ; (ppcas_dis prints "AND 5,23,6")
+#   c18a4fbc  STB    r23, 32(r26)        ; tb+32 &= 0x7F
+#   c18a4fc8  BL     nupotb(this, tb, 08)
+#
+# The IPL task's TB_STAT is 00 at `ipl pause`, so the root SVC 11 must take
+# the skip: no store into tb+32, no nupotb.  The former model stored the low
+# byte of the request-block address here, which planted a status bit the
+# guest's #CTEI reads as "end of job" (docs/s36/basic-job-initiation-nupterm-status-2026-09-10.md).
+poke 1000 F4 00 11
+set iar 1000
+step 1
+dump 0F20 10
+quit

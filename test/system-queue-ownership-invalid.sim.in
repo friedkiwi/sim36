@@ -1,0 +1,32 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ ro
+ipl pause
+loadfile @TMP@/sqs-ownership.bin 1000
+trace csp
+
+# Reproduce the same two adjacent live owners as system-queue-ownership.sim.
+set xr1 0200
+set iar 1000
+step 1
+set pxr1 00
+set xr1 0100
+set iar 1000
+step 1
+set pxr1 00
+set xr1 01B0
+set iar 1000
+step 1
+set pxr1 00
+set xr1 0100
+set iar 1000
+step 1
+
+# Negative diagnostic vector: this is the historical bad extent, not the fixed
+# SLIC operation.  It begins in allocation #4 and crosses allocation #5.
+set pxr1 00
+set xr1 FA30
+set wr6 0200
+set iar 1003
+step 1
+sqsstate
+quit

@@ -1,0 +1,20 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ overlay
+# Build one synthetic Queue-39 task and ACE only to exercise the decoded scan.
+# The production path calls the same routine before posting the dying task's ACE.
+trace csp
+ipl pause
+# Queue 39: synthetic 090000 -> real IPL task 000F00 -> end.
+poke 0B9D 09 00 00
+poke 090000 E3 C2
+poke 090011 09 01 00
+poke 090019 00 0F 00
+# Eligible status 40; termination-active byte +24 and depth +52 stay zero.
+poke 090020 40
+# ACE chain: one element targeting the current/dying IPL task 000F00.
+poke 090100 C1 C3
+poke 090113 00 0F 00
+nuptermscan
+dump 090000 40
+show csp
+quit

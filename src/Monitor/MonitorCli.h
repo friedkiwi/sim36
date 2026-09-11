@@ -54,6 +54,45 @@ private:
     void showUnitBlock(const std::vector<std::string>& a);
     void sched();
     void conformance();
+
+    // ---- the control storage processor's task, module and allocation views
+    struct RequestFrame {
+        int depth = 0, requestBlock = 0, previous = 0, programBlock = 0, resumeIar = 0, offset = 0;
+        bool attributed = false;
+        std::string member;
+    };
+    struct PendingMemberBreak {
+        std::string member;
+        int offset = 0;
+        std::string description;
+    };
+    bool canReadGuest(int address, int length) const;
+    std::vector<RequestFrame> requestBlockChain(int taskBlock);
+    std::string moduleOwners(int programBlock);
+    std::vector<std::string> moduleOwnerRows(int programBlock);
+    void whereIs(const std::vector<std::string>& a);
+    void taskList(const std::vector<std::string>& a);
+    void taskDetail(int tb, int current);
+    void mapState(const std::vector<std::string>& a);
+    void systemQueueSpaceState(const std::vector<std::string>& a);
+    void modules(const std::vector<std::string>& a);
+    void moduleStorage(const std::vector<std::string>& a);
+    void modulesActive(const std::string& name);
+    void modulesLoaded(const std::string& name);
+    void residency(const std::vector<std::string>& a);
+    void systemMeasurement(const std::vector<std::string>& a);
+    void printSystemMeasurementStatus(int selector);
+    void printTaskMeasurementStatus(int tb, int id);
+    void allocationChain(const std::vector<std::string>& a);
+    void breakMember(const std::vector<std::string>& a);
+    void armPendingMemberBreaks();
+    void transferById(const std::vector<std::string>& a);
+    void transferTerminationContinuation(const std::vector<std::string>& a);
+    void terminationDependencyScan(const std::vector<std::string>& a);
+    void actions();
+    void timers(const std::vector<std::string>& a);
+    void showPtt();
+    std::vector<PendingMemberBreak> pendingMemberBreaks_;
     void disassemble(const std::vector<std::string>& a);
     void step(const std::vector<std::string>& a);
     long long driveMachine(long long cap);

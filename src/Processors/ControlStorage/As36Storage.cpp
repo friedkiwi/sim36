@@ -7,6 +7,7 @@
 #include "Processors/ControlStorage/As36ControlStorageProcessor.h"
 
 #include <algorithm>
+#include <set>
 
 #include <fmt/format.h>
 
@@ -1022,6 +1023,61 @@ void As36ControlStorageProcessor::releaseBlockStorage(int block, const std::stri
         }
         trace_.csp("{}: {} page-granular work space frame(s) given back by block {:04X}", call, released, block);
     }
+}
+
+std::vector<std::string> As36ControlStorageProcessor::moduleStorageDiagnostics() const
+{
+    std::vector<std::string> rows;
+    int freeBytes = 0, largest = 0, allocatedBytes = 0;
+    for (const auto& range : moduleStorageFree_) {
+        freeBytes += range.second;
+        if (range.second > largest) largest = range.second;
+    }
+    for (const auto& allocation : moduleStorageSize_) allocatedBytes += allocation.second;
+    rows.push_back(fmt::format("module-storage arena {:05X}..{:05X}: bump {:05X}; {} allocation(s), {} bytes live; {} returned "
+                               "byte(s), largest contiguous {}",
+                               kModuleStorageLow, kModuleStorageHigh, moduleStorageNext_, moduleStorageSize_.size(),
+                               allocatedBytes, freeBytes, largest));
+    for (const auto& range : moduleStorageFree_)
+        rows.push_back(fmt::format("  free {:05X}..{:05X} ({} byte(s), {} page(s))", range.first, range.first + range.second,
+                                   range.second, range.second >> machine::MachineState::kPageShift));
+    std::vector<std::string> owners;
+    std::set<int> ownedAt;
+    for (const auto& module : moduleStorage_) {
+        int bytes = 0;
+        auto size = moduleStorageSize_.find(module.second);
+        if (size != moduleStorageSize_.end()) bytes = size->second;
+        auto member = memberByProgramBlock_.find(module.first);
+        std::string name = member != memberByProgramBlock_.end() ? member->second.name : "?";
+        owners.push_back(fmt::format("  live {:05X}..{:05X} PB {:04X} {} ({} byte(s))", module.second, module.second + bytes,
+                                     module.first, name, bytes));
+        ownedAt.insert(module.second);
+    }
+    for (const auto& workspace : workSpaceStorage_) {
+        int bytes = 0;
+        auto size = moduleStorageSize_.find(workspace.second);
+        if (size != moduleStorageSize_.end()) bytes = size->second;
+        owners.push_back(fmt::format("  live {:05X}..{:05X} SB {:04X} workspace ({} byte(s))", workspace.second,
+                                     workspace.second + bytes, workspace.first, bytes));
+        ownedAt.insert(workspace.second);
+    }
+    for (const auto& workspace : workSpaceStoragePages_) {
+        int resident = 0;
+        for (int at : workspace.second)
+            if (at != 0) {
+                resident++;
+                ownedAt.insert(at);
+            }
+        owners.push_back(fmt::format("  SB {:04X} workspace: {}/{} page-granular frame(s) resident", workspace.first, resident,
+                                     workspace.second.size()));
+    }
+    for (const auto& allocation : moduleStorageSize_)
+        if (ownedAt.count(allocation.first) == 0)
+            owners.push_back(fmt::format("  live {:05X}..{:05X} UNOWNED ({} byte(s))", allocation.first,
+                                         allocation.first + allocation.second, allocation.second));
+    std::sort(owners.begin(), owners.end());
+    rows.insert(rows.end(), owners.begin(), owners.end());
+    return rows;
 }
 
 // ---- control blocks ---------------------------------------------------------------------------

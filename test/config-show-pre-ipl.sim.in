@@ -1,0 +1,6 @@
+# A listener-free definition used to prove that configuration inspection does
+# not construct the machine.
+attach disk0 @VOLUME@ overlay
+set station 0.0 role console
+show config
+quit

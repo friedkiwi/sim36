@@ -1,0 +1,15 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ ro
+ipl pause
+trace csp
+
+# Same arm as nupterm-retain-status-clear.sim with tb+32 bit 0x80 SET (A0:
+# 0x80 | 0x20).  c18a4fa8 falls through: tb+32 becomes A0 & 7F = 20 and
+# nupotb(tb, 08) is called.  Bit 0x40 stays clear so the retain arm is still
+# the one selected at c18a4cf4.
+poke 0F20 A0
+poke 1000 F4 00 11
+set iar 1000
+step 1
+dump 0F20 10
+quit

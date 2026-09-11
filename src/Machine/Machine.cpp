@@ -64,6 +64,18 @@ Machine::Machine(const EmulatorConfig& cfg)
     auto* csp = csp_.get();
     state.stateDescriber = [csp] { return csp->describeSrcState(); };
     state.checkStateDescriber = [csp] { return csp->describeCheckState(); };
+    // Module-filtered breakpoints (`break member <name>`, `breakm`) resolve
+    // the active member for the current IAR and task, so they survive the
+    // load-0x1000 aliasing.
+    csp->mainStorage().memberResolver = [csp, this] {
+        return csp->describeActiveMember(csp->currentTaskBlock(), state.msp.iar);
+    };
+    csp->mainStorage().memberNameResolver = [csp, this] {
+        processors::controlstorage::LoadedMember member;
+        int offset;
+        return csp->tryActiveMember(csp->currentTaskBlock(), state.msp.iar, member, offset) ? member.name
+                                                                                              : std::string();
+    };
 }
 
 Machine::~Machine() = default;

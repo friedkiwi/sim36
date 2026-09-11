@@ -1,0 +1,19 @@
+do @HERE@/test/advanced36-nolisten.sim
+attach disk0 @VOLUME@ overlay
+trace csp
+ipl pause
+step 200000
+poke 0B9D 09 00 00
+poke 090000 E3 C2
+poke 090011 09 01 00
+poke 090019 00 0F 00
+poke 090020 40
+# Nonzero termination depth and a usable root RB select the immediate arm.
+poke 090034 01
+poke 090041 00 0E 00
+poke 090100 C1 C3
+poke 090113 00 0F 00
+nuptermscan
+dump 090000 40
+show csp
+quit

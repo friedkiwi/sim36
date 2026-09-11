@@ -6,11 +6,17 @@
 // interrupt level to drop and no register bank to re-point, so the
 // task-switch decision lives in the interpreter loop, not here.
 //
-// Milestone 4 carries the machine scaffolding: guest low storage, the
-// system queue space, phase 1, the initial task, the storage family (06, 07,
-// 2C, 2D, 2F, 51), the control-block access calls (0E, 0F) and the device
-// path (40-48).  Every other R-byte is dispatched and refused by name, and
-// the refusal stops the machine with the reason.
+// The machine scaffolding (guest low storage, the system queue space,
+// phase 1, the initial task, the storage family, the control-block access
+// calls and the device path) is in this file and As36Storage.cpp; the
+// supervisor call families are split by subject into As36Transfer.cpp
+// (transfer control, the loader, task termination), As36Dispatch.cpp (the
+// dispatcher, waits, posts, events, resources, the action controller) and
+// As36TaskCreate.cpp (task creation, user area pages, the task work area
+// allocator, the transient bodies, print and SMFC), each with its member
+// declarations in a fragment the class body includes.  A device family that
+// does not exist yet (the work station controller, diskette, tape) is
+// refused by name, and the refusal stops the machine with the reason.
 #pragma once
 
 #include <cstdint>
@@ -34,6 +40,8 @@
 #include "Processors/ControlStorage/TransientArea.h"
 #include "Processors/MainStorageProcessor.h"
 #include "Storage/DiskBackend.h"
+
+namespace sim36::monitor { class MonitorCli; }
 
 namespace sim36::processors::controlstorage {
 
@@ -93,7 +101,7 @@ public:
     MainStorageProcessor& mainStorage() override { return *msp_; }
     void bringUpControlProcessor() override;
     void iplMainProcessor() override;
-    void controlStorageTerminate() override {}
+    void controlStorageTerminate() override;
     DispatchClass classify(uint8_t rByte) const override;
     bool isImplemented(uint8_t rByte) const override;
     bool svc(SvcRequest& req) override;
@@ -109,13 +117,25 @@ public:
     int currentTaskBlock() const { return currentTaskBlock_; }
     int currentRequestBlock() const { return currentRequestBlock_; }
     GuestHeap& heap() { return heap_; }
+    const NuPttPool& translationFiles() const { return ptt_; }
     ActionControlElementQueue& aces() { return aces_; }
     std::string describeSrcState() const;
     std::string describeCheckState() const;
     bool tryActiveMember(int taskBlock, int iar, LoadedMember& member, int& offset) const;
     std::string describeActiveMember(int taskBlock, int iar) const;
+    // Attribute any request-frame program block, not only a task's top frame.
+    bool tryProgramBlockMember(int programBlock, int iar, LoadedMember& member, int& offset) const;
+    // The emulator's main-storage backing arena, for the monitor: host
+    // bookkeeping that diagnoses whether a transfer failed for lack of pages
+    // or through fragmentation.
+    std::vector<std::string> moduleStorageDiagnostics() const;
 
 private:
+    // The monitor's inspection commands read the processor's own bookkeeping
+    // (module residency, the ATR file pool, the action controller, native
+    // timers) without widening the architected interface.
+    friend class sim36::monitor::MonitorCli;
+
     // ---- refusals -------------------------------------------------------
     template <typename... Args>
     bool refuse(fmt::format_string<Args...> f, Args&&... args)
@@ -220,6 +240,15 @@ private:
 
     // ---- member attribution ---------------------------------------------
     int activeProgramBlock(int taskBlock) const;
+
+    // ---- milestone 5 families, one declaration fragment each ----------------
+    // Transfer control, the loader and task termination; the dispatcher,
+    // waits, posts, events, resources and the action controller; task
+    // creation, user area pages, the task work area allocator, the
+    // transient bodies, print and SMFC.
+#include "Processors/ControlStorage/As36Transfer.members.inc"
+#include "Processors/ControlStorage/As36Dispatch.members.inc"
+#include "Processors/ControlStorage/As36TaskCreate.members.inc"
 
     machine::MachineState& m_;
     const configuration::EmulatorConfig& cfg_;
