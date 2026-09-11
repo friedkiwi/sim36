@@ -66,8 +66,8 @@ in the next checkpoint report.
 | Behaviour | Reference | SIM/36 | Cause |
 |---|---|---|---|
 | Prompt and echo prefix | `sim> ` | `sim36> ` | Required by the project brief. `tools/diffrun.sh` (milestone 1) normalises it. |
-| Banner | `s36refemu - System/36 reference emulator` | `SIM/36 - System/36 emulator` | Name change. Interactive only; never in `-s` transcripts. |
-| Default startup file | `etc/s36refemu.sim`, else `etc/s36refemu.conf`; missing file is an error | `etc/sim36.sim` when it exists, otherwise built-in defaults | A fresh clone must start without any file. An explicit `-c` of a missing file is still `not found: <path>`, exit 2. |
+| Banner | `<reference name> - System/36 reference emulator` | `SIM/36 - System/36 emulator` | Name change. Interactive only; never in `-s` transcripts. |
+| Default startup file | the reference's `etc/<name>.sim`, else `etc/<name>.conf`; missing file is an error | `etc/sim36.sim` when it exists, otherwise built-in defaults | A fresh clone must start without any file. An explicit `-c` of a missing file is still `not found: <path>`, exit 2. |
 | Legacy INI startup files (`[section]` first line) | accepted | not yet ported | Deferred to milestone 1 with the rest of the Configuration layer. |
 | Unknown option | `unknown option --x` then usage, exit 2 | cxxopts' message (`Option 'x' does not exist`) then usage, exit 2 | Option parser is a dependency. |
 

@@ -37,10 +37,22 @@ endif()
 # The emulator proper: everything except main().  The tests link it too.
 # ---------------------------------------------------------------------------
 add_library(sim36core STATIC
+    src/Configuration/EmulatorConfig.cpp
+    src/Configuration/IplSourceTable.cpp
+    src/Configuration/ModelTable.cpp
+    src/Devices/DeviceCodes.cpp
+    src/Host/Console.cpp
+    src/Host/Sockets.cpp
+    src/Host/StationBackend.cpp
+    src/Host/StationMultiplexer.cpp
     src/Monitor/CommandLine.cpp
     src/Monitor/CommandRegistry.cpp
+    src/Monitor/ConfigurationRenderer.cpp
     src/Monitor/SimulatorSession.cpp
-    src/Host/Console.cpp
+    src/Monitor/Tracer.cpp
+    src/Storage/DiskBackend.cpp
+    src/Storage/Ebcdic.cpp
+    src/Storage/Vtoc.cpp
 )
 target_include_directories(sim36core PUBLIC src)
 target_link_libraries(sim36core
@@ -60,6 +72,9 @@ target_link_libraries(sim36 PRIVATE sim36core cxxopts::cxxopts)
 add_executable(sim36_tests
     tests/main.cpp
     tests/CommandLineTests.cpp
+    tests/ConfigTests.cpp
+    tests/EbcdicTests.cpp
+    tests/VtocTests.cpp
 )
 target_link_libraries(sim36_tests PRIVATE sim36core doctest::doctest)
 
@@ -67,6 +82,14 @@ enable_testing()
 add_test(NAME unit COMMAND sim36_tests)
 add_test(NAME empty_command_file
          COMMAND sim36 -s ${CMAKE_SOURCE_DIR}/test/empty.sim)
+add_test(NAME parse_check
+         COMMAND sh ${CMAKE_SOURCE_DIR}/test/parse-check.sh $<TARGET_FILE:sim36>)
+# Differential tests against the reference emulator run only where it is
+# available (SIM36_REFERENCE); elsewhere they report "skipped" and pass.
+add_test(NAME config_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-parity.sh)
+add_test(NAME config_volume COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-volume.sh)
+set_tests_properties(config_parity config_volume PROPERTIES
+    ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
 
 # ---------------------------------------------------------------------------
 # THIRD_PARTY_NOTICES, generated from the vcpkg copyright files of the

@@ -1,0 +1,4 @@
+set station 0.0 role console
+set station 1.0 role printer
+set station 1.0 listen 127.0.0.1:2497
+attach disk0 diffrun-base.sim ro

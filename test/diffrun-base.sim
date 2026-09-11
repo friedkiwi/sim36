@@ -1,0 +1,3 @@
+# Startup file used by tools/diffrun.sh for both emulators: no listener is
+# bound, so a differential run never collides with another session's ports.
+set terminal multiplex off

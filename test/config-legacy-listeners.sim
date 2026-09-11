@@ -1,0 +1,40 @@
+# Parity: the per-station listener topology on a private port range.
+set terminal multiplex listen 127.0.0.1:2499
+set terminal multiplex off
+set machine model advanced36
+set machine memory 1024K
+set machine task-work-area-sectors 60
+set machine host-model 150
+set machine host-processor-feature 2270
+set machine host-processor-model 440
+set machine ipl-type unattend
+set machine ipl-source disk
+set machine listener-auto-signon on
+set machine signon-use-router on
+set machine signon-statement off
+set machine signon-request off
+set machine signon-router-key 14
+set machine ws-interactive off
+set station 0.0 role console
+set station 0.0 device-code 11
+set station 0.0 signon-at-ipl on
+set station 0.2 role display
+set station 0.2 device-code 11
+set station 0.2 listen 127.0.0.1:2492
+set station 0.1 role display
+set station 0.1 listen 127.0.0.1:2491
+set station 1.0 role printer
+set station 1.0 device-code PB
+set station 1.0 listen 127.0.0.1:2497
+set diskette0 writable
+set tape0 readonly
+show config
+save config stdout
+get terminal
+show terminal
+stations
+remove station 0.2
+show terminal
+set station 0.1 listen off
+show terminal
+quit

@@ -1,0 +1,5 @@
+# Parity: a nested command file echoes through the same prompt and resolves
+# its paths relative to itself.
+do config-multiplex.sim
+show status
+quit

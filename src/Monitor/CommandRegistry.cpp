@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 namespace sim36::monitor {
 

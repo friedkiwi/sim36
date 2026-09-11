@@ -1,0 +1,16 @@
+# Parity: the multiplexer on a private endpoint, with stations declared.
+set terminal multiplex listen 127.0.0.1:2599
+set station 0.0 role console
+set station 0.1 role display
+set station 0.1 listen 127.0.0.1:2591
+set station 0.3 role display
+set terminal multiplex on
+stations
+get terminal
+show terminal
+set terminal multiplex listen 127.0.0.1:2598
+show config
+save config stdout
+set terminal multiplex off
+show terminal
+quit

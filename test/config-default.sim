@@ -1,0 +1,21 @@
+# Parity: the built-in definition, inspected and replayed without a volume.
+show config
+save config stdout
+get terminal
+show terminal
+show status
+stations
+trace msp,svc
+trace
+trace all,defer
+trace off
+listener-auto-signon
+listener-auto-signon on
+set machine ipl-type attended
+set machine memory 512K
+set machine signon-router-key 0x17
+set machine host-processor-feature 1234
+show config
+save config stdout
+reset
+quit

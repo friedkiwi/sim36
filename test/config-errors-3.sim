@@ -1,0 +1,2 @@
+set machine memory 5000K
+ipl pause

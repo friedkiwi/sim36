@@ -29,7 +29,10 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "toolset": "v142",
-      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static" }
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-v142",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets"
+      }
     }
   ],
   "buildPresets": [
