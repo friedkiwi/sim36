@@ -91,9 +91,17 @@ void MonitorCli::executeTokens(const std::vector<std::string>& a)
     else if (verb == "load") load(a);
     else if (verb == "loadfile") loadFile(a);
     else if (verb == "diskread") diskRead(a);
-    else if (verb == "step" || verb == "dis" || verb == "selftest" || verb == "break" || verb == "breakm" ||
-             verb == "addrmap" || verb == "findmem" || verb == "poke" || verb == "watch")
-        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 3)");
+    else if (verb == "dis") disassemble(a);
+    else if (verb == "step") step(a);
+    else if (verb == "break") breakCommand(a);
+    else if (verb == "watch") watch(a);
+    else if (verb == "poke") poke(a);
+    else if (verb == "patch") patch(a);
+    else if (verb == "findmem") findMemory(a);
+    else if (verb == "addrmap") addressMap(a);
+    else if (verb == "selftest") selfTest();
+    else if (verb == "breakm")
+        throw MonitorError("'breakm' is not ported yet (milestone 5): it resolves members through the loader");
     else if (verb == "start" || verb == "stop" || verb == "wait" || verb == "sched" || verb == "ace" ||
              verb == "iob" || verb == "tu" || verb == "conformance" || verb == "timers" || verb == "actions" ||
              verb == "tasklist" || verb == "mapstate" || verb == "sqsstate" || verb == "residency" ||
@@ -246,7 +254,21 @@ void MonitorCli::setTrace(const std::vector<std::string>& a)
 {
     if (a.size() < 2) { fmt::print("trace is {}\n", traceFlagsToString(m_.trace.flags)); return; }
     if (equalsIgnoreCase(a[1], "workstation")) throw MonitorError("'trace workstation' is not ported yet (milestone 6)");
-    if (equalsIgnoreCase(a[1], "member")) throw MonitorError("'trace member' is not ported yet (milestone 3)");
+    // `trace member <name>` restricts the full instruction trace to one module
+    // past the load-0x1000 aliasing; `trace member off` clears it.
+    if (equalsIgnoreCase(a[1], "member")) {
+        if (a.size() > 2 && !equalsIgnoreCase(a[2], "off")) {
+            std::string name = a[2];
+            while (!name.empty() && name[0] == '#') name.erase(name.begin());
+            for (char& c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            m_.msp().traceMemberFilter = name;
+            fmt::print("instruction trace restricted to member matching \"{}\"\n", name);
+        } else {
+            m_.msp().traceMemberFilter.clear();
+            fmt::print("instruction trace member filter cleared\n");
+        }
+        return;
+    }
     if (equalsIgnoreCase(a[1], "off")) {
         m_.trace.flags = TraceNone;
     } else {
@@ -340,11 +362,7 @@ void MonitorCli::loadFile(const std::vector<std::string>& a)
 {
     if (a.size() < 3) { fmt::print("loadfile <path> <hexaddr>\n"); return; }
     std::ifstream in(a[1], std::ios::binary);
-    if (!in) {
-        std::error_code ec;
-        std::filesystem::path full = std::filesystem::absolute(a[1], ec);
-        throw storage::FileNotFoundError(ec ? a[1] : full.lexically_normal().string());
-    }
+    if (!in) throw storage::FileNotFoundError::forPath(a[1]);
     std::vector<uint8_t> b((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     const int at = parseHex32(a[2]);
     const int n = std::min(static_cast<int>(b.size()), m_.state.backingBytes() - at);
@@ -352,7 +370,297 @@ void MonitorCli::loadFile(const std::vector<std::string>& a)
         throw MonitorError(fmt::format("guest access {:06X}+{} outside {:06X} bytes of main storage",
                                        at, n, m_.state.backingBytes()));
     m_.state.write(at, b.data(), n);
+    m_.state.msp.iar = static_cast<uint16_t>(at);
     fmt::print("loaded {} bytes at {:04X}\n", b.size(), at);
+}
+
+void MonitorCli::disassemble(const std::vector<std::string>& a)
+{
+    int addr = a.size() > 1 ? parseHex32(a[1]) : m_.state.msp.iar;
+    const int count = a.size() > 2 ? parseInt(a[2]) : 16;
+    for (int i = 0; i < count; ++i) {
+        const processors::Instruction insn = m_.msp().decode(addr);
+        if (m_.state.faulted())
+            throw MonitorError(m_.state.faultMessage());
+        std::string hex;
+        for (uint8_t b : insn.raw) hex += fmt::format("{:02x}", b);
+        fmt::print("{:04x}  {:<14} {}\n", addr, hex, insn.toString());
+        addr += insn.length;
+    }
+}
+
+long long MonitorCli::driveMachine(long long cap)
+{
+    // The host-event pump at preemption points and the driver-idle park are
+    // milestones 4 and 6; until then this is the bounded instruction loop.
+    long long total = 0;
+    while (total < cap && m_.msp().step()) ++total;
+    return total;
+}
+
+void MonitorCli::step(const std::vector<std::string>& a)
+{
+    if (a.size() > 2) throw MonitorError("usage: step [instructions]");
+    long long n = 1;
+    if (a.size() > 1) {
+        const std::string& s = a[1];
+        const bool hex = s.size() >= 2 && s[0] == '0' && s[1] == 'x';
+        std::string digits = hex ? s.substr(2) : s;
+        if (digits.empty()) throw MonitorError("Could not find any recognizable digits.");
+        for (char c : digits)
+            if (!(hex ? std::isxdigit(static_cast<unsigned char>(c)) : std::isdigit(static_cast<unsigned char>(c)) || c == '-'))
+                throw MonitorError("Could not find any recognizable digits.");
+        n = std::strtoll(digits.c_str(), nullptr, hex ? 16 : 10);
+    }
+    if (n < 1) throw MonitorError("step count must be positive");
+    // A fault or refused SVC deliberately sets the processor stop latch;
+    // stepping is the bounded way to continue after inspecting that state.
+    m_.msp().start();
+    const long long total = driveMachine(n);
+    if (m_.msp().stopped())
+        fmt::print("stopped after {} instruction(s): {}\n", total,
+                   m_.msp().stopReason().empty() ? "stopped" : m_.msp().stopReason());
+    else
+        fmt::print("stepped {} instruction(s): limit reached\n", total);
+}
+
+// Execution breakpoints: `break <hexaddr> [name]`, `break list`, `break
+// clear [addr]`, `break member <name|off>`.  The MSP halts when the guest
+// IAR reaches the address, before that instruction runs.
+void MonitorCli::breakCommand(const std::vector<std::string>& a)
+{
+    if (a.size() < 2) {
+        fmt::print("break <hexaddr> [name] | break list | break clear [hexaddr]\n");
+        return;
+    }
+    const std::string sub = toLower(a[1]);
+    if (sub == "list") {
+        const auto& bps = m_.msp().breakpoints();
+        if (bps.empty()) { fmt::print("no breakpoints\n"); return; }
+        fmt::print("{} breakpoint(s):\n", bps.size());
+        for (const auto& bp : bps) {
+            // The member at that IAR for the current task is named once the
+            // loader (milestone 5) can attribute it.
+            fmt::print("  {:04X}{}\n", bp.first, bp.second.empty() ? "" : "  " + bp.second);
+        }
+        return;
+    }
+    if (sub == "member") {
+        if (a.size() > 2 && toLower(a[2]) != "off") {
+            std::string name = a[2];
+            while (!name.empty() && name[0] == '#') name.erase(name.begin());
+            for (char& c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            m_.msp().breakMemberFilter = name;
+            fmt::print("breakpoints now fire only in a member matching \"{}\"\n", name);
+        } else {
+            m_.msp().breakMemberFilter.clear();
+            fmt::print("breakpoint member filter cleared\n");
+        }
+        return;
+    }
+    if (sub == "clear") {
+        if (a.size() > 2) {
+            const int at = parseHex32(a[2]);
+            fmt::print("{}\n", m_.msp().clearBreakpoint(static_cast<uint16_t>(at))
+                                   ? fmt::format("cleared breakpoint at {:04X}", at)
+                                   : fmt::format("no breakpoint at {:04X}", at));
+        } else {
+            m_.msp().clearAllBreakpoints();
+            fmt::print("all breakpoints cleared\n");
+        }
+        return;
+    }
+    const int addr = parseHex32(a[1]);
+    if (addr < 0 || addr > 0xFFFF) {
+        fmt::print("break: address must be a 16-bit guest IAR (0000-FFFF)\n");
+        return;
+    }
+    std::string name;
+    for (std::size_t i = 2; i < a.size(); ++i) {
+        if (i != 2) name += " ";
+        name += a[i];
+    }
+    m_.msp().setBreakpoint(static_cast<uint16_t>(addr), name);
+    fmt::print("breakpoint set at {:04X}{}\n", addr, name.empty() ? "" : " (" + name + ")");
+}
+
+// Watch guest storage: every write to the range is reported with the value
+// before and after and the instruction address that did it.  A watchpoint
+// sees the write however it was addressed.
+void MonitorCli::watch(const std::vector<std::string>& a)
+{
+    if (a.size() >= 2 && a[1] == "off") {
+        m_.state.clearWatches();
+        m_.state.onWatchWrite = nullptr;
+        fmt::print("watchpoints cleared\n");
+        return;
+    }
+    if (a.size() < 2) { fmt::print("watch <addr> [len] | off\n"); return; }
+    const int at = parseHex32(a[1]);
+    const int len = a.size() > 2 ? parseHex32(a[2]) : 1;
+    m_.state.addWatch(at, at + len - 1);
+    installWatchReporter();
+    fmt::print("watching {:04X}..{:04X} ({} watchpoint(s))\n", at, at + len - 1, m_.state.watchCount());
+}
+
+void MonitorCli::installWatchReporter()
+{
+    m_.state.onWatchWrite = [this](int addr, int n, const std::vector<uint8_t>& before,
+                                   const std::vector<uint8_t>& after) {
+        auto hex = [](const std::vector<uint8_t>& v) {
+            std::string s;
+            for (std::size_t i = 0; i < v.size(); ++i) {
+                if (i != 0) s += " ";
+                s += fmt::format("{:02X}", v[i]);
+            }
+            return s;
+        };
+        // The writing instruction is attributed to a member once the loader
+        // (milestone 5) can name the one running at the aliased 0x1000.
+        const std::string where = m_.msp().memberResolver ? m_.msp().memberResolver() : std::string();
+        fmt::print("watch {:04X}..{:04X} <- {} (was {})  at IAR {:04X}{}\n", addr, addr + n - 1, hex(after),
+                   hex(before), m_.state.msp.iar, where.empty() ? "" : "  in " + where);
+    };
+}
+
+bool MonitorCli::parseHexBytes(const std::vector<std::string>& a, std::size_t from, std::vector<uint8_t>& out)
+{
+    std::string text;
+    for (std::size_t i = from; i < a.size(); ++i) text += a[i];
+    if (text.size() % 2 != 0) { fmt::print("hex needs an even number of digits\n"); return false; }
+    out.clear();
+    for (std::size_t i = 0; i < text.size(); i += 2) {
+        for (int k = 0; k < 2; ++k)
+            if (!std::isxdigit(static_cast<unsigned char>(text[i + k])))
+                throw MonitorError("Could not find any recognizable digits.");
+        out.push_back(static_cast<uint8_t>(std::strtoul(text.substr(i, 2).c_str(), nullptr, 16)));
+    }
+    return true;
+}
+
+void MonitorCli::poke(const std::vector<std::string>& a)
+{
+    if (a.size() < 3) { fmt::print("poke <hexaddr> <hexbyte...>\n"); return; }
+    const int at = parseHex32(a[1]);
+    std::vector<uint8_t> b;
+    if (!parseHexBytes(a, 2, b)) return;
+    for (std::size_t i = 0; i < b.size(); ++i) {
+        m_.state.writeByte(at + static_cast<int>(i), b[i]);
+        if (m_.state.faulted()) throw MonitorError(m_.state.faultMessage());
+    }
+    fmt::print("poked {} byte(s) at {:04X}\n", b.size(), at);
+}
+
+// Patch-on-reach: force a value at a specific instruction and CONTINUE.
+void MonitorCli::patch(const std::vector<std::string>& a)
+{
+    if (a.size() < 2 || a[1] == "list") {
+        bool any = false;
+        for (const auto& kv : m_.msp().patchList())
+            for (const auto& p : kv.second) {
+                fmt::print("patch @{:04X}: kind {} target {:04X} := {:04X}\n", kv.first, p.kind, p.a, p.v);
+                any = true;
+            }
+        if (!any) fmt::print("no patches\n");
+        return;
+    }
+    if (a[1] == "off") { m_.msp().clearPatches(); fmt::print("patches cleared\n"); return; }
+    if (a.size() < 4) {
+        fmt::print("usage: patch <iar> mem|mem16 <addr> <val> | patch <iar> wr <n> <val> | "
+                   "patch <iar> xr1|xr2 <val> | patch list|off\n");
+        return;
+    }
+    const int iar = parseHex32(a[1]);
+    const std::string kind = toLower(a[2]);
+    processors::MainStorageProcessor::IarPatch pp;
+    auto arg = [&](std::size_t i) {
+        if (i >= a.size()) throw MonitorError("Index was outside the bounds of the array.");
+        return parseHex32(a[i]);
+    };
+    if (kind == "mem") { pp.kind = 0; pp.a = arg(3); pp.v = arg(4); }
+    else if (kind == "mem16") { pp.kind = 1; pp.a = arg(3); pp.v = arg(4); }
+    else if (kind == "wr") { pp.kind = 2; pp.a = arg(3); pp.v = arg(4); }
+    else if (kind == "xr1") { pp.kind = 3; pp.v = arg(3); }
+    else if (kind == "xr2") { pp.kind = 4; pp.v = arg(3); }
+    else { fmt::print("unknown patch kind '{}'\n", kind); return; }
+    m_.msp().addPatch(static_cast<uint16_t>(iar), pp);
+    fmt::print("patch armed at IAR {:04X} ({})\n", iar, kind);
+}
+
+// Read-only byte-pattern search over real guest storage.
+void MonitorCli::findMemory(const std::vector<std::string>& a)
+{
+    if (a.size() < 2) { fmt::print("findmem <hexbytes>\n"); return; }
+    std::vector<uint8_t> pattern;
+    if (!parseHexBytes(a, 1, pattern) || pattern.empty()) return;
+    const uint8_t* storage = m_.state.raw();
+    const int size = m_.state.backingBytes();
+    int found = 0;
+    for (int at = 0; at <= size - static_cast<int>(pattern.size()); ++at) {
+        std::size_t i = 0;
+        while (i < pattern.size() && storage[at + static_cast<int>(i)] == pattern[i]) ++i;
+        if (i != pattern.size()) continue;
+        fmt::print("findmem {:06X}\n", at);
+        ++found;
+    }
+    fmt::print("findmem: {} match(es) for {} byte(s)\n", found, pattern.size());
+}
+
+// Explain one MSP address-path calculation without reading or changing
+// guest storage: the 16-bit wrap in the register, then the PACT prefix's
+// choice of translated or real addressing.
+void MonitorCli::addressMap(const std::vector<std::string>& a)
+{
+    if (a.size() < 2 || a.size() > 4) {
+        fmt::print("addrmap <direct|xr1|xr2|iar> [hex-disp] [read|write]\n");
+        return;
+    }
+    const std::string path = toLower(a[1]);
+    const machine::MspRegisters& r = m_.state.msp;
+    uint16_t basis;
+    uint8_t pact;
+    if (path == "direct") { basis = 0; pact = r.pactDir; }
+    else if (path == "xr1") { basis = r.xr1; pact = r.pactXr1; }
+    else if (path == "xr2") { basis = r.xr2; pact = r.pactXr2; }
+    else if (path == "iar") { basis = r.iar; pact = r.pactIar; }
+    else { fmt::print("addrmap: path must be direct, xr1, xr2, or iar\n"); return; }
+
+    int displacement = 0;
+    bool forWrite = false;
+    for (std::size_t i = 2; i < a.size(); ++i) {
+        if (equalsIgnoreCase(a[i], "read")) forWrite = false;
+        else if (equalsIgnoreCase(a[i], "write")) forWrite = true;
+        else displacement = parseHex32(a[i]);
+    }
+    if (displacement < 0 || displacement > 0xFFFF) {
+        fmt::print("addrmap: displacement must be 0000-FFFF\n");
+        return;
+    }
+    const int sum = basis + displacement;
+    const uint16_t logical = static_cast<uint16_t>(sum);
+    const bool wrapped = sum > 0xFFFF;
+    const char* operation = forWrite ? "write" : "read";
+    fmt::print("addrmap {}: {:02X}:{:04X} + {:04X} -> {:02X}:{:04X}{} ({})\n", path, pact, basis, displacement, pact,
+               logical, wrapped ? " [16-bit wrap]" : "", operation);
+
+    using machine::MachineState;
+    if ((pact & machine::MspRegisters::kPactPmrBit) == 0) {
+        const int real = ((pact & MachineState::kPactAddressBits) << 16) | logical;
+        fmt::print("  untranslated: PACT address nibble {:X} -> real {:06X}{}\n", pact & MachineState::kPactAddressBits, real,
+                   (pact & MachineState::kPactFlagBits) != 0
+                       ? fmt::format("; flag bits {:02X} are not address", pact & MachineState::kPactFlagBits) : "");
+        return;
+    }
+    const int page = logical >> MachineState::kPageShift;
+    const uint16_t atr = m_.state.atr[MachineState::kAtrTaskGroup0 + page];
+    fmt::print("  translated: PACT bit 80 on; logical page {:02X} -> ATR[{}]={:04X}{}\n", page, page, atr,
+               (pact & MachineState::kPactFlagBits) != 0
+                   ? fmt::format("; PACT flag bits {:02X} do not change the mode", pact & MachineState::kPactFlagBits) : "");
+    int real = 0;
+    if (m_.state.resolve(logical, pact, MachineState::kAtrTaskGroup0, forWrite, real))
+        fmt::print("  resolves to real {:06X}\n", real);
+    else
+        fmt::print("  STORAGE PROTECTION: ATR[{}]={:04X} rejects {} at logical {:04X}\n", page, atr, operation, logical);
 }
 
 void MonitorCli::diskRead(const std::vector<std::string>& a)

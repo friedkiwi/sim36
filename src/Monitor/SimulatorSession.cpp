@@ -229,7 +229,7 @@ void SimulatorSession::executeFile(const std::string& path, bool echo)
     const std::string resolved = resolvePath(path);
     const std::string key = fullPath(resolved);
     std::ifstream in(key);
-    if (!in) throw storage::FileNotFoundError(key);
+    if (!in) throw storage::FileNotFoundError::forPath(key);
     if (!activeFiles_.insert(key).second) throw MonitorError("recursive command file: " + key);
     sourceDirectories_.push_back(std::filesystem::path(key).parent_path());
     try {

@@ -11,6 +11,15 @@
 
 namespace sim36::monitor {
 
+struct SelfTestResult {
+    int passed = 0;
+    int failed = 0;
+};
+
+// Runs the manual's worked examples against a machine state and processor,
+// printing one PASS/FAIL line per vector and the totals.
+SelfTestResult runSelfTest(machine::MachineState& m, processors::MainStorageProcessor& msp);
+
 class MonitorCli {
 public:
     explicit MonitorCli(machine::Machine& m) : m_(m) {}
@@ -39,6 +48,18 @@ private:
     void load(const std::vector<std::string>& a);
     void loadFile(const std::vector<std::string>& a);
     void diskRead(const std::vector<std::string>& a);
+    void disassemble(const std::vector<std::string>& a);
+    void step(const std::vector<std::string>& a);
+    long long driveMachine(long long cap);
+    void breakCommand(const std::vector<std::string>& a);
+    void watch(const std::vector<std::string>& a);
+    void installWatchReporter();
+    void poke(const std::vector<std::string>& a);
+    void patch(const std::vector<std::string>& a);
+    void findMemory(const std::vector<std::string>& a);
+    void addressMap(const std::vector<std::string>& a);
+    void selfTest();
+    static bool parseHexBytes(const std::vector<std::string>& a, std::size_t from, std::vector<uint8_t>& out);
 
     machine::Machine& m_;
 };

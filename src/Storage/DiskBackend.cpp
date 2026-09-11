@@ -24,13 +24,6 @@ namespace sim36::storage {
 
 namespace {
 
-std::string fullPathOf(const std::string& path)
-{
-    std::error_code ec;
-    std::filesystem::path p = std::filesystem::absolute(path, ec);
-    return ec ? path : p.lexically_normal().string();
-}
-
 bool fileExists(const std::string& path)
 {
     std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -67,7 +60,7 @@ bool seekTo(std::FILE* f, long long offset)
 DiskBackend::DiskBackend(const std::string& path, VolumeMode mode)
     : path_(path), mode_(mode)
 {
-    if (!fileExists(path)) throw FileNotFoundError(fullPathOf(path));
+    if (!fileExists(path)) throw FileNotFoundError::forPath(path);
     // Two emulators writing one image silently corrupt each other's
     // measurements, so a writable attach takes an explicit sidecar lock.
     // ReadOnly and Overlay never touch the file and need none.

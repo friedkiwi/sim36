@@ -1,5 +1,7 @@
 #include "Processors/ControlStorage/As36ControlStorageProcessor.h"
 
+#include <fmt/format.h>
+
 namespace sim36::processors::controlstorage {
 
 As36ControlStorageProcessor::As36ControlStorageProcessor(machine::MachineState& m,
@@ -32,7 +34,7 @@ bool As36ControlStorageProcessor::isImplemented(uint8_t) const { return false; }
 
 bool As36ControlStorageProcessor::svc(SvcRequest& req)
 {
-    lastRefusal_ = "SVC " + std::to_string(req.r) + ": the control storage processor is not ported yet (milestone 4)";
+    lastRefusal_ = fmt::format("SVC {:02X}: the control storage processor is not ported yet (milestone 4)", req.r);
     return false;
 }
 

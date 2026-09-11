@@ -160,11 +160,7 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
     int lineNo = 0;
 
     std::ifstream in(path);
-    if (!in) {
-        std::error_code ec;
-        std::filesystem::path full = std::filesystem::absolute(path, ec);
-        throw storage::FileNotFoundError(ec ? path : full.lexically_normal().string());
-    }
+    if (!in) throw storage::FileNotFoundError::forPath(path);
     std::string raw;
     while (std::getline(in, raw)) {
         ++lineNo;

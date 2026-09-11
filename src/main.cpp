@@ -33,11 +33,7 @@ void usage()
 bool looksLikeLegacyConfig(const std::string& path)
 {
     std::ifstream in(path);
-    if (!in) {
-        std::error_code ec;
-        std::filesystem::path full = std::filesystem::absolute(path, ec);
-        throw sim36::storage::FileNotFoundError(ec ? path : full.lexically_normal().string());
-    }
+    if (!in) throw sim36::storage::FileNotFoundError::forPath(path);
     std::string raw;
     while (std::getline(in, raw)) {
         std::size_t b = 0;

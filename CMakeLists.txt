@@ -50,6 +50,7 @@ add_library(sim36core STATIC
     src/Monitor/CommandRegistry.cpp
     src/Monitor/ConfigurationRenderer.cpp
     src/Monitor/MonitorCli.cpp
+    src/Monitor/SelfTest.cpp
     src/Monitor/SimulatorSession.cpp
     src/Monitor/SrcCode.cpp
     src/Monitor/Tracer.cpp
@@ -57,7 +58,9 @@ add_library(sim36core STATIC
     src/Machine/MachineState.cpp
     src/Machine/MspRegisters.cpp
     src/Machine/Scheduler.cpp
+    src/Processors/InstructionSet.cpp
     src/Processors/MainStorageProcessor.cpp
+    src/Processors/ControlStorage/SvcTable.cpp
     src/Processors/ControlStorage/ActionControlElement.cpp
     src/Processors/ControlStorage/As36ControlStorageProcessor.cpp
     src/Storage/DiskBackend.cpp
@@ -87,6 +90,7 @@ add_executable(sim36_tests
     tests/EbcdicTests.cpp
     tests/FixedDiskTests.cpp
     tests/MachineStateTests.cpp
+    tests/MspTests.cpp
     tests/VtocTests.cpp
 )
 target_link_libraries(sim36_tests PRIVATE sim36core doctest::doctest)
@@ -102,7 +106,9 @@ add_test(NAME parse_check
 add_test(NAME config_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-parity.sh)
 add_test(NAME config_volume COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-volume.sh)
 add_test(NAME disk_layer COMMAND sh ${CMAKE_SOURCE_DIR}/test/disk-layer.sh)
-set_tests_properties(config_parity config_volume disk_layer PROPERTIES
+add_test(NAME decode_differential COMMAND sh ${CMAKE_SOURCE_DIR}/test/decode-differential.sh)
+add_test(NAME msp_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/msp-parity.sh)
+set_tests_properties(config_parity config_volume disk_layer decode_differential msp_parity PROPERTIES
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
 
 # ---------------------------------------------------------------------------
