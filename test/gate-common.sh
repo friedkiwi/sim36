@@ -7,7 +7,7 @@
 # below are byte offsets and trace texts, computed against the volume the
 # user supplies at run time.
 SIM36=${SIM36:-build/linux-make/sim36}
-if [ -z "$SIM36_VOLUME" ]; then
+if [ -z "${SIM36_VOLUME:-}" ]; then
   echo "SKIP: no volume (set SIM36_VOLUME to a System/36 volume image)"
   exit 77
 fi
