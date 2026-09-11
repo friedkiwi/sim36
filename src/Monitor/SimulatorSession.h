@@ -13,6 +13,8 @@
 #include "Configuration/EmulatorConfig.h"
 #include "Host/StationBackend.h"
 #include "Host/StationMultiplexer.h"
+#include "Machine/Machine.h"
+#include "Monitor/MonitorCli.h"
 #include "Monitor/Tracer.h"
 
 namespace sim36::monitor {
@@ -96,10 +98,13 @@ private:
     configuration::StationConfig& findOrCreateStation(const std::string& id);
     configuration::StationConfig* findStation(const std::string& id);
     void requireConfigurable() const;
-    bool machineConstructed() const { return false; }
+    bool machineConstructed() const { return machine_ != nullptr; }
+    std::vector<std::string> resolveRuntimePaths(const Args& a) const;
     bool inputRedirected() const;
 
     configuration::EmulatorConfig definition_;
+    std::unique_ptr<machine::Machine> machine_;
+    std::unique_ptr<MonitorCli> monitor_;
     bool quitRequested_ = false;
     std::vector<std::filesystem::path> sourceDirectories_;
     std::set<std::string> activeFiles_;

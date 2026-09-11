@@ -41,6 +41,7 @@ add_library(sim36core STATIC
     src/Configuration/IplSourceTable.cpp
     src/Configuration/ModelTable.cpp
     src/Devices/DeviceCodes.cpp
+    src/Devices/VirtualFixedDisk.cpp
     src/Host/Console.cpp
     src/Host/Sockets.cpp
     src/Host/StationBackend.cpp
@@ -48,10 +49,20 @@ add_library(sim36core STATIC
     src/Monitor/CommandLine.cpp
     src/Monitor/CommandRegistry.cpp
     src/Monitor/ConfigurationRenderer.cpp
+    src/Monitor/MonitorCli.cpp
     src/Monitor/SimulatorSession.cpp
+    src/Monitor/SrcCode.cpp
     src/Monitor/Tracer.cpp
+    src/Machine/Machine.cpp
+    src/Machine/MachineState.cpp
+    src/Machine/MspRegisters.cpp
+    src/Machine/Scheduler.cpp
+    src/Processors/MainStorageProcessor.cpp
+    src/Processors/ControlStorage/ActionControlElement.cpp
+    src/Processors/ControlStorage/As36ControlStorageProcessor.cpp
     src/Storage/DiskBackend.cpp
     src/Storage/Ebcdic.cpp
+    src/Storage/Library.cpp
     src/Storage/Vtoc.cpp
 )
 target_include_directories(sim36core PUBLIC src)
@@ -74,6 +85,8 @@ add_executable(sim36_tests
     tests/CommandLineTests.cpp
     tests/ConfigTests.cpp
     tests/EbcdicTests.cpp
+    tests/FixedDiskTests.cpp
+    tests/MachineStateTests.cpp
     tests/VtocTests.cpp
 )
 target_link_libraries(sim36_tests PRIVATE sim36core doctest::doctest)
@@ -88,7 +101,8 @@ add_test(NAME parse_check
 # available (SIM36_REFERENCE); elsewhere they report "skipped" and pass.
 add_test(NAME config_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-parity.sh)
 add_test(NAME config_volume COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-volume.sh)
-set_tests_properties(config_parity config_volume PROPERTIES
+add_test(NAME disk_layer COMMAND sh ${CMAKE_SOURCE_DIR}/test/disk-layer.sh)
+set_tests_properties(config_parity config_volume disk_layer PROPERTIES
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
 
 # ---------------------------------------------------------------------------

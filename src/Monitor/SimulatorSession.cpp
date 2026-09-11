@@ -194,7 +194,9 @@ SimulatorSession::SimulatorSession(EmulatorConfig definition) : definition_(std:
 
 SimulatorSession::~SimulatorSession()
 {
+    if (multiplexer_) multiplexer_->reclaim();
     multiplexer_.reset();
+    if (machine_) releaseMachine();
     disposeStationBackends();
 }
 
@@ -389,10 +391,26 @@ void SimulatorSession::executeTokensCore(const Args& a)
             throw MonitorError("'" + a[0] + "' requires a constructed machine; use 'ipl' or 'ipl pause' first");
         throw MonitorError("command '" + a[0] + "' is incomplete or unavailable before IPL - try help");
     }
+
+    monitor_->executeTokens(resolveRuntimePaths(a));
+}
+
+std::vector<std::string> SimulatorSession::resolveRuntimePaths(const Args& a) const
+{
+    std::vector<std::string> b = a;
+    const std::string v = toLower(b[0]);
+    if (v == "loadfile" && b.size() > 1) b[1] = resolvePath(b[1]);
+    else if (v == "snapshot" && b.size() > 2) b[2] = resolvePath(b[2]);
+    else if (v == "diskette" && b.size() > 2 && eq(b[1], "insert")) b[2] = resolvePath(b[2]);
+    else if (v == "tape" && b.size() > 2 && (eq(b[1], "load") || eq(b[1], "init"))) b[2] = resolvePath(b[2]);
+    else if ((v == "tapetest" || v == "tapesvc") && b.size() > 1) b[1] = resolvePath(b[1]);
+    else if (v == "wswrite" && b.size() > 2 && !b[2].empty() && b[2][0] == '@') b[2] = "@" + resolvePath(b[2].substr(1));
+    return b;
 }
 
 void SimulatorSession::constructMachine()
 {
+    if (machine_) throw MonitorError("machine is already constructed");
     // A configuration that declares no stations gets the default
     // seven-station controller; declaring any station opts out entirely.
     definition_.applyDefaultStationsIfNoneDeclared();
@@ -402,13 +420,32 @@ void SimulatorSession::constructMachine()
         throw MonitorError(e.what());
     }
     reconcileListeners();
-    // The machine itself - state, processors, devices - is ported in
-    // milestone 4.  Until then the definition is validated exactly as the
-    // reference validates it, and construction is refused by name.
-    throw MonitorError("ipl: machine construction is not ported yet (milestone 4)");
+    std::unique_ptr<machine::Machine> candidate;
+    try {
+        candidate = std::make_unique<machine::Machine>(definition_);
+    } catch (const storage::FileNotFoundError&) {
+        throw;
+    } catch (const std::runtime_error& e) {
+        throw MonitorError(e.what());
+    }
+    candidate->trace.flags = pendingTrace_;
+    candidate->readVtocs();
+    machine_ = std::move(candidate);
+    monitor_ = std::make_unique<MonitorCli>(*machine_);
+    for (auto& kv : stationBackends_) kv.second->resetForMachine();
+    if (multiplexer_) multiplexer_->rebind();
 }
 
-void SimulatorSession::releaseMachine() {}
+void SimulatorSession::releaseMachine()
+{
+    if (!machine_) return;
+    monitor_->stopExecutionForTeardown();
+    pendingTrace_ = machine_->trace.flags;
+    if (multiplexer_) multiplexer_->reclaim();
+    monitor_.reset();
+    machine_.reset();
+    for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, []() {});
+}
 
 void SimulatorSession::resetMachine(const Args& a)
 {
@@ -417,6 +454,19 @@ void SimulatorSession::resetMachine(const Args& a)
     if (!machineConstructed()) {
         fmt::print("reset complete; machine stopped and configuration editable\n");
         return;
+    }
+    const bool running = monitor_ && monitor_->executionActive();
+    if (running && a.size() == 1) {
+        if (!sourceDirectories_.empty() || inputRedirected())
+            throw MonitorError("reset would discard a running emulation; use 'reset --yes' in non-interactive input");
+        fmt::print("The emulation is running; reset will discard its volatile state. Continue? [y/N] ");
+        std::fflush(stdout);
+        std::string answer;
+        std::getline(std::cin, answer);
+        if (!eq(answer, "y") && !eq(answer, "yes")) {
+            fmt::print("reset cancelled\n");
+            return;
+        }
     }
     releaseMachine();
     fmt::print("reset complete; machine stopped and configuration editable\n");
@@ -586,7 +636,8 @@ void SimulatorSession::showConfigurableStations()
 
 void SimulatorSession::showStatus()
 {
-    fmt::print("machine {}\n", "configurable (not constructed)");
+    fmt::print("machine {}\n", !machine_ ? "configurable (not constructed)"
+                                : monitor_ && monitor_->executionActive() ? "running" : "stopped");
 }
 
 void SimulatorSession::getTerminalConfiguration()
@@ -754,8 +805,10 @@ void SimulatorSession::media(const Args& a)
             std::string path = resolvePath(a[2]);
             if (a.size() > 3) definition_.disketteReadOnly = parseMode(a[3]);
             definition_.diskettePath = path;
+            if (machine_) monitor_->executeTokens({"diskette", "insert", path});
         } else {
             definition_.diskettePath.clear();
+            if (machine_) monitor_->executeTokens({"diskette", "eject"});
         }
         return;
     }
@@ -766,8 +819,13 @@ void SimulatorSession::media(const Args& a)
             std::string path = resolvePath(a[2]);
             if (a.size() > 3) definition_.tape->readOnly = parseMode(a[3]);
             definition_.tape->folderPath = path;
+            if (machine_) {
+                if (definition_.tape->readOnly) monitor_->executeTokens({"tape", "load", path, "ro"});
+                else monitor_->executeTokens({"tape", "load", path});
+            }
         } else {
             definition_.tape->folderPath.clear();
+            if (machine_) monitor_->executeTokens({"tape", "unload"});
         }
         return;
     }
