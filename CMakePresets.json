@@ -1,0 +1,45 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-linux" }
+    },
+    {
+      "name": "linux-make",
+      "inherits": "base",
+      "generator": "Unix Makefiles",
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-linux" }
+    },
+    {
+      "name": "windows-static",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "toolset": "v142",
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux", "configurePreset": "linux" },
+    { "name": "linux-make", "configurePreset": "linux-make" },
+    { "name": "windows-static", "configurePreset": "windows-static", "configuration": "Release" }
+  ],
+  "testPresets": [
+    { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } },
+    { "name": "linux-make", "configurePreset": "linux-make", "output": { "outputOnFailure": true } },
+    { "name": "windows-static", "configurePreset": "windows-static", "configuration": "Release", "output": { "outputOnFailure": true } }
+  ]
+}

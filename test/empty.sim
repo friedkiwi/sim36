@@ -1,0 +1,3 @@
+# An empty command file: comments and blank lines only.  `sim36 -s test/empty.sim`
+# must exit 0 without printing anything but the echoed lines.
+

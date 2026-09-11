@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'cp-*', 'v*' ]
+  pull_request:
+
+env:
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+jobs:
+  linux-gcc10:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install g++ 10 and ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-10 ninja-build
+      - name: Export GitHub Actions cache environment for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+      - name: Bootstrap vcpkg at the manifest baseline
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" checkout "$(python3 -c 'import json;print(json.load(open("vcpkg.json"))["builtin-baseline"])')"
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+      - name: Configure
+        run: cmake --preset linux
+        env:
+          CXX: g++-10
+          CC: gcc-10
+      - name: Build
+        run: cmake --build --preset linux
+      - name: Test
+        run: ctest --preset linux
+      - name: Empty command file exits 0
+        run: ./build/linux/sim36 -s test/empty.sim
+      - name: Package
+        run: |
+          cmake --install build/linux --prefix "$RUNNER_TEMP/sim36-linux-x64"
+          tar -C "$RUNNER_TEMP" -czf sim36-linux-x64.tar.gz sim36-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sim36-linux-x64
+          path: sim36-linux-x64.tar.gz
+
+  windows-msvc142-static:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the v142 toolset (Visual Studio 2019 compiler)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          $p = Start-Process -FilePath $installer -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.14.29.16.11.x86.x64', '--quiet', '--norestart', '--nocache') -Wait -PassThru
+          if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "vs_installer exited $($p.ExitCode)" }
+      - name: Export GitHub Actions cache environment for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+      - name: Bootstrap vcpkg at the manifest baseline
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "$env:RUNNER_TEMP\vcpkg"
+          $baseline = (Get-Content vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:RUNNER_TEMP\vcpkg" checkout $baseline
+          & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Configure
+        run: cmake --preset windows-static
+      - name: Build
+        run: cmake --build --preset windows-static
+      - name: Test
+        run: ctest --preset windows-static
+      - name: Empty command file exits 0
+        shell: pwsh
+        run: |
+          & .\build\windows-static\Release\sim36.exe -s test\empty.sim
+          if ($LASTEXITCODE -ne 0) { throw "exit $LASTEXITCODE" }
+      - name: No DLL dependencies beyond the operating system
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem -Path "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          $out = & $dumpbin.FullName /dependents .\build\windows-static\Release\sim36.exe
+          Write-Output $out
+          $dlls = $out | Select-String -Pattern '^\s+(\S+\.dll)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.ToLower() }
+          $allowed = @('kernel32.dll', 'user32.dll', 'advapi32.dll', 'ws2_32.dll', 'shell32.dll', 'ole32.dll', 'oleaut32.dll', 'bcrypt.dll')
+          foreach ($d in $dlls) { if ($allowed -notcontains $d) { throw "unexpected dependency $d" } }
+      - name: Package
+        shell: pwsh
+        run: |
+          cmake --install build/windows-static --config Release --prefix "$env:RUNNER_TEMP\sim36-windows-x64"
+          Compress-Archive -Path "$env:RUNNER_TEMP\sim36-windows-x64\*" -DestinationPath sim36-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sim36-windows-x64
+          path: sim36-windows-x64.zip

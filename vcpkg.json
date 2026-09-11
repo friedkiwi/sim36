@@ -1,0 +1,15 @@
+{
+  "name": "sim36",
+  "version-string": "0.0.0",
+  "description": "SIM/36 - a portable System/36 emulator",
+  "license": "MIT",
+  "builtin-baseline": "52d80838fb40c755b1615fbc9c7b994a33742a22",
+  "dependencies": [
+    "replxx",
+    { "name": "minizip-ng", "default-features": false, "features": [ "zlib" ] },
+    "nlohmann-json",
+    "fmt",
+    "cxxopts",
+    "doctest"
+  ]
+}
