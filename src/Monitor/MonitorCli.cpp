@@ -100,10 +100,14 @@ void MonitorCli::executeTokens(const std::vector<std::string>& a)
     else if (verb == "findmem") findMemory(a);
     else if (verb == "addrmap") addressMap(a);
     else if (verb == "selftest") selfTest();
+    else if (verb == "ace") showAce(a);
+    else if (verb == "iob") showIob(a);
+    else if (verb == "tu") showUnitBlock(a);
+    else if (verb == "sched") sched();
+    else if (verb == "conformance") conformance();
     else if (verb == "breakm")
         throw MonitorError("'breakm' is not ported yet (milestone 5): it resolves members through the loader");
-    else if (verb == "start" || verb == "stop" || verb == "wait" || verb == "sched" || verb == "ace" ||
-             verb == "iob" || verb == "tu" || verb == "conformance" || verb == "timers" || verb == "actions" ||
+    else if (verb == "start" || verb == "stop" || verb == "wait" || verb == "timers" || verb == "actions" ||
              verb == "tasklist" || verb == "mapstate" || verb == "sqsstate" || verb == "residency" ||
              verb == "modules" || verb == "modstorage" || verb == "allocchain" || verb == "whereis" ||
              verb == "patch" || verb == "stations" || verb == "listener-auto-signon" || verb == "xferid" ||
@@ -302,7 +306,12 @@ void MonitorCli::ipl(const std::vector<std::string>& a)
         fmt::print("IPL paused before instruction 1; use 'step N' or 'start'\n");
         return;
     }
-    throw MonitorError("start: continuous execution is not ported yet (milestone 4)");
+    // The reference runs the IPL on a driver thread and returns to the
+    // prompt at once; the driver (and `wait idle`) is milestone 6.  Until
+    // then the machine is driven in the foreground until it stops, which
+    // yields the same trace and the same stop, printed before the prompt
+    // instead of after it.
+    driveMachine(1LL << 40);
 }
 
 void MonitorCli::boot()
@@ -663,12 +672,5 @@ void MonitorCli::addressMap(const std::vector<std::string>& a)
         fmt::print("  STORAGE PROTECTION: ATR[{}]={:04X} rejects {} at logical {:04X}\n", page, atr, operation, logical);
 }
 
-void MonitorCli::diskRead(const std::vector<std::string>& a)
-{
-    if (a.size() < 2) { fmt::print("diskread <sector> [count]\n"); return; }
-    // The SVC 40 path through the control storage processor - the ACE, the
-    // device dispatch and the completion post - is milestone 4.
-    throw MonitorError("'diskread' is not ported yet (milestone 4): it issues SVC 40 through the control storage processor");
-}
 
 }  // namespace sim36::monitor

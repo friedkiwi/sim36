@@ -1,0 +1,42 @@
+# Reusable machine definition for tests that do not need a 5250 client.
+# Deliberately has no disk attachment and does not IPL: the including test owns
+# its media policy and may still change machine settings before construction.
+
+set terminal multiplex off
+
+set machine model advanced36
+set machine memory 1024K
+set machine task-work-area-sectors 60
+set machine host-model 150
+set machine host-processor-feature 2270
+set machine host-processor-model 440
+set machine ipl-type unattend
+set machine ipl-source disk
+set machine listener-auto-signon on
+set machine signon-use-router on
+set machine signon-statement off
+set machine signon-request off
+set machine signon-router-key 14
+set machine ws-interactive off
+
+set station 0.0 role console
+set station 0.0 device-code 11
+set station 0.0 signon-at-ipl on
+set station 0.1 role display
+set station 0.1 device-code 11
+set station 0.1 signon-at-ipl on
+set station 0.2 role display
+set station 0.2 device-code 11
+set station 0.2 signon-at-ipl on
+set station 0.3 role display
+set station 0.3 device-code 11
+set station 0.3 signon-at-ipl off
+set station 0.4 role display
+set station 0.4 device-code 11
+set station 0.4 signon-at-ipl on
+set station 0.5 role display
+set station 0.5 device-code 11
+set station 0.5 signon-at-ipl off
+set station 0.6 role display
+set station 0.6 device-code 11
+set station 0.6 signon-at-ipl off

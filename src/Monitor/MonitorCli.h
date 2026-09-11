@@ -48,6 +48,12 @@ private:
     void load(const std::vector<std::string>& a);
     void loadFile(const std::vector<std::string>& a);
     void diskRead(const std::vector<std::string>& a);
+    int issueDeviceSvc(uint8_t r, int iob);
+    void showAce(const std::vector<std::string>& a);
+    void showIob(const std::vector<std::string>& a);
+    void showUnitBlock(const std::vector<std::string>& a);
+    void sched();
+    void conformance();
     void disassemble(const std::vector<std::string>& a);
     void step(const std::vector<std::string>& a);
     long long driveMachine(long long cap);

@@ -34,6 +34,9 @@ public:
     storage::DiskBackend& diskBackend() { return *disk_; }
     devices::DeviceSet& devices() { return *devices_; }
     processors::controlstorage::IControlStorageProcessor& controlStorage() { return *csp_; }
+    // The native model, for the monitor commands that reach past the
+    // architected interface (the current request block, the ACE pool).
+    processors::controlstorage::As36ControlStorageProcessor& nativeControlStorage() { return *csp_; }
     // The MSP is reached THROUGH the control processor that owns it; this
     // forwarder exists for the monitor's convenience.
     processors::MainStorageProcessor& msp() { return csp_->mainStorage(); }

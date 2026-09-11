@@ -61,6 +61,9 @@ Machine::Machine(const EmulatorConfig& cfg)
             "volume set for that model and stage. See "
             "docs/s36/machine-models-and-startup.md", cfg.model));
     csp_ = std::make_unique<processors::controlstorage::As36ControlStorageProcessor>(state, config, *devices_, *disk_, trace);
+    auto* csp = csp_.get();
+    state.stateDescriber = [csp] { return csp->describeSrcState(); };
+    state.checkStateDescriber = [csp] { return csp->describeCheckState(); };
 }
 
 Machine::~Machine() = default;

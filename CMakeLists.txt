@@ -41,6 +41,8 @@ add_library(sim36core STATIC
     src/Configuration/IplSourceTable.cpp
     src/Configuration/ModelTable.cpp
     src/Devices/DeviceCodes.cpp
+    src/Devices/DeviceSet.cpp
+    src/Devices/UnitBlock.cpp
     src/Devices/VirtualFixedDisk.cpp
     src/Host/Console.cpp
     src/Host/Sockets.cpp
@@ -48,6 +50,7 @@ add_library(sim36core STATIC
     src/Host/StationMultiplexer.cpp
     src/Monitor/CommandLine.cpp
     src/Monitor/CommandRegistry.cpp
+    src/Monitor/MachineCommands.cpp
     src/Monitor/ConfigurationRenderer.cpp
     src/Monitor/MonitorCli.cpp
     src/Monitor/SelfTest.cpp
@@ -62,7 +65,18 @@ add_library(sim36core STATIC
     src/Processors/MainStorageProcessor.cpp
     src/Processors/ControlStorage/SvcTable.cpp
     src/Processors/ControlStorage/ActionControlElement.cpp
+    src/Processors/ControlStorage/ActionControlElementQueue.cpp
+    src/Processors/ControlStorage/AllocationQueueElement.cpp
     src/Processors/ControlStorage/As36ControlStorageProcessor.cpp
+    src/Processors/ControlStorage/As36Storage.cpp
+    src/Processors/ControlStorage/DirectArea.cpp
+    src/Processors/ControlStorage/GuestHeap.cpp
+    src/Processors/ControlStorage/GuestLowStorage.cpp
+    src/Processors/ControlStorage/MapParameterList.cpp
+    src/Processors/ControlStorage/NuPtt.cpp
+    src/Processors/ControlStorage/ProgramBlock.cpp
+    src/Processors/ControlStorage/TaskBlock.cpp
+    src/Processors/ControlStorage/TransientArea.cpp
     src/Storage/DiskBackend.cpp
     src/Storage/Ebcdic.cpp
     src/Storage/Library.cpp
@@ -87,6 +101,7 @@ add_executable(sim36_tests
     tests/main.cpp
     tests/CommandLineTests.cpp
     tests/ConfigTests.cpp
+    tests/CspTests.cpp
     tests/EbcdicTests.cpp
     tests/FixedDiskTests.cpp
     tests/MachineStateTests.cpp
@@ -108,7 +123,14 @@ add_test(NAME config_volume COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-volume.sh
 add_test(NAME disk_layer COMMAND sh ${CMAKE_SOURCE_DIR}/test/disk-layer.sh)
 add_test(NAME decode_differential COMMAND sh ${CMAKE_SOURCE_DIR}/test/decode-differential.sh)
 add_test(NAME msp_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/msp-parity.sh)
-set_tests_properties(config_parity config_volume disk_layer decode_differential msp_parity PROPERTIES
+# Milestone 4: the storage-SVC vectors and the UDT walk need only a volume;
+# the scaffolding differential needs the reference as well.
+add_test(NAME storage_svcs COMMAND sh ${CMAKE_SOURCE_DIR}/test/storage-svcs.sh)
+add_test(NAME udt_walk COMMAND sh ${CMAKE_SOURCE_DIR}/test/udt-walk.sh)
+add_test(NAME csp_scaffolding COMMAND sh ${CMAKE_SOURCE_DIR}/test/csp-scaffolding.sh)
+set_tests_properties(storage_svcs udt_walk PROPERTIES SKIP_RETURN_CODE 77)
+set_tests_properties(config_parity config_volume disk_layer decode_differential msp_parity
+    storage_svcs udt_walk csp_scaffolding PROPERTIES
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
 
 # ---------------------------------------------------------------------------
