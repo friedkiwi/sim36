@@ -40,8 +40,8 @@ namespace sim36::devices {
 enum class WorkstationOutputMode { PassThrough, WtdText, SlicDisplay };
 
 // The two read-command suffixes of the display's put-with-invite operation.
-// The normal path uses operation 0x20; 0x21 is selected by a device/action
-// flag and remains selectable for controlled experiments.
+// DP mode uses operation 0x20. D934 selects WP mode and its D932 structured
+// read (0x21); the monitor can also select either for controlled experiments.
 enum class PutWithInviteReadMode { ReadInputFields20, StructuredField21 };
 
 const char* workstationOutputModeName(WorkstationOutputMode mode);
@@ -153,6 +153,8 @@ private:
     bool outputOperation(const uint8_t* dataStream, int offset, int length, bool withInvite);
     static std::vector<uint8_t> wrapAsSlicDisplayWriteOnlyMessage(const uint8_t* data, int offset, int length);
     static bool looksLike5250DataStream(const uint8_t* data, int offset, int length);
+    static bool containsTextAssistFormat(const uint8_t* data, int offset, int length);
+    static bool containsWriteToDisplay(const uint8_t* data, int offset, int length);
     static std::vector<uint8_t> wrapWsdmTextAs5250(const uint8_t* data, int offset, int length);
 
     configuration::StationConfig cfg_;
@@ -172,6 +174,9 @@ private:
     // from completing two successive A7s while preserving it for Read Input.
     bool hasRetainedInput_ = false;
     std::vector<uint8_t> retainedDeviceInput_;
+    // The read operation which produced retainedDeviceInput_. D932 replies
+    // are structured fields and must not go through DP-mode field compaction.
+    uint8_t retainedReadMode_ = 0;
     long long outputDataStreams_ = 0;
     long long outputDataBytes_ = 0;
     long long inputRecords_ = 0;

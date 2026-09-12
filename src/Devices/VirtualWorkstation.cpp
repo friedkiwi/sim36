@@ -76,6 +76,7 @@ void VirtualWorkstation::powerOff()
     activeReadMode_ = 0;
     hasRetainedInput_ = false;
     retainedDeviceInput_.clear();
+    retainedReadMode_ = 0;
     backend_->clearForPowerOff();
     trace_.ws("station {}: powered off (client gone); invite, read mode and retained input discarded", id());
 }
@@ -105,6 +106,19 @@ bool VirtualWorkstation::outputOperation(const uint8_t* dataStream, int offset, 
     outputDataBytes_ += length;
     lastOutputDataStream_.assign(dataStream + offset, dataStream + offset + length);
     hasLastOutput_ = true;
+
+    // SC30-3533: D9/34 enters WP mode. In that mode the matching input
+    // operation is D9/32 READ TEXT SCREEN, not READ MDT/READ INPUT FIELDS.
+    // WRITE TO DISPLAY is DP-only and therefore marks the inverse mode
+    // transition. The structured fields themselves remain terminal-owned
+    // and cross this seam byte-for-byte.
+    if (containsTextAssistFormat(dataStream, offset, length)) {
+        inviteReadMode_ = PutWithInviteReadMode::StructuredField21;
+        trace_.ws("station {}: D934 DEFINE TEXT SCREEN FORMAT selected Controller Text Assist read mode D932", id());
+    } else if (containsWriteToDisplay(dataStream, offset, length)) {
+        inviteReadMode_ = PutWithInviteReadMode::ReadInputFields20;
+        trace_.ws("station {}: DP-mode WRITE TO DISPLAY selected ordinary read mode 0x20", id());
+    }
 
     std::vector<uint8_t> wrapped;
     const uint8_t* wire = dataStream;
@@ -169,7 +183,39 @@ std::vector<uint8_t> VirtualWorkstation::wrapAsSlicDisplayWriteOnlyMessage(const
 // Clear Unit or ESC Write To Display.
 bool VirtualWorkstation::looksLike5250DataStream(const uint8_t* data, int offset, int length)
 {
-    return length >= 2 && data[offset] == 0x04 && (data[offset + 1] == 0x40 || data[offset + 1] == 0x11);
+    return length >= 2 && data[offset] == 0x04 &&
+           (data[offset + 1] == 0x40 || data[offset + 1] == 0x11 || data[offset + 1] == 0xF3);
+}
+
+bool VirtualWorkstation::containsTextAssistFormat(const uint8_t* data, int offset, int length)
+{
+    const int end = offset + length;
+    for (int i = offset; i + 1 < end; i++) {
+        if (data[i] != 0x04 || data[i + 1] != 0xF3) continue;
+        // WSF consists of consecutive LL/C/T fields. Respect LL rather than
+        // byte-scanning the table/text payload for a coincidental D934.
+        for (int p = i + 2; p + 4 <= end;) {
+            const int fieldLength = (data[p] << 8) | data[p + 1];
+            if (fieldLength < 4 || p + fieldLength > end) break;
+            if (data[p + 2] == 0xD9 && data[p + 3] == 0x34) return true;
+            p += fieldLength;
+        }
+        return false;
+    }
+    return false;
+}
+
+bool VirtualWorkstation::containsWriteToDisplay(const uint8_t* data, int offset, int length)
+{
+    const int end = offset + length;
+    for (int i = offset; i + 1 < end; i++) {
+        if (data[i] != 0x04) continue;
+        if (data[i + 1] == 0x11) return true;
+        // Everything after WSF is length-delimited structured-field data,
+        // not another top-level command to byte-scan.
+        if (data[i + 1] == 0xF3) return false;
+    }
+    return false;
 }
 
 // Standalone compatibility adapter for the raw fixed-width character
@@ -200,12 +246,17 @@ std::vector<uint8_t> VirtualWorkstation::wrapWsdmTextAs5250(const uint8_t* data,
     return stream;
 }
 
-// Command hex FF, Invite.  SSP invites a station and waits for it to have
-// something to say.  The record carries no data stream: the read command
-// belongs to whichever Output Data preceded it.
+// Command hex FF, Invite. SSP invites a station and waits for it to have
+// something to say. DP mode carries no data stream; WP mode requires the
+// explicit D932 READ TEXT SCREEN which unlocks Controller Text Assist.
 bool VirtualWorkstation::invite()
 {
     inviteOutstanding_ = true;
+    if (inviteReadMode_ == PutWithInviteReadMode::StructuredField21) {
+        activeReadMode_ = 0x21;
+        trace_.ws("station {}: invited with D932 READ TEXT SCREEN", id());
+        return backend_->sendSavedReadMode(0x21);
+    }
     activeReadMode_ = 1;
     trace_.ws("station {}: invited", id());
     return backend_->setInputEnabled(true);
@@ -217,6 +268,7 @@ bool VirtualWorkstation::cancelInvite()
 {
     inviteOutstanding_ = false;
     activeReadMode_ = 0;
+    retainedReadMode_ = 0;
     trace_.ws("station {}: invite cancelled", id());
     return backend_->setInputEnabled(false);
 }
@@ -229,6 +281,7 @@ bool VirtualWorkstation::tryTakeInput(std::vector<uint8_t>& stream)
         stream = std::move(retainedDeviceInput_);
         retainedDeviceInput_.clear();
         hasRetainedInput_ = false;
+        retainedReadMode_ = 0;
         inputRecords_++;
         trace_.ws("station {}: retained device input consumed, {} byte(s)", id(), stream.size());
         return true;
@@ -245,8 +298,10 @@ bool VirtualWorkstation::tryTakeInput(std::vector<uint8_t>& stream)
 // result for the SSP work station read command.
 bool VirtualWorkstation::tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream)
 {
+    const uint8_t responseMode = hasRetainedInput_ ? retainedReadMode_ : activeReadMode_;
     if (!tryTakeInput(stream)) return false;
-    if (command == 0x42) {
+    retainedReadMode_ = 0;
+    if (command == 0x42 && responseMode != 0x21) {
         int wireLength = static_cast<int>(stream.size());
         stream = deviceDisplay_.expandModifiedInput(stream);
         trace_.ws("station {}: command 42 device transform {} wire byte(s) -> {} cursor/AID + contiguous input-field byte(s)",
@@ -275,6 +330,7 @@ bool VirtualWorkstation::tryCompleteInviteResponse()
     bool superseded = hasRetainedInput_;
     retainedDeviceInput_ = std::move(response);
     hasRetainedInput_ = true;
+    retainedReadMode_ = activeReadMode_;
     inviteOutstanding_ = false;
     activeReadMode_ = 0;
     trace_.ws("station {}: PUT-with-invite response claimed from transport; invite complete, {} byte(s) retained in "
@@ -321,6 +377,7 @@ void VirtualWorkstation::detach()
     activeReadMode_ = 0;
     hasRetainedInput_ = false;
     retainedDeviceInput_.clear();
+    retainedReadMode_ = 0;
 }
 
 bool VirtualWorkstation::restoreCheckpoint(int tub, WorkstationOutputMode mode, PutWithInviteReadMode readMode,
@@ -341,7 +398,11 @@ bool VirtualWorkstation::restoreCheckpoint(int tub, WorkstationOutputMode mode, 
     lastOutputDataStream_ = lastOutput != nullptr ? *lastOutput : std::vector<uint8_t>();
     hasRetainedInput_ = false;
     retainedDeviceInput_.clear();
-    backend_->setInputEnabled(inviteOutstanding);
+    retainedReadMode_ = 0;
+    if (inviteOutstanding && activeReadMode_ == 0x21)
+        backend_->sendSavedReadMode(0x21);
+    else
+        backend_->setInputEnabled(inviteOutstanding);
     return true;
 }
 
