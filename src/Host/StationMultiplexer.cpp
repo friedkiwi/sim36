@@ -99,8 +99,8 @@ private:
 class StationMultiplexer::Conversation {
 public:
     static constexpr int kFieldLength = 6;
-    static constexpr const char* kTitle = "System/36 emulator";
-    static constexpr int kTitleWidth = 18;
+    static constexpr const char* kTitle = "SIM/36";
+    static constexpr int kTitleWidth = 6;
 
     Conversation(StationMultiplexer& mux, SocketHandle client, std::string peer)
         : mux_(mux), client_(client), peer_(std::move(peer)) {}

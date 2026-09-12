@@ -40,7 +40,7 @@ check "a per-station listener is reported as disabled, not silently dropped" \
 
 # --- the menu --------------------------------------------------------------
 check "the title is centred on row 1" \
-      "                               System/36 emulator"
+      "                                     SIM/36"
 check "the volume is shown by basename, with its size and its mode" \
       "Drive 1: as36.img  200M overlay"
 check "the prompt defaults to the next available station and hints the range" \
