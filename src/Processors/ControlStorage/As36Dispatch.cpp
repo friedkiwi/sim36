@@ -2163,9 +2163,11 @@ void As36ControlStorageProcessor::resourceDequeueElement(int aqe, int ownerQueue
     queueOperation(ownerQueue, aqe, AllocationQueueElement::kChainLastOwner, kQueueDequeueFlag);
 
     int bytes = nested ? AllocationQueueElement::kNestedBytes : AllocationQueueElement::kBytes;
-    if (heap_.contains(aqe)) heap_.free(aqe, bytes);
-    trace_.csp("SVC 21: AQE {:06X} dequeued from resource queue {:06X} and owner queue {:06X}, {} bytes freed", aqe, resq,
-               ownerQueue, bytes);
+    int allocationBytes = GuestHeap::roundedSize(bytes);
+    if (heap_.contains(aqe)) heap_.free(aqe, allocationBytes);
+    trace_.csp("SVC 21: AQE {:06X} dequeued from resource queue {:06X} and owner queue {:06X}, {} bytes freed{}", aqe, resq,
+               ownerQueue, allocationBytes,
+               allocationBytes == bytes ? std::string() : fmt::format(" ({}-byte nested element)", bytes));
 }
 
 // Release every task-owned allocation queue element during task

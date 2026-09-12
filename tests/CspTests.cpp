@@ -9,10 +9,31 @@
 #include "Processors/ControlStorage/DirectArea.h"
 #include "Processors/ControlStorage/GuestHeap.h"
 #include "Processors/ControlStorage/GuestLowStorage.h"
+#include "Processors/ControlStorage/NuPtt.h"
 #include "Processors/ControlStorage/TaskWorkArea.h"
 
 using namespace sim36;
 using namespace sim36::processors::controlstorage;
+
+TEST_CASE("ATR pool rebases saved real frames when resident storage moves")
+{
+    NuPttPool pool;
+    NuPtt* first = pool.allocate(0x1000);
+    NuPtt* second = pool.allocate(0x2000);
+    first->atr[2] = 0x210;
+    first->atr[3] = 0x211;
+    first->atr[4] = 0xFFFF;
+    second->atr[7] = 0x215;
+    second->atr[8] = 0x216;
+
+    pool.rebaseFrames(0x210, 0x310, 6);
+
+    CHECK(first->atr[2] == 0x310);
+    CHECK(first->atr[3] == 0x311);
+    CHECK(first->atr[4] == 0xFFFF);
+    CHECK(second->atr[7] == 0x315);
+    CHECK(second->atr[8] == 0x216);
+}
 
 TEST_CASE("guest heap: 16-byte granularity, power-of-two classes, contains")
 {

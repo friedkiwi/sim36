@@ -94,6 +94,8 @@ check "31  +16, +18, +20, +22, +24, +27     " '00ff80  00 04 00 02 00 02 ff ff 0
 check "31  +37..39 tb, +42 the size again   " '00ff90  00 00 00 00 00 00 0f 00 00 00 00 02 00 00 00 00'
 # (region 4 pages x 8 sectors) + 2 = 34 sectors, nucbldsb c18bbfa0.
 check "31  swap area is region x 8 + 2      " 'swap area of 34 sector(s) at task work area relative sector 0'
+check "31  backing covers resident pages    " 'has 2 initially resident page(s) at real'
+check "31  virtual region stays distinct    " 'its 4-page virtual region can acquire more backing through SVC 12'
 # Q bit 3 replaces that with nucbldsb's flat 256 + 2, c18bbfa8, whatever WR6 says.
 check "31  Q bit 3 is the maximum swap area " 'swap area of 258 sector(s) at task work area relative sector 34'
 check "31  Q bit 3 reaches the flags byte   " 'nucbldsb flags 50 (Q bit 3, maximum swap area)'

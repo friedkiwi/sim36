@@ -78,6 +78,19 @@ bool NuPttPool::free(int handle, int rb)
     return true;
 }
 
+void NuPttPool::rebaseFrames(uint16_t oldFrame, uint16_t newFrame, int pages)
+{
+    const uint16_t limit = static_cast<uint16_t>(oldFrame + pages);
+    for (const auto& p : all_) {
+        for (uint16_t& a : p->atr) {
+            // FFFF and the other architected invalid encodings are not real
+            // page frames and must remain untouched.
+            if ((a & 0xE000) == 0 && a >= oldFrame && a < limit)
+                a = static_cast<uint16_t>(newFrame + (a - oldFrame));
+        }
+    }
+}
+
 NuPtt* NuPttPool::owned(int handle, int rb)
 {
     auto it = byHandle_.find(handle);

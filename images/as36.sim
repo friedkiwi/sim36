@@ -1,7 +1,10 @@
 # Advanced/36 (SSP 7.5) volume for testing and development.
 # Paths are relative to this command file.  `overlay`: writes stay in memory
-# and the file is never modified.  The station multiplexer listens on
-# 127.0.0.1:2300 (the default); `ipl` boots unattended.
+# and the file is never modified.  The station multiplexer listens on all
+# interfaces at port 23000 for testing with external 5250 clients; `ipl`
+# boots unattended.
 
 do ../etc/sim36.sim
+set terminal multiplex listen 0.0.0.0:23000
+
 attach disk0 volumes/as36.img overlay

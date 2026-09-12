@@ -81,6 +81,7 @@ put(0x1024, 0xF4, 0x00, 0x20)         # SVC 20 - rebuild the job's active levels
 put(0x1027, 0xF4, 0x00, 0x20)         # ...against a JCB that holds nothing
 put(0x102A, 0xF4, 0x00, 0x11)         # SVC 11 - nupterm drains task-owned AQEs
 put(0x1030, 0xF4, 0x00, 0x21, 0x84)   # inline 1 bit 5 with a DA eyecatcher at XR2: host device arm, refused
+put(0x1034, 0xF4, 0x10, 0x21, 0x3F)   # device bit strips to 3B; +1 sets queue-by-JCB; run twice
 
 # --- program A's second half, the round trip ---------------------------------
 put(0x1040, 0xF4, 0x00, 0x24, 0x40)   # 24  put B on the ready list

@@ -146,7 +146,13 @@ def main():
                 generation = w2.generation
                 w2.type_at(22, 3, option)
                 w2.press("Enter")
-                w2.wait_for_change(timeout=90, since=generation)
+                try:
+                    w2.wait_for_change(timeout=90, since=generation)
+                except TimeoutError:
+                    print("=== monitor transcript after BASIC route option %s timed out ===" % option,
+                          file=sys.stderr)
+                    print("".join(transcript[mark:]), file=sys.stderr)
+                    raise
                 w2.settle(quiet=0.75, timeout=10)
                 print(w2.screen.render("=== W2 BASIC ROUTE OPTION %s ===" % option,
                                        fields=True))
@@ -187,6 +193,7 @@ def main():
                 command("trace " + os.environ.get("S36_BASIC_TRACE_CLASSES", "csp"))
                 time.sleep(0.5)
             generation = w2.generation
+            basic_submit_record_mark = len(w2.records)
             w2.press("Enter")
             try:
                 w2.wait_for_change(timeout=90, since=generation)
@@ -195,13 +202,31 @@ def main():
                 pass
             print(w2.screen.render("=== W2 BASIC AFTER DEFAULTS ===", fields=True))
 
+            # A restored keyboard is not sufficient for a strict TN5250
+            # client.  The C1 response wait must also reverse the RFC 1205
+            # flow direction with an Invite (opcode 01), otherwise IBM
+            # Personal Communications displays BAS-0001 but never transmits
+            # Enter.  The research driver historically allowed that input and
+            # therefore masked the missing adapter transition.
+            basic_records = w2.records[basic_submit_record_mark:]
+            if not any(len(record) >= 10 and record[9] == 0x01
+                       for record in basic_records):
+                raise AssertionError(
+                    "BASIC prompt restored the keyboard without an RFC Invite")
+            print("BASIC C1 response wait emitted RFC Invite: yes")
+
             # Let the job initiation settle, then decode the station-to-job
             # association the guest published on W2's TU (TU+60 owning job
             # task, TU+63 JCB) - the condition #CPSP's Cmd1 gate reads.
+            direct_statement = os.environ.get("S36_BASIC_STATEMENT_DIRECT", "")
+            immediate_statement = direct_statement and os.environ.get(
+                "S36_BASIC_STATEMENT_IMMEDIATE") == "1"
             mark = len(transcript)
-            command("wait idle 120")
+            if not immediate_statement:
+                command("wait idle 120")
             try:
-                wait_monitor("wait: guest is idle after", timeout=125, after=mark)
+                if not immediate_statement:
+                    wait_monitor("wait: guest is idle after", timeout=125, after=mark)
             except TimeoutError:
                 # Research aid: if the guest stopped on an unserviced SVC, dump
                 # the storage its XR1/XR2 named so the refused request can be
@@ -234,6 +259,63 @@ def main():
             wait_monitor("Cmd1", timeout=10, after=mark)
             print("=== W2 TU AFTER SUBMIT ===")
             print("".join(transcript[mark:]))
+            # The BASIC panel is already the resumed interactive job.  Drive
+            # its input field directly when requested; pressing Cmd1 first is
+            # a separate resume-job experiment and changes the AID under test.
+            if direct_statement:
+                mark = len(transcript)
+                if not immediate_statement:
+                    command("wait idle 30")
+                    wait_monitor("wait: guest is idle after", timeout=35, after=mark)
+                if os.environ.get("S36_BASIC_TRACE_BEFORE_STATEMENT") == "1":
+                    print("=== BASIC CSP TRACE (launch) ===")
+                    print("".join(transcript[basic_trace_mark:mark]))
+                print("=== W2 BEFORE DIRECT STATEMENT: invited=%s kbd_unlocked=%s last_cmd=%s ==="
+                      % (w2.invited.is_set(), w2.screen.keyboard_unlocked,
+                         w2.screen.last_command))
+                stmt_member = os.environ.get("S36_BASIC_STATEMENT_MEMBER", "")
+                if stmt_member:
+                    command("trace member %s" % stmt_member)
+                    command("trace isn flow ws")
+                elif os.environ.get("S36_BASIC_STATEMENT_ISN") == "1":
+                    command("trace member off")
+                    command("trace isn flow ws")
+                for setup in os.environ.get("S36_BASIC_STATEMENT_SETUP", "").split(";"):
+                    setup = setup.strip()
+                    if setup:
+                        command(setup)
+                generation = w2.generation
+                w2.type_at(23, 2, direct_statement)
+                w2.press("Enter", wait_invite=float(
+                    os.environ.get("S36_BASIC_STATEMENT_WAIT", "5")))
+                try:
+                    w2.wait_for_change(timeout=60, since=generation)
+                    w2.settle(quiet=0.75, timeout=10)
+                except TimeoutError:
+                    pass
+                command("wait idle 30")
+                time.sleep(1)
+                print("=== BASIC CSP TRACE (direct statement) ===")
+                print("".join(transcript[mark:]))
+                for probe in os.environ.get("S36_BASIC_STATEMENT_PROBE", "").split(";"):
+                    probe = probe.strip()
+                    if probe:
+                        mk = len(transcript)
+                        command(probe)
+                        time.sleep(0.3)
+                        print("=== PROBE: %s ===" % probe)
+                        print("".join(transcript[mk:]))
+                print(w2.screen.render("=== W2 AFTER DIRECT STATEMENT ===", fields=True))
+                statement_tail = "".join(transcript[mark:])
+                if "CHECK [program]" in statement_tail or "SVC not serviced" in statement_tail:
+                    raise AssertionError("BASIC statement stopped on a processor or supervisor-call check")
+                if w2.screen.contains("KBD-0099") or w2.screen.contains("BAS-1100"):
+                    raise AssertionError("BASIC statement returned an invalid-key/session error")
+                if not w2.invited.is_set():
+                    raise AssertionError("BASIC statement did not return to an invited input prompt")
+
+                print("RESEARCH RESULT: BASIC statement was accepted and returned to an invited prompt without a check")
+                return 0
             if os.environ.get("S36_BASIC_TRACE") == "1":
                 time.sleep(1)
                 if os.environ.get("S36_BASIC_TRACE_CMD1") == "1":

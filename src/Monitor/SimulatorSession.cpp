@@ -366,6 +366,12 @@ void SimulatorSession::executeTokensCore(const Args& a)
             } catch (const std::invalid_argument& e) {
                 throw MonitorError(e.what());
             }
+            // Listener and multiplexer sessions live outside Machine and may
+            // already exist before IPL.  Keep their tracers in step with the
+            // pending machine trace so transport negotiation can be captured
+            // while diagnosing clients that never reach a workstation.
+            listenerTrace_.flags = pendingTrace_;
+            multiplexerTrace_.flags = pendingTrace_;
             fmt::print("trace = {} (applies at next IPL)\n", traceFlagsToString(pendingTrace_));
         }
         return;
@@ -446,6 +452,8 @@ void SimulatorSession::constructMachine()
         for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, [this] { signalConstructedMachine(); });
         throw MonitorError(e.what());
     }
+    listenerTrace_.flags = pendingTrace_;
+    multiplexerTrace_.flags = pendingTrace_;
     candidate->trace.flags = pendingTrace_;
     candidate->readVtocs();
     machine_ = std::move(candidate);

@@ -321,22 +321,25 @@ bool As36ControlStorageProcessor::attachTask(SvcRequest& req)
         return attachTaskFailed(req, failure, (req.q & kWaitForSpace) != 0);
     }
 
-    // The machine backs these pages through the task-work-area reference at
-    // PB+24..26; this emulator needs real page frames behind the same
-    // logical region, as it does for ordinary translated load members.
+    // PB+18 is the initially resident count; PB+16 is the larger virtual
+    // region backed by PB+24's task-work-area allocation.  Consume real MSP
+    // frames only for the resident pages.  If SVC 12 later makes more pages
+    // resident, ensureModuleStoragePages extends or relocates this extent
+    // before nucratr publishes the new mappings.  BASIC's 28K/10K case is the
+    // regression for that ordering: its four-page growth must not alias a
+    // transient allocated after these initial ten pages.
     if (mainStoragePages != 0) {
-        int storage = allocateModuleStorage(mainStoragePages, "SVC 31 ATASK");
+        int storage = allocateModuleStorage(mainStoragePages, "SVC 31 ATASK resident pages");
         if (storage == 0) {
             deleteControlBlock(pb, "SVC 31 ATASK storage failure");
-            trace_.csp("SVC 31: no real MSP page frames are available for the program block's {}-page main-storage "
-                       "allocation",
-                       mainStoragePages);
+            trace_.csp("SVC 31: no real MSP page frames are available for the program block's {} initially resident "
+                       "page(s) ({}-page virtual region)", mainStoragePages, regionPages);
             return false;
         }
         moduleStorage_[pb] = storage;
-        trace_.csp("SVC 31: ATASK program block {:06X} owns {} resident page(s) at real {:05X}; nucratr will map its "
-                   "logical region there",
-                   pb, mainStoragePages, storage);
+        trace_.csp("SVC 31: ATASK program block {:06X} has {} initially resident page(s) at real {:05X}; its "
+                   "{}-page virtual region can acquire more backing through SVC 12",
+                   pb, mainStoragePages, storage, regionPages);
     }
 
     // psr &= ~0x06; psr |= 0x01: "the PSR is returned set to equal".
@@ -538,6 +541,12 @@ bool As36ControlStorageProcessor::getPage(SvcRequest& req)
             // The smaller of the region size and 32 - load page is the only
             // reading consistent with a 32-entry translation window.
             pages = std::min(region, 32 - loadPage);
+            if (!ensureModuleStoragePages(pb, pages, "SVC 12")) {
+                trace_.csp("SVC 12: cannot grow program block {:06X} backing to {} page(s); the old page count and ATRs "
+                           "remain in force",
+                           pb, pages);
+                return false;
+            }
             m_.writeHalf(pb + ProgramBlock::kOffPageCount, static_cast<uint16_t>(pages));
         }
         JobControlBlock::setCurrentPages(m_, jcb, pages);
@@ -552,6 +561,15 @@ bool As36ControlStorageProcessor::getPage(SvcRequest& req)
     m_.writeByte(answerAt + 1, 0);
 
     int count = ProgramBlock::pageCount(m_, pb);
+    // The non-grow arm can still observe a page count enlarged by the
+    // region-maintenance path before this call.  Enforce the backing
+    // invariant on both arms, not only where this routine itself changes
+    // PB+18.
+    if (!ensureModuleStoragePages(pb, count, "SVC 12")) {
+        trace_.csp("SVC 12: cannot provide backing for program block {:06X}'s {} published page(s); ATRs are unchanged",
+                   pb, count);
+        return false;
+    }
     m_.writeHalf(pb + ProgramBlock::kOffPagesReady, static_cast<uint16_t>(count));
     m_.writeHalf(pb + ProgramBlock::kOffPagesThird, static_cast<uint16_t>(count));
 

@@ -65,10 +65,9 @@ public:
         padded.resize(static_cast<std::size_t>(length), ' ');
         std::vector<uint8_t> e = storage::Ebcdic::fromAscii(padded);
         b_.insert(b_.end(), e.begin(), e.end());
-        // Close the field so the text that follows on the same row is
-        // protected rather than part of it.
-        sba(row, attrCol + 1 + length);
-        b_.push_back(0x1D); b_.push_back(0x20); b_.push_back(0x00); b_.push_back(0x00);
+        // The declared length already ends the input field.  Do not append a
+        // synthetic protected SF: a zero-length SF is 5250 negative response
+        // 1005/01/25, which IBM Personal Communications correctly rejects.
     }
 
     void insertCursor(int row, int col)
@@ -192,8 +191,16 @@ private:
     {
         if (handedOver_) return;
         const std::vector<uint8_t>& d = r.data;
+        if (hasFlag(r.flags, WorkstationRecordFlags::DataStreamOutputError)) {
+            // This is a negative response to our last output, not keyboard
+            // input.  Repainting the same stream creates an unbounded
+            // error/repaint loop with strict IBM clients.
+            mux_.trace_->ws("{}: selector output rejected by client: {}; retained without repaint",
+                            label(), hexDash(d.data(), static_cast<int>(d.size())));
+            return;
+        }
         if (d.size() < 3) {
-            paint();
+            mux_.trace_->ws("{}: selector ignored short non-input response: {}", label(), r.toString());
             return;
         }
         uint8_t aid = d[2];

@@ -89,6 +89,13 @@ public:
     // should keep running, false if the machine must stop.
     virtual bool raiseStorageProtection(uint16_t logical, bool forWrite) = 0;
 
+    // The native MSP interpreter returns to control storage for every
+    // unassigned opcode.  On the Advanced/36 rb+0x30 bit 0 decides whether
+    // that escape is a program check; when clear it is a deliberate burst
+    // boundary and execution resumes after the one-byte opcode fetch.
+    // Consume the bit when it requests a check, as NuEmul::nudspchA does.
+    virtual bool consumeInvalidOpcodeCheck(uint16_t resumeIar) = 0;
+
     virtual ITransientArea& transients() = 0;
 };
 

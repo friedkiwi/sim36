@@ -99,6 +99,8 @@ check "a client can take a station before there is a machine to take it from" \
       "Attached to W2 (0.1). Waiting for IPL to construct the machine."
 check "the prefilled station is marked modified for ordinary 5250 clients" \
       "phase 3 prefilled selection MDT: on"
+check "an IBM data-stream error does not start a selector repaint loop" \
+      "phase 3 output-error response caused selector repaint: no"
 check "IPL construction does not hang up on it" \
       "phase 3 socket survived IPL construction"
 check "and it is on the station it picked, in the machine that came after" \

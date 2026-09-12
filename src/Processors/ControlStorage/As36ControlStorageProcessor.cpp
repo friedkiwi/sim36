@@ -502,6 +502,25 @@ void As36ControlStorageProcessor::restoreRegisters(int rb)
     for (int n = 4; n <= 7; n++) m_.msp.wr[n] = RequestBlock::readWr(m_, rb, n);
 }
 
+// NuEmul::nudspchA c180def0..c180df30 distinguishes a genuine invalid-opcode
+// check from an interpreter burst exit with request-block byte +0x30 bit 0.
+// BASIC deliberately executes unassigned 00 encodings as burst boundaries;
+// treating every such escape as a check stops in BLGTE's generated code.
+bool As36ControlStorageProcessor::consumeInvalidOpcodeCheck(uint16_t resumeIar)
+{
+    if (currentRequestBlock_ == 0) return true;
+    // emmsp's common escape at c1841974 stores the opcode-advanced IAR and
+    // the complete register image before returning.  Publishing only the
+    // live IAR lets the next native dispatch restore a stale continuation.
+    m_.msp.iar = resumeIar;
+    saveRegisters(currentRequestBlock_);
+    const int at = currentRequestBlock_ + RequestBlock::kOffTransferFlags;
+    const uint8_t flags = m_.readByte(at);
+    if ((flags & 0x01) == 0) return false;
+    m_.writeByte(at, static_cast<uint8_t>(flags & ~0x01));
+    return true;
+}
+
 bool As36ControlStorageProcessor::service(SvcRequest& req)
 {
     switch (req.r) {

@@ -962,6 +962,99 @@ int As36ControlStorageProcessor::allocateModuleStorage(int pages, const std::str
     return at;
 }
 
+// A task region can outgrow the main-storage count ATASK was given: SVC 13
+// changes the JCB ceiling and SVC 12 publishes the larger PB page count.  The
+// native machine pages that tail from the task work area.  Our PB residency is
+// a contiguous host extent, so grow (or move) it before nucratr exposes those
+// pages.  Otherwise the arena can hand the unreserved tail to a transient and
+// both ATR mappings name the same physical frames.
+bool As36ControlStorageProcessor::ensureModuleStoragePages(int block, int pages, const std::string& call)
+{
+    auto owner = moduleStorage_.find(block);
+    if (owner == moduleStorage_.end()) {
+        // Ordinary loaded program blocks without arena metadata are addressed
+        // in place.  An ATASK block is identifiable by its task-work-area
+        // backing flag and may legitimately start with zero resident pages.
+        // Give that block its first real frames before SVC 12 maps them.
+        if ((m_.readByte(block + ProgramBlock::kOffFlags) & ControlBlock::kFlagSwapArea) == 0 || pages == 0)
+            return true;
+        int at = allocateModuleStorage(pages, call + " initial residency");
+        if (at == 0) return false;
+        moduleStorage_[block] = at;
+        trace_.csp("{}: program block {:06X} acquired backing for its first {} resident page(s) at {:06X}",
+                   call, block, pages, at);
+        return true;
+    }
+
+    const int oldAt = owner->second;
+    auto oldSize = moduleStorageSize_.find(oldAt);
+    if (oldSize == moduleStorageSize_.end()) {
+        trace_.csp("{}: program block {:06X} has backing {:06X} with no arena allocation", call, block, oldAt);
+        return false;
+    }
+    const int oldBytes = oldSize->second;
+    const int wantedBytes = pages << machine::MachineState::kPageShift;
+    if (wantedBytes <= oldBytes) return true;
+
+    const int extraBytes = wantedBytes - oldBytes;
+    const int oldEnd = oldAt + oldBytes;
+    // The usual ATASK case is the arena's newest allocation. Extend its bump
+    // allocation in place so no saved ATR image has to change.
+    if (oldEnd == moduleStorageNext_ && moduleStorageNext_ + extraBytes <= kModuleStorageHigh &&
+        moduleStorageNext_ + extraBytes <= m_.backingBytes()) {
+        moduleStorageNext_ += extraBytes;
+        oldSize->second = wantedBytes;
+        std::fill_n(m_.raw() + oldEnd, extraBytes, static_cast<uint8_t>(0));
+        trace_.csp("{}: program block {:06X} backing extended in place from {} to {} page(s) at {:06X}", call, block,
+                   oldBytes >> machine::MachineState::kPageShift, pages, oldAt);
+        return true;
+    }
+
+    // A returned extent can also immediately follow the allocation. Consume
+    // just the extra tail and retain the existing real page numbers.
+    for (std::size_t i = 0; i < moduleStorageFree_.size(); i++) {
+        auto& free = moduleStorageFree_[i];
+        if (free.first != oldEnd || free.second < extraBytes) continue;
+        if (free.second == extraBytes) {
+            moduleStorageFree_.erase(moduleStorageFree_.begin() + static_cast<std::ptrdiff_t>(i));
+        } else {
+            free.first += extraBytes;
+            free.second -= extraBytes;
+        }
+        oldSize->second = wantedBytes;
+        std::fill_n(m_.raw() + oldEnd, extraBytes, static_cast<uint8_t>(0));
+        trace_.csp("{}: program block {:06X} backing extended into returned storage from {} to {} page(s) at {:06X}",
+                   call, block, oldBytes >> machine::MachineState::kPageShift, pages, oldAt);
+        return true;
+    }
+
+    const int newAt = allocateModuleStorage(pages, call + " growth");
+    if (newAt == 0) return false;
+    std::copy_n(m_.raw() + oldAt, oldBytes, m_.raw() + newAt);
+    std::fill_n(m_.raw() + newAt + oldBytes, wantedBytes - oldBytes, static_cast<uint8_t>(0));
+
+    // Fast task switching restores saved ATR images without rebuilding them.
+    // Rebase all such images before the old frames return to the arena.
+    const uint16_t oldFrame = static_cast<uint16_t>(oldAt >> machine::MachineState::kPageShift);
+    const uint16_t newFrame = static_cast<uint16_t>(newAt >> machine::MachineState::kPageShift);
+    const int oldPages = oldBytes >> machine::MachineState::kPageShift;
+    ptt_.rebaseFrames(oldFrame, newFrame, oldPages);
+    const int liveBase = machine::MachineState::kAtrTaskGroup0;
+    for (int i = 0; i < kAtrCount; i++) {
+        uint16_t& a = m_.atr[liveBase + i];
+        if ((a & machine::MachineState::kAtrInvalidMask) == 0 && a >= oldFrame && a < oldFrame + oldPages)
+            a = static_cast<uint16_t>(newFrame + (a - oldFrame));
+    }
+
+    owner->second = newAt;
+    moduleStorageSize_.erase(oldSize);
+    returnModuleStorage(oldAt, oldBytes);
+    trace_.csp("{}: program block {:06X} backing grew from {} page(s) at {:06X} to {} page(s) at {:06X}; contents "
+               "preserved before nucratr publishes the new pages",
+               call, block, oldBytes >> machine::MachineState::kPageShift, oldAt, pages, newAt);
+    return true;
+}
+
 void As36ControlStorageProcessor::returnModuleStorage(int at, int bytes)
 {
     moduleStorageFree_.emplace_back(at, bytes);

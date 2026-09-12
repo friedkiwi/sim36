@@ -98,6 +98,18 @@ set xr1 0B00
 set xr2 0C03
 set iar 1024
 step 1
+# Release the 20-byte nested element and the 16-byte element under it.  The
+# nested request occupies a 32-byte SQS allocation; its release must return
+# that whole allocation rather than leak the 12-byte carved tail.
+set xr1 0B00
+set xr2 0C03
+set iar 1034
+step 1
+set xr1 0B00
+set xr2 0C03
+set iar 1034
+step 1
+sqsstate
 # --- and refuses when the job holds nothing for that resource ----------------
 set xr1 0C40
 set xr2 0C03
@@ -216,6 +228,8 @@ check "20  it walks the job's chain               " 'rebuild the active share le
 # both elements end 94 and the manual can say the LAST one is the owner.
 check "20  ...rewrites the element it nested over " 'SVC 20: AQE 00FF70 active level 34 -> 94'
 check "20  ...and makes the LAST one the owner    " 'SVC 20: 2 element(s) rebuilt; AQE 00FFD0 is now the owner (94)'
+check "21  nested AQE returns its full allocation" '32 bytes freed (20-byte nested element)'
+check "21  nested release leaves SQS consistent  " '; invariants OK'
 check "20  a job with nothing queued is refused   " 'holds no allocation queue element for resource'
 check "20  ...naming nuersvc, not guessing        " 'NuEmul::nuersvc(90, 0) here (c18928f8)'
 

@@ -214,6 +214,19 @@ early.wait_for_invite(20)
 show("phase 3 menu with NO machine constructed", early)
 out.append("phase 3 prefilled selection MDT: %s" %
            ("on" if early.screen.input_fields()[0].mdt else "off"))
+# A strict IBM client reports a rejected output data stream with RFC 1205's
+# Data Stream Output Error flag and an error body such as 1005/01/25.  That is
+# a negative response to the panel, not an AID.  Repainting in response creates
+# an endless error/panel/error loop and hides the original malformed order.
+generation = early.generation
+record, wire = early.frame(0x00, bytes.fromhex("10 05 01 25 00 00 00 00"))
+record = record[:7] + bytes([0x80]) + record[8:]
+wire = record.replace(bytes([tn.IAC]), bytes([tn.IAC, tn.IAC])) \
+       + bytes([tn.IAC, tn.EOR])
+early.send_record(record, wire)
+time.sleep(0.5)
+out.append("phase 3 output-error response caused selector repaint: %s" %
+           ("yes" if early.generation != generation else "no"))
 # Reproduce clients which send cursor+AID only when Enter accepts an unchanged
 # prefilled field. The server must use the displayed W2 default in this case;
 # requiring the client to retype W2 makes the menu look functional but inert.

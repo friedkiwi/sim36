@@ -113,6 +113,7 @@ public:
     bool svc(SvcRequest& req) override;
     std::string lastRefusal() const override { return lastRefusal_; }
     bool raiseStorageProtection(uint16_t logical, bool forWrite) override;
+    bool consumeInvalidOpcodeCheck(uint16_t resumeIar) override;
     ITransientArea& transients() override { return transients_; }
 
     // ---- TransientHost --------------------------------------------------
@@ -209,6 +210,7 @@ private:
     // ---- the module storage arena -------------------------------------------
     static constexpr int kModuleStorageLow = 0x700000, kModuleStorageHigh = 0x800000;
     int allocateModuleStorage(int pages, const std::string& call);
+    bool ensureModuleStoragePages(int block, int pages, const std::string& call);
     void returnModuleStorage(int at, int bytes);
     void releaseBlockStorage(int block, const std::string& call);
 

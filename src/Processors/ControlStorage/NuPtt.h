@@ -84,6 +84,10 @@ public:
     // with the handle out of rb+56..58, so a block whose handle names someone
     // else's file cannot free it.
     bool free(int handle, int rb);
+    // A resident module occasionally has to move when SVC 12 grows its task
+    // region. Repoint every saved request-block image that still names one
+    // of the old real frames.
+    void rebaseFrames(uint16_t oldFrame, uint16_t newFrame, int pages);
     // The ownership check itself: resolve the handle against the pool and hand
     // back the object only when its owner is the request block asked about.
     NuPtt* owned(int handle, int rb);

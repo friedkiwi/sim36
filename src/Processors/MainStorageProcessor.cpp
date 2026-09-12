@@ -322,8 +322,24 @@ bool MainStorageProcessor::step()
         const uint16_t atr = m_.atr[MachineState::kAtrTaskGroup0 + logicalPage];
         trace_.msp(iar, "unassigned opcode {:02X}; PIAR {:02X}, logical page {:02X}, ATR {:04X}, physical fetch {:06X}",
                    insn.opcode, m_.msp.pactIar, logicalPage, atr, fetch);
-        // A program check: an invalid instruction.  The commonest shape is
-        // the sign-on family's branch-to-0, opcode 00 at IAR 0000.
+        // emmsp has already decoded the high-nibble addressing modes before
+        // the low-nibble operation dispatch reaches the unassigned slot at
+        // c1840000/c1840934.  Its r19 therefore names the next encoded
+        // instruction, just as it does after a valid operation.  BASIC uses
+        // unassigned encodings in generated fragments as SLIC burst exits;
+        // advancing by the encoded length is what carries 0475 -> 047B and
+        // then 047B -> 0480 in BLPAE's execution slot.
+        // nudspchA turns the escape into error 15 only when rb+0x30 bit 0 is
+        // set; otherwise it re-enters the interpreter at that next byte.
+        const uint16_t resumeIar = static_cast<uint16_t>((iar + insn.length) & 0xFFFF);
+        m_.msp.iar = resumeIar;
+        if (!csp_.consumeInvalidOpcodeCheck(resumeIar)) {
+            ++instructions_;
+            atPreemptionPoint_ = true;
+            trace_.msp(iar, "unassigned opcode {:02X} is a SLIC burst exit; resume at {:04X}",
+                       insn.opcode, resumeIar);
+            return true;
+        }
         m_.reportCheck("program check - unassigned opcode", 0x0000,
                        fmt::format("opcode {:02X} at {:04X}, PIAR {:02X}, ATR[{:02X}]={:04X}, physical {:06X}{}",
                                    insn.opcode, iar, m_.msp.pactIar, logicalPage, atr, fetch,
@@ -650,12 +666,26 @@ void MainStorageProcessor::zeroAndAddZoned(uint8_t q)
 {
     int dlen, slen;
     decimalLengths(q, dlen, slen);
-    bool neg;
-    const long long v = readZoned(false, slen, neg);
-    const bool ovf = writeZoned(dlen, v);
+    // emmsp c1840100 implements ZAZ as a zoned digit move: each source low
+    // nibble is ORed with F0 and stored, without converting the field to an
+    // integer.  This distinction is observable for A..F nibbles and BASIC
+    // deliberately uses such fields while building its execution fragments.
+    // Leading destination positions are zero-filled and the sign of the
+    // rightmost source byte is transferred to the rightmost destination byte.
+    bool nonZero = false;
+    const bool negative = (readOperand(false, 0) & 0xF0) == kZoneMinus;
+    for (int i = 0; i < dlen; ++i) {
+        uint8_t digit = 0;
+        if (i < slen) {
+            digit = static_cast<uint8_t>(readOperand(false, -i) & 0x0F);
+            nonZero = nonZero || digit != 0;
+        }
+        const uint8_t zone = i == 0 && negative ? kZoneMinus : kZonePlus;
+        writeOperand(true, -i, static_cast<uint8_t>(zone | digit));
+    }
     if (abort_ != Abort::None) return;
     m_.msp.arr = op1Logical_;
-    setDecimalResult(v, ovf);
+    setDecimalResult(!nonZero ? 0 : (negative ? -1 : 1), false);
 }
 
 void MainStorageProcessor::addZoned(uint8_t q, bool subtract)
@@ -737,8 +767,7 @@ void MainStorageProcessor::insertAndTestCharacters(uint8_t q)
     for (int i = 0; i < len; ++i) {
         const uint8_t v = readOperand(true, i);
         if (abort_ != Abort::None) return;
-        const int digit = v & 0x0F;
-        if (digit >= 1 && digit <= 9) { m_.msp.arr = static_cast<uint16_t>(op1Logical_ + i); return; }
+        if (v >= 0xF1 && v <= 0xF9) { m_.msp.arr = static_cast<uint16_t>(op1Logical_ + i); return; }
         writeOperand(true, i, fill);
     }
     if (abort_ != Abort::None) return;

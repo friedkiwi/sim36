@@ -28,8 +28,17 @@ public:
     bool svc(controlstorage::SvcRequest& req) override { lastR = req.r; return false; }
     std::string lastRefusal() const override { return "refused by the test"; }
     bool raiseStorageProtection(uint16_t, bool) override { return false; }
+    bool consumeInvalidOpcodeCheck(uint16_t resumeIar) override
+    {
+        lastInvalidResume = resumeIar;
+        bool v = invalidOpcodeCheck;
+        invalidOpcodeCheck = false;
+        return v;
+    }
     controlstorage::ITransientArea& transients() override { return transients_; }
     int lastR = -1;
+    bool invalidOpcodeCheck = true;
+    uint16_t lastInvalidResume = 0;
 
 private:
     class T : public controlstorage::ITransientArea {
@@ -97,6 +106,72 @@ TEST_CASE("msp: a refused SVC stops the processor and names the reason")
     CHECK(msp.stopReason().find("SVC 0F at 1000 refused by the test control storage processor") == 0);
     CHECK(msp.stopReason().find("refused by the test\n") == std::string::npos);
     CHECK(msp.stopReason().find(":\n  refused by the test") != std::string::npos);
+}
+
+TEST_CASE("msp: ZAZ preserves digit nibbles and ITC requires an F-zone digit")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+
+    // Q=02 gives two three-byte fields.  V4R4 emmsp copies the low nibbles
+    // verbatim; A and C must not be accumulated as decimal 10 and 12.
+    const uint8_t code[] = {
+        0x04, 0x02, 0x20, 0x12, 0x20, 0x22,
+        0x0B, 0x02, 0x20, 0x30, 0x20, 0x40,
+    };
+    const uint8_t zoned[] = {0xF1, 0xFA, 0xDC};
+    const uint8_t edit[] = {0xC1, 0xF0, 0xF2};
+    m.write(0x1000, code, sizeof code);
+    m.write(0x2020, zoned, sizeof zoned);
+    m.write(0x2030, edit, sizeof edit);
+    m.writeByte(0x2040, 0x40);
+    m.msp.iar = 0x1000;
+
+    REQUIRE(msp.step());
+    CHECK(m.readByte(0x2010) == 0xF1);
+    CHECK(m.readByte(0x2011) == 0xFA);
+    CHECK(m.readByte(0x2012) == 0xDC);
+    CHECK(m.msp.psr() == 0x02);       // negative, therefore Low
+
+    REQUIRE(msp.step());
+    CHECK(m.readByte(0x2030) == 0x40); // C1 is not a zoned decimal digit
+    CHECK(m.readByte(0x2031) == 0x40); // F0 is not significant
+    CHECK(m.readByte(0x2032) == 0xF2);
+    CHECK(m.msp.arr == 0x2032);
+}
+
+TEST_CASE("msp: Advanced/36 invalid-opcode escape obeys the request flag")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    const uint8_t bytes[] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x3C, 0x5A, 0x20, 0x00,
+    };
+    m.write(0x1000, bytes, sizeof bytes);
+    m.msp.iar = 0x1000;
+
+    csp.invalidOpcodeCheck = false;
+    CHECK(msp.step());
+    CHECK_FALSE(msp.stopped());
+    CHECK(m.msp.iar == 0x1006);       // high-nibble operand decoding precedes the SLIC escape
+    CHECK(msp.atPreemptionPoint());
+    CHECK(msp.instructionsExecuted() == 1);
+    CHECK(msp.step());
+    CHECK(m.readByte(0x2000) == 0x5A);
+
+    msp.start();
+    m.msp.iar = 0x1000;
+    csp.invalidOpcodeCheck = true;
+    CHECK_FALSE(msp.step());
+    CHECK(msp.stopped());
+    CHECK(m.msp.iar == 0x1006);       // emmsp saves the decoded next IAR even on error 15
+    CHECK_FALSE(csp.invalidOpcodeCheck);  // nudspchA consumes rb+0x30 bit 0
+    CHECK(csp.lastInvalidResume == 0x1006);
 }
 
 TEST_CASE("msp: breakpoints halt before the fetch and step past once")

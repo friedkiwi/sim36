@@ -896,8 +896,18 @@ bool DeviceSet::beginOutputRequest(int iob, bool withInvite, bool& phaseResult)
         uint8_t oldCompletion = m_.readByte(iob + Ecm::kOffCompletion);
         m_.writeByte(iob + Ecm::kOffCompletion, Ecm::arm(oldCompletion));
         pendingC1Completions_.set(iob, unit);
-        trace_.ws("  class C1 response wait PENDING: no return WSCF for unit {:02X}; retained IOB {:06X}/SVC-43 ACE until a "
-                  "real terminal response",
+        // At the local-controller seam a keyboard-restoring PUT and the
+        // following controller wait are separate operations.  TN5250 needs
+        // the equivalent RFC 1205 Invite record: a strict client will display
+        // the restored keyboard but will not transmit an AID until the host
+        // has reversed the flow direction.  The research terminal used to
+        // accept that AID without an Invite, masking this missing adapter
+        // transition.  This does not complete the action or invent input; the
+        // retained C1 IOB still waits for a terminal-produced response WSCF.
+        WorkStationSlot* slot = workStations_.find(unit);
+        if (slot != nullptr && !slot->isPrinter) slot->backend()->setInputEnabled(true);
+        trace_.ws("  class C1 response wait PENDING: no return WSCF for unit {:02X}; RFC Invite armed, retained IOB "
+                  "{:06X}/SVC-43 ACE until a real terminal response",
                   unit, iob);
         phaseResult = true;
         return false;
