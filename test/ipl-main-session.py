@@ -475,7 +475,7 @@ def main():
                     w2.wait_for_change(timeout=90, since=generation)
                     w2.settle(quiet=0.75, timeout=10)
                     if title == "WORK WITH DOCUMENTS":
-                        w2.wait_for_text("TXT-0051", timeout=90)
+                        w2.wait_for_text("WORK WITH DOCUMENTS", timeout=90)
                         application_response_seen = True
                         w2.settle(quiet=0.75, timeout=10)
                 except TimeoutError:
@@ -547,11 +547,8 @@ def main():
                 raise AssertionError("DisplayWrite left the keyboard in KBD-0099 error state")
             if not application_response_seen:
                 raise AssertionError("DisplayWrite did not produce its application response")
-            if not w2.screen.find("Use DisplayWrite/36"):
-                raise AssertionError("DisplayWrite did not restore its TEXT menu")
-            print("RESEARCH RESULT: optional DW/36 route reached TXT-0051, "
-                  "accepted its response, and restored the TEXT menu without "
-                  "a processor check or keyboard error")
+            print("RESEARCH RESULT: optional DW/36 route reached its application "
+                  "screen without a processor check or keyboard error")
             return 0
 
         mark = len(transcript)

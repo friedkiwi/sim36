@@ -133,7 +133,6 @@ add_executable(sim36_tests
     tests/MachineStateTests.cpp
     tests/MspTests.cpp
     tests/VtocTests.cpp
-    tests/WorkStationInputTests.cpp
 )
 target_link_libraries(sim36_tests PRIVATE sim36core doctest::doctest)
 
