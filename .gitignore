@@ -3,3 +3,6 @@ build/
 *.swp
 test/__pycache__/
 var/
+images/*
+!images/README.md
+!images/*.sim

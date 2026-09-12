@@ -1,0 +1,24 @@
+# SSP 5.1 (5727-SS6) volume generated from the 5 1/4-inch distribution set
+# (SSPMRI VOL01-02, SSPBASE VOL05-07, microcode DSKT12) on the Advanced/36
+# model.  Paths are relative to this command file.  `overlay`: writes stay in
+# memory and the file is never modified.
+#
+# The machine is left PAUSED after the poke below; attach a 5250 client to
+# 127.0.0.1:2323 (the multiplexer, moved off 2300 so this machine can run
+# beside the Advanced/36 one) and type `start` at the prompt.  The IPL is
+# attended: the console (`console` / `console put` / `console send`) gets
+# the IPL SIGN ON panel.
+#
+# This SSP's #MSNIP requires the system-entry customize byte at guest 0x0850
+# to be 8B or 8D, else it takes its "Invalid SSP" exit.  A real machine
+# derives that byte from the unit definition table it regenerates at
+# power-on; this volume has none, so the byte is preset here.  Expect one
+# SYS-3922 (microcode level table not written).
+
+do ../etc/sim36.sim
+attach disk0 volumes/ssp51.img overlay
+set machine ipl-type attend
+set terminal multiplex listen 127.0.0.1:2323
+
+ipl pause
+poke 0850 8D
