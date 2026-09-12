@@ -1387,6 +1387,28 @@ bool As36ControlStorageProcessor::makeProgramBlockReady(int pb, const std::strin
         trace_.csp("{}: the module image of {} byte(s) is shorter than a load member header", call, image.size());
         return false;
     }
+
+    // A swapped program whose transfer entry says its core size differs
+    // owns the header-sized private core, including its zero-filled tail.
+    // ProgramBlock::applyHeader publishes that larger logical page count;
+    // reserve the matching physical frames first so nucratr cannot map an
+    // unowned arena tail later reused by another module/workspace.  Do not
+    // apply this to ordinary core-size-differs overlays (including early IPL
+    // modules): their extra logical pages are intentionally supplied by the
+    // caller, and expanding them changes the transfer relocation contract.
+    const uint8_t attribute = ProgramBlock::attribute(m_, pb);
+    const int residentPages = ProgramBlock::pageCount(m_, pb);
+    const bool privateCore =
+        (attribute & (kAttributeSwapped | kAttributeCoreSizeDiffers)) ==
+            (kAttributeSwapped | kAttributeCoreSizeDiffers) &&
+        (attribute & ProgramBlock::kAttributeAddressedInPlace) == 0;
+    if (privateCore && hdr.pages() > residentPages) {
+        if (!ensureModuleStoragePages(pb, hdr.pages(), call + " load-member private core")) {
+            trace_.csp("{}: cannot grow swapped program block {:04X} from {} to {} private-core page(s)",
+                       call, pb, residentPages, hdr.pages());
+            return false;
+        }
+    }
     ProgramBlock::applyHeader(m_, pb, hdr);
 
     recordLoadedMember(pb, hdr.name.data(), static_cast<int>(hdr.name.size()), first);
@@ -1400,6 +1422,14 @@ bool As36ControlStorageProcessor::makeProgramBlockReady(int pb, const std::strin
         trace_.csp("{}: module wants guest {:04X} for {} bytes, past the end of main storage", call, at, image.size());
         return false;
     }
+
+    // A returned arena extent can contain a previous owner's bytes.  The
+    // member image initializes only its fetched sectors; clear the complete
+    // private core first so both the unused part of its last fetched page and
+    // every added page have deterministic blank storage.
+    if (privateCore)
+        std::fill_n(m_.raw() + at, ProgramBlock::pageCount(m_, pb) << machine::MachineState::kPageShift,
+                    static_cast<uint8_t>(0));
 
     // The contents manager is an IDENTITY cache: the same block still
     // owning the system transient storage restores pb+20 from pb+18 without

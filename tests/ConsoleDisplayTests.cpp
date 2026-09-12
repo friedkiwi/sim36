@@ -70,6 +70,29 @@ TEST_CASE("console display: a real tn5250 zero-length SBA preserves the followin
     CHECK(afterError[3] == 0xC1);
 }
 
+TEST_CASE("console display: truncated modified fields are blank padded")
+{
+    host::ConsoleDisplay display(0, false);
+    const std::vector<uint8_t> format = {
+        0x04, 0x40,
+        // HISTORY null-fills the panel before defining its input fields.
+        0x11, 0x10, 0x01, 0x02, 0x18, 0x50, 0x00,
+        // HISTORY's selected-user field is written as SYSTEM followed by
+        // two terminal nulls.  The modified-data reply suppresses that tail.
+        0x11, 0x10, 0x42, 0x1D, 0x48, 0x20, 0x30, 0x00, 0x08,
+        0xE2, 0xE8, 0xE2, 0xE3, 0xC5, 0xD4, 0x00, 0x00,
+    };
+    display.apply(format.data(), 0, static_cast<int>(format.size()));
+
+    const std::vector<uint8_t> reply = {
+        0x10, 0x43, 0xF1, 0x11, 0x10, 0x43,
+        0xE2, 0xE8, 0xE2, 0xE3, 0xC5, 0xD4,
+    };
+    const std::vector<uint8_t> expanded = display.expandModifiedInput(reply);
+    REQUIRE(expanded.size() == 11);
+    CHECK(slice(expanded, 3, 8) == roundTrip("SYSTEM  "));
+}
+
 TEST_CASE("console display: DisplayWrite/36 CREATE honors SOH and FCW resequencing")
 {
     host::ConsoleDisplay display(0, false);

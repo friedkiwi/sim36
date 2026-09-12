@@ -350,8 +350,9 @@ std::vector<uint8_t> ConsoleDisplay::expandModifiedInput(const std::vector<uint8
         ConsoleField* f = fieldAt(row, col);
         // A real Read-MDT reply can name an unchanged/bypass field with SBA
         // and ZERO following data bytes; the next byte is another SBA.  The
-        // SBA orders delimit what the client actually supplied; omitted
-        // bytes retain the display's existing screen content.
+        // SBA orders delimit what the client actually supplied.  A wholly
+        // omitted field retains its display content; a nonempty field's
+        // suppressed tail is blank-padded below.
         std::size_t next = i;
         while (next < response.size() && response[next] != 0x11) next++;
         if (f != nullptr) {
@@ -359,7 +360,25 @@ std::vector<uint8_t> ConsoleDisplay::expandModifiedInput(const std::vector<uint8
             int start = offset(f->row, f->col);
             for (int n = 0; n < take; n++)
                 screen_[static_cast<std::size_t>((start + n) % static_cast<int>(screen_.size()))] =
-                    response[i + static_cast<std::size_t>(n)];
+                    response[i + static_cast<std::size_t>(n)] == 0 ? static_cast<uint8_t>(0x40)
+                                                                  : response[i + static_cast<std::size_t>(n)];
+            // TN5250 clients suppress the trailing null/blank cells of a
+            // modified field.  Once at least one byte was returned, the
+            // unsent tail is the field's blank padding, not the null-filled
+            // panel image that happened to precede the edit.  HISTORY's
+            // eight-byte SYSTEM field is the concrete case: the wire record
+            // carries six characters, and passing through the two retained
+            // nulls produces SYS-4109 in the utility parser.  Clients that
+            // do return those null cells are normalized to blanks above for
+            // the same reason: a null is an empty display cell, not a valid
+            // utility-control-statement character.
+            //
+            // Keep a zero-length SBA unchanged.  Real clients also name
+            // unmodified bypass fields that way, and their existing content
+            // must survive (the case covered above).
+            if (take > 0)
+                for (int n = take; n < f->length; n++)
+                    screen_[static_cast<std::size_t>((start + n) % static_cast<int>(screen_.size()))] = 0x40;
         }
         i = next;
     }
