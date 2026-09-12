@@ -34,9 +34,9 @@ Commands (after ESC 04):
     62 Read Screen Immediate, 72 Read Immediate.
 
 Input (display -> guest): cursor address, AID byte, and then either every input
-field in screen order (answering Read Input Fields) or SBA+data for each
-modified field (answering Read MDT Fields).  Which one is used is decided by
-the read command the guest actually issued, not by a guess.
+field in the SOH/FCW return order (answering Read Input Fields) or SBA+data for
+each modified field (answering Read MDT Fields).  Which one is used is decided
+by the read command the guest actually issued, not by a guess.
 
 TIMING
 ------
@@ -173,6 +173,12 @@ class Field(object):
     def numeric_only(self):
         return self.shift in (3, 5, 7)
 
+    @property
+    def right_adjust(self):
+        # FFW byte 2 bits 5-7 select right adjustment.  Numeric shift/type in
+        # byte 1 does not itself right-adjust a value (SA21-9247, FFW table).
+        return self.ffw is not None and (self.ffw & 0x07) in (5, 6)
+
     def positions(self):
         """Yield (row, col) for each data position, wrapping at the margin."""
         offset = (self.row - 1) * COLS + (self.col - 1)
@@ -201,6 +207,7 @@ class Screen(object):
         self.alarm = False
         self.error = ""
         self.keyboard_unlocked = False
+        self.first_input_field = 0
 
     # -- raw buffer ---------------------------------------------------------
     def _off(self, row, col):
@@ -213,9 +220,11 @@ class Screen(object):
         self.cursor = (1, 1)
         self.error = b""
         self.keyboard_unlocked = False
+        self.first_input_field = 0
 
     def clear_format_table(self):
         self.fields = []
+        self.first_input_field = 0
 
     def put(self, off, byte):
         self.buf[off % (ROWS * COLS)] = byte
@@ -306,6 +315,25 @@ class Screen(object):
 
     def input_fields(self):
         return [f for f in self.fields if f.is_input]
+
+    def read_fields(self):
+        """Format-table fields in the order used by 5250 read commands."""
+        fields = [f for f in self.fields if f.ffw is not None]
+        if not self.first_input_field:
+            return fields
+        ordered, seen = [], set()
+        number = self.first_input_field
+        while 1 <= number <= len(fields) and number not in seen \
+                and len(ordered) < len(fields):
+            seen.add(number)
+            field = fields[number - 1]
+            ordered.append(field)
+            reseq = next((fcw & 0xff for fcw in field.fcws
+                          if (fcw >> 8) == 0x80), None)
+            if reseq == 0xff:
+                break
+            number = reseq if reseq is not None else number + 1
+        return ordered
 
     def derive_labels(self):
         """Give each input field the caption that precedes it on its row.
@@ -534,6 +562,8 @@ class Parser(object):
                     continue
                 if b == 0x01 and i + 1 < n:                     # SOH
                     ln = body[i + 1]
+                    if ln >= 3 and i + 4 < n:
+                        s.first_input_field = body[i + 4]
                     i += 2 + ln
                     self._log("SOH %d byte(s)" % ln)
                     continue
@@ -991,8 +1021,7 @@ class Session(object):
         data = to_ebcdic(text)
         if len(data) > field.length:
             raise ValueError("%r characters do not fit %r" % (text, field))
-        if field.numeric_only:
-            # Numeric-only fields are entered right-adjusted, blank filled.
+        if field.right_adjust:
             data = to_ebcdic(text.rjust(field.length))
         else:
             data = data + bytes([BLANK]) * (field.length - len(data))
@@ -1011,22 +1040,22 @@ class Session(object):
     def build_input_record(self, aid, cursor=None):
         """RFC 1205 input record: cursor address, AID, then the field data.
 
-        Read Input Fields is answered with every input field, in screen order,
-        with no SBA orders.  Read MDT Fields is answered with SBA + data for
-        each modified field only.  The guest's own read command decides which.
+        Read Input Fields is answered with every format-table input field in
+        SOH/FCW return order, with no SBA orders.  Read MDT Fields is answered
+        with SBA + data for each modified field in that same order.
         """
         s = self.screen
         row, col = cursor or s.cursor
         body = bytearray([row & 0xFF, col & 0xFF, aid_code(aid)])
         read = s.last_read
         if read in READ_ALL_FIELDS:
-            for f in s.input_fields():
+            for f in s.read_fields():
                 body += (f._pending if f._pending is not None
                          else bytes(s.buf[s._off(r, c)] for r, c in f.positions()))
         elif read in (0x62, 0x72):
             pass                            # Read Immediate / Screen: AID only
         else:
-            for f in s.input_fields():
+            for f in s.read_fields():
                 if not f.mdt:
                     continue
                 data = (f._pending if f._pending is not None
@@ -1062,7 +1091,7 @@ class Session(object):
             # libtn5250 session.c ends the outstanding read after transmitting
             # its input record.  A later Save Screen must not resurrect it.
             self.screen.last_read = None
-            for f in self.screen.input_fields():
+            for f in self.screen.read_fields():
                 f._pending = None
                 f.mdt = False
         return record

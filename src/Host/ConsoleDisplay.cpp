@@ -41,6 +41,7 @@ void ConsoleDisplay::clearScreen()
 {
     std::fill(screen_.begin(), screen_.end(), 0x40);
     operatorError_.clear();
+    firstInputField_ = 0;
 }
 
 int ConsoleDisplay::offset(int row, int col)
@@ -86,6 +87,7 @@ void ConsoleDisplay::apply(const uint8_t* data, int offset0, int length)
             } else if (cmd == 0x50) {   // Clear Format Table
                 flush();
                 fields_.clear();
+                firstInputField_ = 0;
             } else if (cmd == 0x11 && i + 1 < end) {
                 uint8_t cc2 = data[i + 1];
                 i += 2;
@@ -152,7 +154,12 @@ void ConsoleDisplay::apply(const uint8_t* data, int offset0, int length)
         }
         if (b == 0x01 && i + 1 < end) {   // Start of Header
             int n = data[i + 1];
-            i += 2 + n;
+            // Header byte 3 is the one-based number of the first input field
+            // to return.  Zero disables resequencing.  The field's x'80nn'
+            // FCW then selects its successor; absent FCWs imply the next
+            // field in normal screen order.
+            if (n >= 3 && i + 4 < end) firstInputField_ = data[i + 4];
+            i = std::min(end, i + 2 + n);
             continue;
         }
         if (b == 0x1D && i + 1 < end) {   // Start of Field
@@ -162,14 +169,18 @@ void ConsoleDisplay::apply(const uint8_t* data, int offset0, int length)
             // optional Field Control Words (2 each), attribute (1), field
             // length (2).  The FFW is identified by bit 0x40 in its first
             // byte and an FCW by bit 0x80 in its first byte.  This is the
-            // common encoding, not the whole order: an unusual FCW chain
-            // would mis-frame the length.
+            // common encoding.  Resequencing FCWs are retained below because
+            // they determine the logical order of a later input record.
             int ffw = -1;
+            int resequenceNext = -1;
             if (i + 1 < end && (data[i] & 0x40) != 0) {
                 ffw = (data[i] << 8) | data[i + 1];   // FFW implies input-capable
                 i += 2;
             }
-            while (i + 1 < end && (data[i] & 0x80) != 0) i += 2;   // FCWs
+            while (i + 1 < end && (data[i] & 0x80) != 0) {
+                if (data[i] == 0x80) resequenceNext = data[i + 1];
+                i += 2;
+            }
             int attrRow = row_, attrCol = col_;
             uint8_t attr = 0;
             if (i < end) {
@@ -193,6 +204,7 @@ void ConsoleDisplay::apply(const uint8_t* data, int offset0, int length)
             f.col = attrCol + 1;
             f.length = len;
             f.ffw = ffw;
+            f.resequenceNext = resequenceNext;
             f.attribute = attr;
             f.mdt = ffw >= 0 && ((ffw >> 8) & 0x08) != 0;
             fields_.erase(std::remove_if(fields_.begin(), fields_.end(),
@@ -276,7 +288,25 @@ std::vector<ConsoleField> ConsoleDisplay::inputFields() const
         if (f.isInput()) list.push_back(f);
     std::stable_sort(list.begin(), list.end(),
                      [](const ConsoleField& x, const ConsoleField& y) { return offset(x.row, x.col) < offset(y.row, y.col); });
-    return list;
+    if (firstInputField_ == 0) return list;
+
+    // SA21-9247 defines field numbers by normal screen order.  Resequencing
+    // starts at SOH byte 3 and follows x'80nn'; a missing FCW means the next
+    // normal field and x'80FF' terminates the chain.  Bound the traversal so
+    // a malformed closed loop cannot hang the emulator.
+    std::vector<ConsoleField> ordered;
+    std::vector<bool> seen(list.size(), false);
+    int number = firstInputField_;
+    while (number >= 1 && number <= static_cast<int>(list.size()) && ordered.size() < list.size()) {
+        std::size_t index = static_cast<std::size_t>(number - 1);
+        if (seen[index]) break;
+        seen[index] = true;
+        ordered.push_back(list[index]);
+        int next = list[index].resequenceNext;
+        if (next == 0xFF) break;
+        number = next >= 0 ? next : number + 1;
+    }
+    return ordered;
 }
 
 ConsoleField* ConsoleDisplay::typeInto(int row, int col, const std::string& text)

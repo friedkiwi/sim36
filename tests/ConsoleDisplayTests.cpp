@@ -70,12 +70,12 @@ TEST_CASE("console display: a real tn5250 zero-length SBA preserves the followin
     CHECK(afterError[3] == 0xC1);
 }
 
-TEST_CASE("console display: the DisplayWrite/36 CREATE DOCUMENT DESCRIPTION record expands in order")
+TEST_CASE("console display: DisplayWrite/36 CREATE honors SOH and FCW resequencing")
 {
     host::ConsoleDisplay display(0, false);
-    //   SYSTEM  r2 c44 ffw=6820 attr=22 len=12  (bypass profile field)
-    //   name    r5 c29 ffw=4820 attr=30 len=12
-    //   subject r6 c29 ffw=4800 attr=30 len=35
+    //   SYSTEM  r2 c45 ffw=6820 attr=22 len=12  (bypass profile field)
+    //   name    r5 c30 ffw=4820 attr=30 len=12
+    //   subject r6 c30 ffw=4800 attr=30 len=35
     std::vector<uint8_t> format = {0x11, 0x02, 0x2C, 0x1D, 0x68, 0x20, 0x22, 0x00, 0x0C};
     format.insert(format.end(), 12, 0x40);
     const std::vector<uint8_t> name = {0x11, 0x05, 0x1D, 0x1D, 0x48, 0x20, 0x30, 0x00, 0x0C};
@@ -84,6 +84,22 @@ TEST_CASE("console display: the DisplayWrite/36 CREATE DOCUMENT DESCRIPTION reco
     const std::vector<uint8_t> subject = {0x11, 0x06, 0x1D, 0x1D, 0x48, 0x00, 0x30, 0x00, 0x23};
     format.insert(format.end(), subject.begin(), subject.end());
     format.insert(format.end(), 35, 0x40);
+
+    // Fields 4, 5 and 6.  SOH starts the return at field 5.  Field 6's
+    // x'8001' FCW jumps back to field 1; fields 1-3 then proceed normally.
+    // This is the chain used by CREATE DOCUMENT DESCRIPTION:
+    //     5 -> 6 -> 1 -> 2 -> 3 -> 4 -> ...
+    const std::vector<uint8_t> field4 = {0x11, 0x07, 0x1D, 0x1D, 0x48, 0x00, 0x80, 0x07, 0x30, 0x00, 0x19};
+    format.insert(format.end(), field4.begin(), field4.end());
+    format.insert(format.end(), 25, 0x40);
+    const std::vector<uint8_t> field5 = {0x11, 0x08, 0x1D, 0x1D, 0x48, 0x20, 0x30, 0x00, 0x0C};
+    format.insert(format.end(), field5.begin(), field5.end());
+    format.insert(format.end(), 12, 0x40);
+    const std::vector<uint8_t> field6 = {0x11, 0x09, 0x1D, 0x1D, 0x48, 0x20, 0x80, 0x01, 0x30, 0x00, 0x08};
+    format.insert(format.end(), field6.begin(), field6.end());
+    format.insert(format.end(), 8, 0x40);
+    const std::vector<uint8_t> soh = {0x01, 0x03, 0x00, 0x00, 0x05};
+    format.insert(format.end(), soh.begin(), soh.end());
     display.apply(format.data(), 0, static_cast<int>(format.size()));
 
     // The operator reply as a real 5250 client sends it, trailing blanks
@@ -102,11 +118,8 @@ TEST_CASE("console display: the DisplayWrite/36 CREATE DOCUMENT DESCRIPTION reco
     CHECK(rec[0] == 0x06);
     CHECK(rec[1] == 0x33);
     CHECK(rec[2] == 0xF1);
-    CHECK(slice(rec, 3, 12) == roundTrip("SYSTEM      "));
-    CHECK(slice(rec, 15, 12) == roundTrip("HELLO       "));
+    CHECK(slice(rec, 23, 12) == roundTrip("SYSTEM      "));
+    CHECK(slice(rec, 35, 12) == roundTrip("HELLO       "));
     const std::string subj = roundTrip("Hello, world document");
-    CHECK(slice(rec, 27, subj.size()) == subj);
-    // Where a delivery 0x20 bytes low lands: a property of the record's
-    // content, recorded so the misread is attributable.
-    CHECK(slice(rec, 35, 12) == roundTrip("orld documen"));
+    CHECK(slice(rec, 47, subj.size()) == subj);
 }

@@ -26,10 +26,9 @@
 // for Read Input Fields (0x42) it copies the retained record verbatim from
 // +3.  The console sign-on read is command 0x42, so the record has to arrive
 // already in the positional all-fields shape: cursor(2) + AID(1) + every
-// input field's data concatenated in screen order, with no SBA orders.  That
-// is what buildInput emits.  The panel's fields are 9, 8, 4, 6, 8, 8, 1, 6,
-// 6, 1 bytes, so the User ID lands at offset 9, exactly where the guest's
-// first-character validator looks.
+// input field's data concatenated in the order selected by SOH/FCWs, with no
+// SBA orders.  That is what buildInput emits.  With resequencing disabled,
+// the sign-on panel's fields are returned in normal screen order.
 #pragma once
 
 #include <cstdint>
@@ -44,6 +43,7 @@ namespace sim36::host {
 struct ConsoleField {
     int row = 0, col = 0, length = 0;
     int ffw = -1;                 // -1 when the SF carried none
+    int resequenceNext = -1;      // x'80nn' FCW, or -1 for normal successor
     uint8_t attribute = 0;
     bool mdt = false;             // Modify Data Tag
     bool hasPending = false;      // typed by `console put`, not yet sent
@@ -100,8 +100,8 @@ public:
     void setCursor(int row, int col) { cursorRow_ = row; cursorCol_ = col; }
     // The input field covering a screen position, or nullptr.
     ConsoleField* fieldAt(int row, int col);
-    // The format table's input fields in screen order: the order a Read
-    // Input Fields record concatenates them in.
+    // The format table's input fields in the order selected by the SOH and
+    // x'80nn' resequencing FCWs (screen order when resequencing is disabled).
     std::vector<ConsoleField> inputFields() const;
     // Type into the field covering (row, col), as an operator would.  The
     // value is held per field, so a session that fills User ID, Date and
@@ -110,10 +110,12 @@ public:
     ConsoleField* typeInto(int row, int col, const std::string& text);
     // Merge a terminal Read-MDT reply into the device's screen image and
     // construct the later Read-Input-Fields result: cursor(2), AID(1), then
-    // every input field contiguously, including keyboard-bypass fields.
+    // every input field contiguously, including keyboard-bypass fields and
+    // honoring the format table's input-field resequencing chain.
     std::vector<uint8_t> expandModifiedInput(const std::vector<uint8_t>& response);
     // The 5250 input record the guest expects: cursor row, cursor column,
-    // AID, then EVERY input field's data in screen order with no SBA orders.
+    // AID, then EVERY input field's data in format-table return order with no
+    // SBA orders.
     std::vector<uint8_t> buildInput(uint8_t aid) const;
     // Drop the typed values and the MDTs after a record is sent, exactly as
     // a display does when it transmits.
@@ -132,6 +134,7 @@ private:
 
     int row_ = 1, col_ = 1;
     int cursorRow_ = 1, cursorCol_ = 1;
+    int firstInputField_ = 0;     // SOH byte 3; zero disables resequencing
     std::vector<uint8_t> screen_;
     std::vector<uint8_t> operatorError_;
     std::vector<ConsoleField> fields_;
