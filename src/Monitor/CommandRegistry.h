@@ -35,6 +35,17 @@ public:
     // Renders the grouped help listing to stdout.
     static void printHelp();
 
+    // Tab-completion vocabulary for the word following `preceding` (the
+    // tokens already on the line).  `words` are the keywords accepted in that
+    // position; `paths` says the position also takes a host file name, so
+    // the console may offer directory entries.  Filtering by the partial word
+    // under the cursor is the caller's job.
+    struct Completion {
+        std::vector<std::string> words;
+        bool paths = false;
+    };
+    static Completion complete(const std::vector<std::string>& preceding);
+
     // Commands which must run on the shell thread because they control or
     // join execution, recurse through command files, or may prompt.
     static bool isHostControl(const std::vector<std::string>& a);

@@ -217,6 +217,10 @@ void SimulatorSession::run()
     fmt::print("SIM/36 - System/36 emulator\n");
     fmt::print("type 'help' for commands, 'quit' to exit\n");
     host::Console console;
+    console.setCompleter([](const std::vector<std::string>& preceding) {
+        CommandRegistry::Completion c = CommandRegistry::complete(preceding);
+        return host::Console::Completion{std::move(c.words), c.paths};
+    });
     while (!quitRequested_) {
         std::optional<std::string> line = console.readLine(kPrompt);
         if (!line) break;

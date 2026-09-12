@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 
 #include <fmt/format.h>
@@ -170,6 +171,113 @@ bool CommandRegistry::isShowTarget(const std::string& target)
 {
     return equalsIgnoreCase(target, "config") || equalsIgnoreCase(target, "status") ||
            equalsIgnoreCase(target, "terminal") || isMachineShowTarget(target);
+}
+
+CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::string>& preceding)
+{
+    Completion out;
+    auto words = [&out](std::initializer_list<const char*> ws) {
+        for (const char* w : ws) out.words.push_back(w);
+    };
+    if (preceding.empty()) {
+        for (const Command& c : table()) out.words.push_back(c.name);
+        return out;
+    }
+    const Command* command = find(preceding[0]);
+    if (command == nullptr) return out;
+    const std::string verb = command->name;
+    const std::size_t pos = preceding.size();  // index of the word being completed
+    auto at = [&preceding](std::size_t i, const char* w) {
+        return i < preceding.size() && equalsIgnoreCase(preceding[i], w);
+    };
+
+    if (verb == "show" && pos == 1) {
+        words({"config", "status", "terminal", "cpu", "storage", "csp", "atr", "ptt", "workstation"});
+    } else if (verb == "get" && pos == 1) {
+        words({"terminal"});
+    } else if (verb == "set") {
+        if (pos == 1) {
+            words({"machine", "station", "terminal", "disk0", "diskette0", "tape0",
+                   "iar", "xr1", "xr2", "arr", "psr", "pxr1", "pxr2", "pdir", "piar",
+                   "wr4", "wr5", "wr6", "wr7"});
+        } else if (at(1, "machine") && pos == 2) {
+            words({"model", "memory", "task-work-area", "host-model", "host-processor-model",
+                   "host-processor-feature", "ipl-type", "ipl-source", "load-source",
+                   "listener-auto-signon", "signon-use-router", "signon-statement",
+                   "signon-request", "signon-router-key", "ws-interactive"});
+        } else if (at(1, "machine") && pos == 3 &&
+                   (at(2, "listener-auto-signon") || at(2, "signon-use-router") ||
+                    at(2, "signon-statement") || at(2, "signon-request") || at(2, "ws-interactive"))) {
+            words({"on", "off"});
+        } else if (at(1, "station") && pos == 3) {
+            words({"role", "device-code", "listen", "signon-at-ipl"});
+        } else if (at(1, "station") && pos == 4 && at(3, "role")) {
+            words({"console", "display", "printer"});
+        } else if (at(1, "station") && pos == 4 && at(3, "signon-at-ipl")) {
+            words({"on", "off"});
+        } else if (at(1, "terminal") && pos == 2) {
+            words({"multiplex"});
+        } else if (at(1, "terminal") && pos == 3) {
+            words({"on", "off", "listen"});
+        }
+    } else if (verb == "save") {
+        if (pos == 1) words({"config"});
+        else if (pos == 2) { words({"stdout"}); out.paths = true; }
+        else if (pos == 3) words({"--force"});
+    } else if (verb == "snapshot") {
+        if (pos == 1) words({"save", "load"});
+        else if (pos == 2) out.paths = true;
+    } else if (verb == "do" || verb == "loadfile" || verb == "savemain" ||
+               verb == "tapetest" || verb == "tapesvc") {
+        if (pos == 1) out.paths = true;
+    } else if (verb == "attach") {
+        if (pos == 1) words({"disk0", "diskette0", "tape0"});
+        else if (pos == 2) out.paths = true;
+    } else if (verb == "detach" && pos == 1) {
+        words({"disk0", "diskette0", "tape0"});
+    } else if (verb == "remove" && pos == 1) {
+        words({"station"});
+    } else if (verb == "reset" && pos == 1) {
+        words({"--yes"});
+    } else if (verb == "ipl" && pos == 1) {
+        words({"pause"});
+    } else if (verb == "wait" && pos == 1) {
+        words({"idle"});
+    } else if (verb == "listener-auto-signon" && pos == 1) {
+        words({"on", "off"});
+    } else if (verb == "trace" && pos == 1) {
+        words({"off", "workstation"});
+    } else if (verb == "watch" && pos == 1) {
+        words({"off", "list"});
+    } else if ((verb == "break" || verb == "breakm") && pos == 1) {
+        words({"list", "clear"});
+    } else if (verb == "diskette") {
+        if (pos == 1) words({"insert", "eject"});
+        else if (pos == 2 && at(1, "insert")) out.paths = true;
+    } else if (verb == "vtoc" && pos == 1) {
+        words({"system", "user"});
+    } else if ((verb == "tasklist" || verb == "mapstate") && pos == 1) {
+        words({"current"});
+    } else if (verb == "sqsstate" && pos == 1) {
+        words({"all"});
+    } else if (verb == "modules" && pos == 1) {
+        words({"active", "loaded"});
+    } else if (verb == "residency" && pos == 1) {
+        words({"program", "transient"});
+    } else if (verb == "wsstate" && pos == 1) {
+        words({"watch", "clear"});
+    } else if (verb == "addrmap" && pos == 3) {
+        words({"read", "write"});
+    } else if (verb == "wsioch" && pos == 1) {
+        words({"42", "43"});
+    } else if (verb == "wsoc" && pos == 2) {
+        words({"active", "inactive"});
+    } else if (verb == "ace" && pos == 1) {
+        words({"queue"});
+    } else if (verb == "cptcstate" && pos == 2) {
+        words({"classify"});
+    }
+    return out;
 }
 
 void CommandRegistry::printHelp()

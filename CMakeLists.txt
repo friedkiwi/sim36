@@ -124,6 +124,7 @@ target_link_libraries(sim36 PRIVATE sim36core cxxopts::cxxopts)
 add_executable(sim36_tests
     tests/main.cpp
     tests/CommandLineTests.cpp
+    tests/CompletionTests.cpp
     tests/ConfigTests.cpp
     tests/ConsoleDisplayTests.cpp
     tests/CspTests.cpp
