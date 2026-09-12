@@ -163,7 +163,7 @@ set(SIM36_VOLUME_GATES program_block_svcs work_area_svcs task_creation task_disp
     resource_svcs relocating_loader print_buffer system_queue_space system_queue_ownership
     nupterm_probes timer_transient timer_op20 timer_op38 disk_write_wrap command_files ipl_command
     workstation_actions wsc_config workstation_seam printer_seam live_monitor station_multiplex
-    station_power_cycle machine_lifecycle ipl_main_session ipl_unattended_main_session
+    station_power_cycle machine_lifecycle multi_session_signon ipl_main_session ipl_unattended_main_session
     snapshot panic_command tape tape_svc tape_operator ipl_source atr_ownership)
 foreach(gate IN LISTS SIM36_VOLUME_GATES)
     string(REPLACE "_" "-" script ${gate})

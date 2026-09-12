@@ -1020,10 +1020,13 @@ bool DeviceSet::readInputFields(int iob, WorkStationSlot& slot)
         int selectedDestination = *stagingDestination;
         if ((workspace & IoBlock::kDataBufferTranslated) != 0) {
             selectedDestination += workspace & 0x7FF;
-            // The same displacement, measured into the work-space BLOCK
-            // rather than the A7-captured real frame; the completion
-            // delivers there too.
-            stagingBlockDisplacement = workspace & 0x7FF;
+            // The deferred copy addresses the whole work-space BLOCK, not
+            // the one A7-captured real page.  Keep the translated page bits
+            // here: later sessions can be allocated beyond the block's first
+            // 2 KiB page even though their A7 staging frame is already that
+            // selected page.  Masking to the in-page offset made the third
+            // sign-on replay its fields into page zero (SYS-5552).
+            stagingBlockDisplacement = workspace & ~IoBlock::kDataBufferTranslated;
         }
         if (selectedDestination >= 0 && selectedDestination + capacity <= m_.backingBytes()) {
             destination = captureRealBuffer(selectedDestination, capacity);

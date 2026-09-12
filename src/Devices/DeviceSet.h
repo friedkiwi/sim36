@@ -300,8 +300,8 @@ private:
     std::optional<DeferredWorkStationInput> lastDeferredInput_;
     // The response to a put-with-invite is staged in the translated work
     // page from which the display manager built that put; the page the
-    // guest selected is remembered, and the allocation displacement within
-    // it stays guest state at TUB+0x43..0x45.
+    // guest selected is remembered, while the full displacement within the
+    // logical work-space block stays guest state at TUB+0x43..0x45.
     SlotMap<int, int> inputStagingPages_;
     // The response-side control field remains controller-owned until SSP
     // re-enters the output path with class C1, which copies it to the unit
