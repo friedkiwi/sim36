@@ -502,6 +502,7 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
             DeferredWorkStationInput held;
             held.bytes.assign(raw.begin() + 3, raw.begin() + 3 + copied);
             held.blockDisplacement = pending->stagingBlockDisplacement;
+            held.wsuReturnCopy = pending->wsuReturnCopy;
             lastDeferredInput_ = std::move(held);
         }
     }
@@ -1032,6 +1033,11 @@ bool DeviceSet::readInputFields(int iob, WorkStationSlot& slot)
     pending.destination = destination;
     pending.capacity = capacity;
     pending.stagingBlockDisplacement = stagingBlockDisplacement;
+    // #WDDG's WSU/$SFGR path gives command 42 a translated requester
+    // buffer and later copies from the mapped staging record plus the
+    // format's field-data offset.  SSP command processors give it a real
+    // buffer and consume the staged record at offset zero.
+    pending.wsuReturnCopy = (bufferField & IoBlock::kDataBufferTranslated) != 0;
     pendingInputReads_.set(iob, std::move(pending));
     trace_.ws("  Read Input Fields PENDING: controller retained IOB {:06X} for unit {:02X}, issue-time buffer {:06X} -> "
               "{:06X}, capacity {}; no ECM completion is posted until a real terminal record has been parsed. Raw RFC-1205 "

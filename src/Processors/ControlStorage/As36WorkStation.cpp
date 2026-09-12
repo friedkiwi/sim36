@@ -23,6 +23,18 @@
 
 namespace sim36::processors::controlstorage {
 
+int workStationInputFieldDataOffset(machine::MachineState& m, int taskBlock, bool wsuReturnCopy)
+{
+    if (!wsuReturnCopy || !TaskBlock::isTaskBlock(m, taskBlock)) return 0;
+
+    constexpr int kWsuFieldDataEnd = 0x17;
+    int workBase = m.readAddr24(taskBlock + TaskBlock::kOffWorkBase);
+    if (workBase <= 0 || workBase + kWsuFieldDataEnd >= m.backingBytes()) return 0;
+
+    uint8_t oneOriginEnd = m.readByte(workBase + kWsuFieldDataEnd);
+    return oneOriginEnd == 0 ? 0 : oneOriginEnd - 1;
+}
+
 using devices::UnitBlock;
 using devices::WorkStationIob;
 using devices::WorkStationSlot;
@@ -1018,7 +1030,9 @@ void As36ControlStorageProcessor::deliverDeferredWorkStationInput(int taskBlock,
     if (it == deferredWsInput_.end()) return;
     if (type >= ControlBlock::kTypeTaskOwned) return;
 
-    int disp = it->second.blockDisplacement;
+    int blockDisplacement = it->second.blockDisplacement;
+    int fieldDataOffset = workStationInputFieldDataOffset(m_, taskBlock, it->second.wsuReturnCopy);
+    int disp = blockDisplacement + fieldDataOffset;
     int page = disp >> machine::MachineState::kPageShift;
     int offset = disp & (machine::MachineState::kPageBytes - 1);
 
@@ -1041,8 +1055,9 @@ void As36ControlStorageProcessor::deliverDeferredWorkStationInput(int taskBlock,
     for (int n = 0; n < copied; n++) m_.writeByte(dest + n, it->second.bytes[static_cast<std::size_t>(n)]);
     deferredWsInput_.erase(it);
     trace_.csp("SVC 2F: delivered {} Read Input Fields byte(s) onto work-space block {:06X} resident frame {:06X}+{:03X} = "
-               "real {:06X} (readInputFields staging coherence: the frame #WDDG's D418 MVC reads)",
-               copied, block, frame, offset, dest);
+               "real {:06X} (record base {:03X} + WSU field-data offset {:02X}; readInputFields staging coherence: the "
+               "frame #WDDG's D418 MVC reads)",
+               copied, block, frame, offset, dest, blockDisplacement, fieldDataOffset);
 }
 
 }  // namespace sim36::processors::controlstorage

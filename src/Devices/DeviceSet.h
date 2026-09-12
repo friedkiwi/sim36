@@ -138,6 +138,10 @@ public:
     struct DeferredWorkStationInput {
         std::vector<uint8_t> bytes;   // the parsed field bytes (response+3..)
         int blockDisplacement = 0;    // byte offset into the work-space block
+        // A translated requester buffer identifies the WSU/$SFGR return
+        // copier.  Unlike the SSP direct-read path, that copier adds the
+        // display format's leading indicator-area length before its MVC.
+        bool wsuReturnCopy = false;
     };
 
     // What a snapshot of the pending device state carries (milestone 7).
@@ -254,6 +258,7 @@ private:
         // return copy reads, or -1 when command 42 did not resolve through
         // the input-staging page.
         int stagingBlockDisplacement = -1;
+        bool wsuReturnCopy = false;
     };
     struct PendingScreenSave {
         WorkStationSlot* slot = nullptr;

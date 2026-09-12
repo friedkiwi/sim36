@@ -52,6 +52,12 @@ struct LoadedMember {
     int logicalBase;         // guest address the member runs at (pb+12 << 11)
 };
 
+// Field-data displacement added by #WDDG's WSU/$SFGR return copier.  The
+// descriptor at task-work-base+0x17 stores the one-origin end of the leading
+// indicator area; SSP direct reads do not use this copier and therefore use
+// offset zero.
+int workStationInputFieldDataOffset(machine::MachineState& m, int taskBlock, bool wsuReturnCopy);
+
 class As36ControlStorageProcessor : public IControlStorageProcessor, public TransientHost {
 public:
     // Phase 1 is the boot record plus the 15 sectors after it, read as one
