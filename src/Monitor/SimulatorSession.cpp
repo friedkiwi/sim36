@@ -1,5 +1,9 @@
 #include "Monitor/SimulatorSession.h"
+#include <filesystem>
+#include "Monitor/PanicDump.h"
+#include "Monitor/MachineSnapshot.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -266,6 +270,16 @@ void SimulatorSession::executeTokens(std::vector<std::string> a)
 {
     if (a.empty()) return;
     a = CommandRegistry::canonicalize(std::move(a));
+    // With a guest thread owning the machine, every command that touches
+    // machine state runs on that thread at its next safe boundary, so a
+    // live `console send` sees exactly what a scripted one sees.  Host
+    // control verbs (`stop`, `wait`, `quit`, ...) stay on the monitor
+    // thread.
+    if (monitor_ && monitor_->shouldMarshal() && !CommandRegistry::isHostControl(a)) {
+        const Args copy = a;
+        monitor_->runOnGuestThread([this, &copy] { executeTokensCore(copy); });
+        return;
+    }
     executeTokensCore(a);
 }
 
@@ -288,8 +302,7 @@ void SimulatorSession::executeTokensCore(const Args& a)
     if (command == nullptr) throw MonitorError("unknown command '" + a[0] + "' - try help");
 
     if (verb == "quit") { quitRequested_ = true; return; }
-    if (verb == "panic")
-        throw MonitorError("panic: not ported yet (milestone 7)");
+    if (verb == "panic") { panic(a); return; }
     if (verb == "help") { CommandRegistry::printHelp(); return; }
     if (verb == "do") {
         need(a, 2, "do <command-file>");
@@ -297,8 +310,7 @@ void SimulatorSession::executeTokensCore(const Args& a)
         return;
     }
     if (verb == "reset") { resetMachine(a); return; }
-    if (verb == "snapshot")
-        throw MonitorError("snapshot: not ported yet (milestone 7)");
+    if (verb == "snapshot") { snapshot(a); return; }
     if (verb == "show" && (a.size() < 2 || !CommandRegistry::isShowTarget(a[1])))
         throw MonitorError(a.size() < 2
             ? std::string("show what? config|status|terminal|cpu|storage|csp|atr|ptt|workstation")
@@ -422,10 +434,12 @@ void SimulatorSession::constructMachine()
     reconcileListeners();
     std::unique_ptr<machine::Machine> candidate;
     try {
-        candidate = std::make_unique<machine::Machine>(definition_);
+        candidate = std::make_unique<machine::Machine>(definition_, &stationBackends_);
     } catch (const storage::FileNotFoundError&) {
+        for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, [this] { signalConstructedMachine(); });
         throw;
     } catch (const std::runtime_error& e) {
+        for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, [this] { signalConstructedMachine(); });
         throw MonitorError(e.what());
     }
     candidate->trace.flags = pendingTrace_;
@@ -433,7 +447,12 @@ void SimulatorSession::constructMachine()
     machine_ = std::move(candidate);
     monitor_ = std::make_unique<MonitorCli>(*machine_);
     for (auto& kv : stationBackends_) kv.second->resetForMachine();
+    // Put every client the multiplexer already placed into this new
+    // machine's backends, before anything is IPLed: a client that selected
+    // W3 while the machine was stopped must BE on W3 when the guest looks,
+    // without reconnecting.
     if (multiplexer_) multiplexer_->rebind();
+    machine_->startListeners();
 }
 
 void SimulatorSession::releaseMachine()
@@ -444,7 +463,7 @@ void SimulatorSession::releaseMachine()
     if (multiplexer_) multiplexer_->reclaim();
     monitor_.reset();
     machine_.reset();
-    for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, []() {});
+    for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, [this] { signalConstructedMachine(); });
 }
 
 void SimulatorSession::resetMachine(const Args& a)
@@ -708,10 +727,10 @@ void SimulatorSession::reconcileListeners()
         std::unique_ptr<host::StationBackend> fresh;
         if (printer)
             fresh = std::make_unique<host::PrinterBackend>(s.listenHost, s.listenPort, "printer " + s.id(),
-                                                           &listenerTrace_, []() {});
+                                                           &listenerTrace_, [this] { signalConstructedMachine(); });
         else
             fresh = std::make_unique<host::WorkstationBackend>(s.listenHost, s.listenPort, "station " + s.id(),
-                                                               &listenerTrace_, []() {});
+                                                               &listenerTrace_, [this] { signalConstructedMachine(); });
         if (console) static_cast<host::WorkstationBackend*>(fresh.get())->attachConsole();
         else if (shouldListen) fresh->listen();
         stationBackends_[s.id()] = std::move(fresh);
@@ -728,11 +747,95 @@ void SimulatorSession::reconcileListeners()
 
 void SimulatorSession::disposeStationBackends() { stationBackends_.clear(); }
 
+// The doorbell a listener rings: a machine, if one is latched, wakes its
+// parked driver loop.
+void SimulatorSession::signalConstructedMachine()
+{
+    if (machine_) machine_->signalNativeEvent();
+}
+
+// ---- IStationMultiplexerHost
+
+std::vector<host::MultiplexStationView> SimulatorSession::multiplexStations()
+{
+    if (machine_) return machine_->multiplexStations();
+
+    std::vector<const StationConfig*> ordered;
+    for (const StationConfig& s : definition_.stations) ordered.push_back(&s);
+    std::stable_sort(ordered.begin(), ordered.end(), [](const StationConfig* x, const StationConfig* y) {
+        return x->port != y->port ? x->port < y->port : x->address < y->address;
+    });
+    std::vector<host::MultiplexStationView> view;
+    int n = 0;
+    for (const StationConfig* s : ordered) {
+        if (s->isPrinter()) continue;
+        n++;
+        host::MultiplexStationView v;
+        v.number = n;
+        v.id = s->id();
+        v.isConsole = s->port == 0 && s->address == 0;
+        // No machine, so no backend and nothing attached.  Whether a
+        // multiplexer client is already parked here is the multiplexer's own
+        // bookkeeping, which it applies itself.
+        v.available = true;
+        v.backend = nullptr;
+        view.push_back(v);
+    }
+    return view;
+}
+
+std::string SimulatorSession::machineStatusText()
+{
+    if (!machine_) return "stopped";
+    return monitor_ && monitor_->executionActive() ? "running" : "stopped";
+}
+
+std::vector<std::string> SimulatorSession::mediaLines()
+{
+    if (machine_) return machine_->mediaLines();
+
+    // Before IPL construction the definition is all there is, and it is
+    // enough.  The image is measured off the file rather than guessed at,
+    // and a path that does not exist says so instead of inventing a size.
+    std::vector<std::string> lines;
+    lines.push_back("Drive 1: " + mediaName(definition_.volumePath) + "  " + fileSize(definition_.volumePath) +
+                    (definition_.volumeOverlay ? " overlay" : definition_.volumeReadOnly ? " readonly" : ""));
+    if (!definition_.diskettePath.empty())
+        lines.push_back("Diskette: " + mediaName(definition_.diskettePath) + "  " + fileSize(definition_.diskettePath) +
+                        (definition_.disketteReadOnly ? " readonly" : ""));
+    if (definition_.tape && !definition_.tape->folderPath.empty()) {
+        std::string folder = definition_.tape->folderPath;
+        while (!folder.empty() && (folder.back() == '/' || folder.back() == '\\')) folder.pop_back();
+        lines.push_back("Tape: " + mediaName(folder) + (definition_.tape->readOnly ? " readonly" : ""));
+    }
+    return lines;
+}
+
+std::string SimulatorSession::mediaName(const std::string& path)
+{
+    if (path.empty()) return "(none)";
+    std::string trimmed = path;
+    while (!trimmed.empty() && (trimmed.back() == '/' || trimmed.back() == '\\')) trimmed.pop_back();
+    return std::filesystem::path(trimmed).filename().string();
+}
+
+std::string SimulatorSession::fileSize(const std::string& path)
+{
+    std::error_code ec;
+    if (path.empty() || !std::filesystem::exists(path, ec) || ec) return "(not attached)";
+    const auto b = static_cast<long long>(std::filesystem::file_size(path, ec));
+    if (ec) return "(unreadable)";
+    if (b >= 1024LL * 1024 * 1024) return std::to_string(b / (1024LL * 1024 * 1024)) + "G";
+    if (b >= 1024LL * 1024) return std::to_string(b / (1024LL * 1024)) + "M";
+    if (b >= 1024) return std::to_string(b / 1024) + "K";
+    return std::to_string(b) + "B";
+}
+
 void SimulatorSession::startMultiplexer()
 {
     if (multiplexer_) return;
     auto mux = std::make_unique<host::StationMultiplexer>(definition_.multiplexHost,
-                                                          definition_.multiplexPort, &multiplexerTrace_);
+                                                          definition_.multiplexPort, &multiplexerTrace_, this);
     mux->listen();
     multiplexer_ = std::move(mux);
     reportMultiplexer();
@@ -976,6 +1079,103 @@ void SimulatorSession::requireConfigurable() const
 {
     if (machineConstructed())
         throw MonitorError("machine definition is latched by the current IPL; use 'reset' before changing it");
+}
+
+}  // namespace sim36::monitor
+
+namespace sim36::monitor {
+
+// Freeze first: an operator may need minutes to describe the fault, and
+// the evidence must describe the instant panic was requested, not whatever
+// state the guest reaches while the questions are open.
+void SimulatorSession::panic(const Args& a)
+{
+    if (a.size() != 1) throw MonitorError("panic");
+    if (monitor_) monitor_->stopExecutionForTeardown();
+
+    fmt::print("What happened? ");
+    std::fflush(stdout);
+    std::string description;
+    std::getline(std::cin, description);
+    fmt::print("How can it be reproduced? ");
+    std::fflush(stdout);
+    std::string reproduction;
+    std::getline(std::cin, reproduction);
+
+    std::vector<host::StationBackend*> backends;
+    for (auto& kv : stationBackends_) backends.push_back(kv.second.get());
+    std::string path = PanicDump::create(panicAnswer(description), panicAnswer(reproduction), definition_, machine_.get(),
+                                         pendingTrace_, backends);
+    fmt::print("panic dump created: {}\n", path);
+    quitRequested_ = true;
+}
+
+std::string SimulatorSession::panicAnswer(const std::string& answer)
+{
+    std::size_t b = answer.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos) return "(not provided)";
+    std::size_t e = answer.find_last_not_of(" \t\r\n");
+    return answer.substr(b, e - b + 1);
+}
+
+void SimulatorSession::snapshot(const Args& a)
+{
+    need(a, 3, "snapshot save|load <checkpoint>");
+    if (a.size() != 3 || (!eq(a[1], "save") && !eq(a[1], "load"))) throw MonitorError("snapshot save|load <checkpoint>");
+    std::string path = resolvePath(a[2]);
+    if (eq(a[1], "save")) {
+        try {
+            MachineSnapshot::save(path, definition_, machine_.get(), pendingTrace_);
+        } catch (const std::runtime_error& e) {
+            throw MonitorError(e.what());
+        }
+        fmt::print("snapshot: saved {} ({})\n", std::filesystem::absolute(path).string(),
+                   machine_ ? "constructed" : "configurable");
+        return;
+    }
+
+    MachineSnapshot::Loaded saved;
+    try {
+        saved = MachineSnapshot::load(path);
+    } catch (const std::runtime_error& e) {
+        throw MonitorError(e.what());
+    }
+    if (machine_) releaseMachine();
+    if (multiplexer_) stopMultiplexer();
+    disposeStationBackends();
+    deleteSnapshotMedia();
+    definition_ = saved.config;
+    pendingTrace_ = saved.trace;
+    snapshotMediaDirectory_ = saved.mediaDirectory;
+    if (!definition_.volumePath.empty()) reportVolume(definition_.volumePath);
+    if (!saved.powered) {
+        reconcileListeners();
+        if (definition_.stationMultiplex) startMultiplexer();
+        fmt::print("snapshot: loaded configurable machine definition and media from {}\n",
+                   std::filesystem::absolute(path).string());
+        return;
+    }
+    try {
+        reconcileListeners();
+        if (definition_.stationMultiplex) startMultiplexer();
+        constructMachine();
+        std::string failure;
+        if (!machine_->restoreCheckpoint(*saved.runtime, failure)) throw MonitorError(failure);
+        fmt::print("snapshot: restored constructed machine at IAR {:04X} after {} guest instruction(s)\n",
+                   machine_->state.msp.iar, machine_->msp().instructionsExecuted());
+    } catch (...) {
+        if (machine_) releaseMachine();
+        throw;
+    }
+}
+
+void SimulatorSession::deleteSnapshotMedia()
+{
+    if (snapshotMediaDirectory_.empty()) return;
+    std::string owned = snapshotMediaDirectory_;
+    snapshotMediaDirectory_.clear();
+    std::error_code ec;
+    if (std::filesystem::exists(owned, ec)) std::filesystem::remove_all(owned, ec);
 }
 
 }  // namespace sim36::monitor

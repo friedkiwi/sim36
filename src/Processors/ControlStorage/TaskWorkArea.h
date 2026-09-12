@@ -127,6 +127,32 @@ public:
         free_.emplace_back(0, kSectors);
     }
 
+    int available() const
+    {
+        int n = 0;
+        for (const auto& r : free_) n += r.second;
+        return n;
+    }
+
+    // The free list as (address, sectors) pairs, for a checkpoint.
+    std::vector<int> captureCheckpoint() const
+    {
+        std::vector<int> v;
+        for (const auto& r : free_) {
+            v.push_back(r.first);
+            v.push_back(r.second);
+        }
+        return v;
+    }
+    // False (and nothing changed) when the pairs are malformed.
+    bool restoreCheckpoint(const std::vector<int>& v)
+    {
+        if ((v.size() & 1) != 0) return false;
+        free_.clear();
+        for (std::size_t i = 0; i < v.size(); i += 2) free_.emplace_back(v[i], v[i + 1]);
+        return true;
+    }
+
 private:
     std::vector<std::pair<int, int>> free_;
 };

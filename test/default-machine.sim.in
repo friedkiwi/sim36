@@ -1,0 +1,11 @@
+# The default machine for the host-layer tests: the reference's shipped
+# definition, with the volume supplied at run time.
+# Attached `overlay`: writes are accepted into memory and never reach the file.
+attach disk0 @VOLUME@ overlay
+set station 0.0 role console
+set station 0.1 listen 127.0.0.1:2301
+set station 0.2 listen 127.0.0.1:2302
+set station 0.3 listen 127.0.0.1:2303
+set station 0.4 listen 127.0.0.1:2304
+set station 0.5 listen 127.0.0.1:2305
+set station 0.6 listen 127.0.0.1:2306

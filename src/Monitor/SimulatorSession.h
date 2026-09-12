@@ -35,7 +35,11 @@ public:
         : std::runtime_error(file + ":" + std::to_string(line) + ": " + message) {}
 };
 
-class SimulatorSession {
+// The multiplexer asks the CHASSIS, not the machine, because it has to
+// paint a correct screen with no machine at all: every field on it has a
+// defined value before construction, rendered from the definition when the
+// machine object does not exist yet.
+class SimulatorSession : public host::IStationMultiplexerHost {
 public:
     // A session whose startup command file has not yet been applied.
     // Services are activated by activateConfiguredServices() after the
@@ -67,6 +71,11 @@ public:
     static bool checkFile(const std::string& path);
     const configuration::EmulatorConfig& definition() const { return definition_; }
 
+    // ---- IStationMultiplexerHost
+    std::vector<host::MultiplexStationView> multiplexStations() override;
+    std::string machineStatusText() override;
+    std::vector<std::string> mediaLines() override;
+
 private:
     using Args = std::vector<std::string>;
 
@@ -74,6 +83,10 @@ private:
     void constructMachine();
     void releaseMachine();
     void resetMachine(const Args& a);
+    void panic(const Args& a);
+    static std::string panicAnswer(const std::string& answer);
+    void snapshot(const Args& a);
+    void deleteSnapshotMedia();
     void setDefinition(const Args& a);
     void setTerminal(const Args& a);
     void setMachine(const Args& a);
@@ -84,6 +97,7 @@ private:
     void showStatus();
     void getTerminalConfiguration();
     void showTerminals();
+    void signalConstructedMachine();
     void reconcileListeners();
     void disposeStationBackends();
     void startMultiplexer();
@@ -93,6 +107,8 @@ private:
     void removeStation(const Args& a);
     void media(const Args& a);
     static void reportVolume(const std::string& path);
+    static std::string mediaName(const std::string& path);
+    static std::string fileSize(const std::string& path);
     void saveConfig(const Args& a);
     std::string resolvePath(const std::string& path) const;
     configuration::StationConfig& findOrCreateStation(const std::string& id);
@@ -113,6 +129,7 @@ private:
     Tracer multiplexerTrace_;
     std::unique_ptr<host::StationMultiplexer> multiplexer_;
     uint32_t pendingTrace_ = TraceNone;
+    std::string snapshotMediaDirectory_;
 };
 
 }  // namespace sim36::monitor

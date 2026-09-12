@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <stdexcept>
 
 #include <fmt/format.h>
 
@@ -83,7 +84,11 @@ void As36ControlStorageProcessor::bringUpControlProcessor()
     heap_.reset();
     // The ACEs live in the pool the line above just rebuilt.
     aces_.reset();
+    systemMeasurementEnabled_ = false;
     pendingDeviceAces_.clear();
+    deferredWsInput_.clear();
+    nutixTimers_.clear();
+    nativeTransferContinuations_.clear();
     currentTransientProgramBlock_ = 0;
     devices_.resetPendingIo();
     trace_.csp("control processor bring-up: native, no microcode to load");
@@ -117,6 +122,13 @@ void As36ControlStorageProcessor::bringUpControlProcessor()
 // here.
 void As36ControlStorageProcessor::iplMainProcessor()
 {
+    wsPresentByTask_.clear();
+    transferredWorkStationTub_ = 0;
+    transferredAutoSignOn_ = false;
+    transferredWorkStations_.clear();
+    pendingTransferredWorkStationTub_ = 0;
+    pendingTransferAutoSignOn_ = false;
+    lastM36WorkStationTransferPostedGuestWork_ = false;
     GuestLowStorage::HostInfo host;
     host.model = cfg_.hostModel;
     host.processorFeature = cfg_.hostProcessorFeature;
@@ -136,8 +148,11 @@ void As36ControlStorageProcessor::iplMainProcessor()
     // processor information, then this, which asks for the terminal block
     // only.
     buildSystemUnitBlock(true);
-    // The work station controller's IPL activation touches host-side slot
-    // state only; the controller arrives with milestone 6.
+    // Only after the bootstrap unit block is published does the IPL walk the
+    // work-station list and activate the displays acquired at IPL: a physical
+    // report-in that is already pending may then enter the controller's
+    // lookup, which starts at the block just created.
+    devices_.activateIplWorkStations();
     loadPhase1();
     postInitialTask();
 
@@ -271,10 +286,8 @@ void As36ControlStorageProcessor::loadPhase1()
     int bytes = kPhase1Sectors * storage::DiskBackend::kSectorBytes;
     std::vector<uint8_t> buf(static_cast<std::size_t>(bytes));
     if (cfg_.loadsFromDiskette()) {
-        // The diskette-resident phase 1 arrives with the diskette drive in
-        // milestone 7.
-        trace_.line("csp", "phase 1 from diskette is not ported yet (milestone 7): the diskette drive does not exist");
-        lastRefusal_ = "phase 1 from diskette is not ported yet (milestone 7)";
+        loadPhase1FromDiskette(buf.data(), bytes);
+        m_.write(kPhase1LoadAddress, buf.data(), bytes);
         return;
     }
     for (int i = 0; i < kPhase1Sectors; i++)
@@ -283,6 +296,58 @@ void As36ControlStorageProcessor::loadPhase1()
     trace_.csp("phase 1: {} sectors from {} ({} bytes) to guest {:04X}", kPhase1Sectors, kPhase1Sector, bytes,
                kPhase1LoadAddress);
     m_.write(kPhase1LoadAddress, buf.data(), bytes);
+}
+
+// Stage B when the panel's load source is DISKETTE: the control processor
+// reads the diskette-resident phase 1, the first 4 KB of the #IPLBOOT data
+// set, instead of the disk boot record.  The two are the same thing for two
+// different devices: #IPLBOOT is [phase 1, 4 KB][the reload members], which
+// is why the disk phase 1 starts its sequential-sector read at sector 5.
+// Every failure here is an operator error at power-on rather than a
+// machine state (an empty drive, a non-IPL volume), so each one says which,
+// the way a bad `volume =` does: a host-layer error the monitor reports.
+void As36ControlStorageProcessor::loadPhase1FromDiskette(uint8_t* buf, int bytes)
+{
+    auto& drive = devices_.diskette;
+    if (!drive.hasMedium())
+        throw std::runtime_error("load_source = diskette, but the diskette drive is empty: the control processor has "
+                                 "nowhere to read phase 1 from. Insert a volume carrying " +
+                                 std::string(kDisketteIplDataSet));
+
+    storage::DisketteBackend* medium = drive.medium();
+    storage::DisketteBackend::DataSet ds;
+    if (!medium->findDataSet(kDisketteIplDataSet, ds))
+        throw std::runtime_error(fmt::format(
+            "load_source = diskette, but {} carries no {} data set, so it is not an IPL volume (volume {}, owner {}). "
+            "Base-SSP volume 01 carries one; a program-product volume does not",
+            medium->path(), kDisketteIplDataSet, medium->geometry().volumeId(), medium->geometry().ownerId()));
+
+    if (ds.recordBytes <= 0 || bytes % ds.recordBytes != 0)
+        throw std::runtime_error(fmt::format("{} on {} is recorded {} bytes per record, which does not divide the {}-byte "
+                                             "phase 1",
+                                             kDisketteIplDataSet, medium->path(), ds.recordBytes, bytes));
+
+    int records = bytes / ds.recordBytes;
+    int c = ds.cylinder, h = ds.head, r = ds.record;
+    for (int i = 0; i < records; i++) {
+        if (!medium->geometry().isValid(c, h, r))
+            throw std::runtime_error(fmt::format("{} record {} of {} is at C/H/R {}/{}/{}, which is not on {}",
+                                                 kDisketteIplDataSet, i + 1, records, c, h, r, medium->path()));
+        std::vector<uint8_t> rec;
+        if (!medium->readRecord(c, h, r, rec) || static_cast<int>(rec.size()) < ds.recordBytes)
+            throw std::runtime_error(fmt::format("{} claims {}-byte records but C/H/R {}/{}/{} is recorded {}",
+                                                 kDisketteIplDataSet, ds.recordBytes, c, h, r, rec.size()));
+        std::copy(rec.begin(), rec.begin() + ds.recordBytes, buf + static_cast<std::ptrdiff_t>(i) * ds.recordBytes);
+        if (i + 1 < records && !medium->next(c, h, r))
+            throw std::runtime_error(fmt::format("{} runs past the end of {} after {} record(s)", kDisketteIplDataSet,
+                                                 medium->path(), i + 1));
+    }
+
+    trace_.csp("phase 1: {} record(s) of {} B from {} at C/H/R {}/{}/{} (volume {}, extent {:02}{}{:02}..{:02}{}{:02}), {} "
+               "bytes to guest {:04X} - MSPID, the diskette-resident phase 1",
+               records, ds.recordBytes, kDisketteIplDataSet, ds.cylinder, ds.head, ds.record,
+               medium->geometry().volumeId(), ds.cylinder, ds.head, ds.record, ds.endCylinder, ds.endHead, ds.endRecord,
+               bytes, kPhase1LoadAddress);
 }
 
 // On the real machine the MSP is started by making a task runnable, never
@@ -897,8 +962,16 @@ bool As36ControlStorageProcessor::deviceSvc(SvcRequest& req, int ace)
         pendingDeviceAces_[submittedBlock] = ace;
         trace_.ace("device SVC {:02X}: retained ace {:04X} with pending IOB {:06X}; no ECM post or task completion yet",
                    req.r, ace, submittedBlock);
+        // If action 0 activated the native display before SSP issued its
+        // unit-FF Invite, the invite's immediate scan consumes that
+        // already-pending activation status here.  The response byte does
+        // not complete or release this Invite IOB or its element.
+        tryDeliverAction0ActivationStatus("SVC 43 unit-FF Invite immediate scan", false);
         return ok;
     }
+    bool cnfwsPowerOn = ok && req.r == 0x43 && submittedBlock != 0 &&
+                        submittedCommand == devices::WorkStationIob::kCmdConfigureNewWorkStations &&
+                        devices_.workStations().lastConfigureIncludedZeroAddress();
 
     // The ACE's event control mask IS the IOB (ace+13 is the caller's XR1),
     // so posting here rewrites the byte the device has just written.  Post
@@ -923,6 +996,38 @@ bool As36ControlStorageProcessor::deviceSvc(SvcRequest& req, int ace)
             completeToTask(ace, 0, "device event post");
         else
             aces_.release(ace);
+    }
+    // The configure command's success tail is performed only AFTER the
+    // controller has completed the request: with unit zero in the accepted
+    // list the controller stores the power-on response through the unit
+    // block supplied as the command's IOB and raises the internal condition
+    // of the IPL/command task.  This is the legitimate power-on-aid producer.
+    if (cnfwsPowerOn && cnfwsPowerOnAidExperiment) {
+        int tub = submittedBlock;
+        if (tub != 0) {
+            int configuredTub = resolveConfiguredTubByUnit(m_.readByte(tub + 12));
+            if (workStationDiagnosticObserver)
+                workStationDiagnosticObserver("cnfws-f7-target", m_.readByte(tub + 12), tub, configuredTub);
+            if (cnfwsPowerOnAidConfiguredTargetExperiment) {
+                int configured = configuredTub;
+                if (configured != 0) {
+                    trace_.csp("SVC 43 cnfws experiment: redirect bootstrap TU {:06X} power-on aid to configured TU {:06X}",
+                               tub, configured);
+                    tub = configured;
+                }
+            }
+            if (deferCnfwsPowerOnAid) {
+                // A real twinax device cannot answer instantly; deferring to
+                // the next all-tasks-waiting boundary is a deterministic
+                // stand-in for that latency, with no host clock.
+                pendingCnfwsPowerOnTub_ = tub;
+                trace_.csp("SVC 43 cnfws success tail: power-on AID for TU {:06X} deferred to the next idle boundary "
+                           "(device-latency experiment)",
+                           tub);
+            } else {
+                deliverWorkStationControllerFunction(tub, 0xF7, true, true, "SVC 43 cnfws success tail", false);
+            }
+        }
     }
     return ok;
 }

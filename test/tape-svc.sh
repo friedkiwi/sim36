@@ -1,0 +1,49 @@
+#!/bin/sh
+# A guest tape I/O round-trips through the backend via the REAL device-SVC
+# path. This is the tape analogue of workstation-seam.sh: it does not test the
+# storage seam in isolation (tape.sh does that), it proves that an SVC 46
+# issued through the control processor reaches the virtual tape, decodes the
+# tape IOB, drives the tape backend, and posts the completion the guest reads
+# back.
+#
+# The path exercised is the real one: an IOB in guest storage, XR1, SVC 46
+# through the control processor, the virtual tape, the folder backend. The
+# monitor's `tapesvc` diagnostic builds the IOBs and issues the SVCs;
+# positioning between data ops uses the backend's own REWIND/SPACE (the label
+# layer's operations, not SVC 46 opcodes).
+set -u
+cd "$(dirname "$0")/.."
+. test/probe-common.sh
+
+instantiate default-machine
+cat > "$TMP/tsvc.sim" <<EOF
+ipl pause
+boot
+tapesvc $TMP/tape
+quit
+EOF
+
+out=$("$SIM36" -c "$TMP/default-machine.sim" -s "$TMP/tsvc.sim" 2>&1)
+
+echo "-- SVC 46 tape I/O through the control processor --"
+# The drive is mounted and the SVC actually reaches it.
+check "the cartridge mounts on the drive     " "mount the cartridge on the drive           PASS"
+check "SVC 46 read is dispatched to the tape  " "SVC 46 (Delayed) iob 000600 -> completed"
+# A read moves a real block into guest storage and posts complete.
+check "read posts complete (ECM 0x40)        " "SVC 46 read posts complete (iob+0x06 bit 0x40) PASS"
+check "the block lands in guest storage       " "the block reached guest storage (LastRead 80 bytes) PASS"
+check "it is the EBCDIC VOL1 label            " "it is the EBCDIC VOL1 label in the guest buffer PASS"
+# A read on the tape mark is a distinct, non-success completion.
+check "the tape mark posts non-success        " "SVC 46 read on the tape mark posts non-success PASS"
+# A write through SVC 46 reaches the backend, and reads back verbatim.
+check "write posts complete                   " "SVC 46 write posts complete                PASS"
+check "the written record reads back verbatim " "SVC 46 read back returns the written record verbatim PASS"
+# Status edges: a bad command is refused, an empty drive answers not-ready.
+check "an invalid command is refused          " "SVC 46 with an invalid command is refused  PASS"
+check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
+# The whole native tally, so a regression points at itself.
+check "the tapesvc round-trip is all green    " "tape SVC: 11 passed, 0 failed"
+
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" -eq 0 ]

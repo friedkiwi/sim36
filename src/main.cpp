@@ -56,6 +56,17 @@ std::string defaultStartupFile()
 
 int main(int argc, char** argv)
 {
+    // Every monitor line is a complete unit for whoever drives this process
+    // through a pipe: the guest thread reports (console paints, a display
+    // powering off, breakpoints) must reach the driver as they happen, not
+    // when the next prompt flushes the buffer.  Line buffering is a POSIX
+    // property only; the Windows runtime treats it as full buffering, so
+    // that build writes unbuffered.
+#ifdef _WIN32
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+#else
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+#endif
     std::string cfgPath = defaultStartupFile();
     std::string script;
     std::string trace;

@@ -148,6 +148,9 @@ private:
     void buildFromUnitDefinitionTable();
     void buildSystemUnitBlock(bool terminal);
     void loadPhase1();
+    // The data set an IPL diskette carries its phase 1 in.
+    static constexpr const char* kDisketteIplDataSet = "#IPLBOOT";
+    void loadPhase1FromDiskette(uint8_t* buf, int bytes);
     void postInitialTask();
 
     // ---- the supervisor call path ----------------------------------------
@@ -249,6 +252,8 @@ private:
 #include "Processors/ControlStorage/As36Transfer.members.inc"
 #include "Processors/ControlStorage/As36Dispatch.members.inc"
 #include "Processors/ControlStorage/As36TaskCreate.members.inc"
+#include "Processors/ControlStorage/As36WorkStation.members.inc"
+#include "Processors/ControlStorage/As36Checkpoint.members.inc"
 
     machine::MachineState& m_;
     const configuration::EmulatorConfig& cfg_;

@@ -42,18 +42,33 @@ add_library(sim36core STATIC
     src/Configuration/ModelTable.cpp
     src/Devices/DeviceCodes.cpp
     src/Devices/DeviceSet.cpp
+    src/Devices/IWorkStationBackend.cpp
+    src/Devices/VirtualDiskette.cpp
+    src/Devices/VirtualPrinter.cpp
+    src/Devices/VirtualTape.cpp
+    src/Devices/VirtualWorkstation.cpp
+    src/Devices/WorkStationActions.cpp
+    src/Devices/WorkStationController.cpp
+    src/Devices/WorkStationIob.cpp
     src/Devices/UnitBlock.cpp
     src/Devices/VirtualFixedDisk.cpp
     src/Host/Console.cpp
+    src/Host/ConsoleDisplay.cpp
     src/Host/Sockets.cpp
     src/Host/StationBackend.cpp
     src/Host/StationMultiplexer.cpp
+    src/Host/Telnet5250Session.cpp
     src/Monitor/CommandLine.cpp
     src/Monitor/CommandRegistry.cpp
     src/Monitor/CspCommands.cpp
     src/Monitor/MachineCommands.cpp
+    src/Monitor/MachineSnapshot.cpp
+    src/Monitor/MediaCommands.cpp
+    src/Monitor/PanicDump.cpp
     src/Monitor/ConfigurationRenderer.cpp
     src/Monitor/MonitorCli.cpp
+    src/Monitor/WorkStationCommands.cpp
+    src/Monitor/MonitorCliLive.cpp
     src/Monitor/SelfTest.cpp
     src/Monitor/SimulatorSession.cpp
     src/Monitor/SrcCode.cpp
@@ -69,10 +84,12 @@ add_library(sim36core STATIC
     src/Processors/ControlStorage/ActionControlElementQueue.cpp
     src/Processors/ControlStorage/AllocationQueueElement.cpp
     src/Processors/ControlStorage/As36ControlStorageProcessor.cpp
+    src/Processors/ControlStorage/As36Checkpoint.cpp
     src/Processors/ControlStorage/As36Dispatch.cpp
     src/Processors/ControlStorage/As36Storage.cpp
     src/Processors/ControlStorage/As36TaskCreate.cpp
     src/Processors/ControlStorage/As36Transfer.cpp
+    src/Processors/ControlStorage/As36WorkStation.cpp
     src/Processors/ControlStorage/DirectArea.cpp
     src/Processors/ControlStorage/GuestHeap.cpp
     src/Processors/ControlStorage/GuestLowStorage.cpp
@@ -82,6 +99,9 @@ add_library(sim36core STATIC
     src/Processors/ControlStorage/TaskBlock.cpp
     src/Processors/ControlStorage/TransientArea.cpp
     src/Storage/DiskBackend.cpp
+    src/Storage/DisketteBackend.cpp
+    src/Storage/FolderTapeBackend.cpp
+    src/Storage/TapeManifest.cpp
     src/Storage/Ebcdic.cpp
     src/Storage/Library.cpp
     src/Storage/Vtoc.cpp
@@ -105,6 +125,7 @@ add_executable(sim36_tests
     tests/main.cpp
     tests/CommandLineTests.cpp
     tests/ConfigTests.cpp
+    tests/ConsoleDisplayTests.cpp
     tests/CspTests.cpp
     tests/EbcdicTests.cpp
     tests/FixedDiskTests.cpp
@@ -133,17 +154,22 @@ add_test(NAME storage_svcs COMMAND sh ${CMAKE_SOURCE_DIR}/test/storage-svcs.sh)
 add_test(NAME udt_walk COMMAND sh ${CMAKE_SOURCE_DIR}/test/udt-walk.sh)
 add_test(NAME csp_scaffolding COMMAND sh ${CMAKE_SOURCE_DIR}/test/csp-scaffolding.sh)
 add_test(NAME csp_families COMMAND sh ${CMAKE_SOURCE_DIR}/test/csp-families.sh)
-# Milestone 5: the CSP families' vector suites and probes (volume only).
-set(SIM36_M5_GATES program_block_svcs work_area_svcs task_creation task_dispatcher action_controller
+# Milestones 5-7: the CSP families' vector suites, the host-layer suites and
+# the media suites (volume only; each skips with 77 when SIM36_VOLUME is
+# unset).  The python-driven suites need a free 5250 port range.
+set(SIM36_VOLUME_GATES program_block_svcs work_area_svcs task_creation task_dispatcher action_controller
     resource_svcs relocating_loader print_buffer system_queue_space system_queue_ownership
-    nupterm_probes timer_transient timer_op20 timer_op38 disk_write_wrap command_files ipl_command)
-foreach(gate IN LISTS SIM36_M5_GATES)
+    nupterm_probes timer_transient timer_op20 timer_op38 disk_write_wrap command_files ipl_command
+    workstation_actions wsc_config workstation_seam printer_seam live_monitor station_multiplex
+    station_power_cycle machine_lifecycle ipl_main_session ipl_unattended_main_session
+    snapshot panic_command tape tape_svc tape_operator ipl_source atr_ownership)
+foreach(gate IN LISTS SIM36_VOLUME_GATES)
     string(REPLACE "_" "-" script ${gate})
     add_test(NAME ${gate} COMMAND sh ${CMAKE_SOURCE_DIR}/test/${script}.sh)
 endforeach()
-set_tests_properties(storage_svcs udt_walk ${SIM36_M5_GATES} PROPERTIES SKIP_RETURN_CODE 77)
+set_tests_properties(storage_svcs udt_walk ${SIM36_VOLUME_GATES} PROPERTIES SKIP_RETURN_CODE 77)
 set_tests_properties(config_parity config_volume disk_layer decode_differential msp_parity
-    storage_svcs udt_walk csp_scaffolding csp_families ${SIM36_M5_GATES} PROPERTIES
+    storage_svcs udt_walk csp_scaffolding csp_families ${SIM36_VOLUME_GATES} PROPERTIES
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
 
 # ---------------------------------------------------------------------------

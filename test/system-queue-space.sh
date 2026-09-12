@@ -101,9 +101,12 @@ set xr1 8000
 set iar 1000
 step 1
 sqsstate
-# The snapshot round trip of the extended heap (native state outside MSP
-# memory) is exercised by test/system-queue-space-snapshot.sh once snapshots
-# exist (milestone 7).
+# The dynamic current limit and free lists are native state outside MSP memory.
+# A checkpoint must carry them; otherwise restoring this image would silently
+# shrink the heap back to its initial segment.
+snapshot save $TMP/extended.s36
+snapshot load $TMP/extended.s36
+sqsstate
 # The Advanced/36's native ceiling is 0x006F0000.  Force four more misses so
 # this crosses the emulator's former 0x040000 module-arena boundary; resident
 # module backing now lives above the native queue-space ceiling instead.
@@ -176,6 +179,13 @@ check "06  allocation miss invokes native extension" 'NuEmulatorHeap::extendHeap
 check "06  extension reserves its first 16 bytes  " 'assign 32768 -> 32768 bytes at guest 10010 from class 32768'
 check "    extended heap ownership remains valid  " 'system queue 2000..20000: 66576/122752 used'
 check "    extended heap audit remains clean       " 'invariants OK'
+check "    snapshot preserves the dynamic limit   " 'snapshot: restored constructed machine'
+restored_extended=$(echo "$out" | grep -cF 'system queue 2000..20000: 66576/122752 used' || true)
+if [ "$restored_extended" -eq 2 ]; then
+  echo "      restored free lists match extended heap PASS"; pass=$((pass + 1))
+else
+  echo "      restored free lists match extended heap FAIL  (saw $restored_extended)"; fail=$((fail + 1))
+fi
 check "    heap crosses former 040000 ceiling     " 'NuEmulatorHeap::extendHeap committed 040000..04FFFF'
 check "    native-range growth remains valid      " 'system queue 2000..60000:'
 

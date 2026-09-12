@@ -19,7 +19,7 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 check() {   # check <name> <fixed-string pattern>
-  if echo "$out" | grep -qF "$2"; then
+  if echo "$out" | grep -qF -- "$2"; then
     echo "  $1 PASS"; pass=$((pass + 1))
   else
     echo "  $1 FAIL  (looked for: $2)"; fail=$((fail + 1))

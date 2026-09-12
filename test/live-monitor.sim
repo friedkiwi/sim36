@@ -1,0 +1,28 @@
+; Everything below `ipl` runs WHILE the guest execution thread
+; is executing.  docs/s36/live-monitor-design-2026-09-08.md
+;
+; ipl-type attend paints the console SIGN ON panel, which is the case that
+; needs an operator: the machine is parked waiting on a console read, and the
+; only way to answer it used to be to guess a bounded instruction count.
+set machine ipl-type attend
+
+ipl
+show status
+wait idle 120
+
+; Inspection, from the monitor thread, of a machine nobody stopped.
+show status
+show cpu
+console fields
+
+; Answer the panel the running machine is waiting on.
+console put 6 56 QSECOFR
+console put 16 56 010196
+console put 17 56 120000
+console send Enter
+wait idle 120
+
+console show
+show cpu
+stop
+quit

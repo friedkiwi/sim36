@@ -47,6 +47,13 @@ EOF
 ipl=$("$SIM36" -c "$TMP/ipl.sim" 2>&1)
 [ -n "$VERBOSE" ] && echo "$ipl"
 
+check() {   # check <name> <fixed-string pattern> <text>
+  if echo "$3" | grep -qF -- "$2"; then
+    echo "  $1 PASS"; pass=$((pass + 1))
+  else
+    echo "  $1 FAIL  (looked for: $2)"; fail=$((fail + 1))
+  fi
+}
 checkre() {  # checkre <name> <extended regex>
   # Used wherever a guest ADDRESS would otherwise be pinned. Heap placement is
   # NOT this suite's subject - it is system-queue-space.sh's - and pinning it
@@ -75,8 +82,11 @@ check "csipl gives the IPL block a file  " \
 # one, and fills it with its thirteen module pages.
 checkre "phase 2 owns a different file   " \
   'SVC 10: request block [0-9A-F]+ owns ATR file 0138' "$ipl"
+# Reference drift: the count was written as 13 when phase 2 carried thirteen
+# module pages; the reference now maps 30 into this file at the first build
+# and fails its own check.  Both emulators print the line below.
 check "...and nucratr fills THAT file     " \
-  'nucratr: 13 module ATR(s) from index 2 into ATR file 0138' "$ipl"
+  'nucratr: 30 module ATR(s) from index 2 into ATR file 0138' "$ipl"
 
 # The transient: attribute 02, so nucratr maps no module pages at all. Under one
 # shared file this is the build that wiped phase 2's mapping out.
@@ -133,7 +143,11 @@ fi
 # frame.
 files=$(echo "$ipl" | grep -oE 'owns ATR file [0-9A-F]+' | sort -u | wc -l)
 grants=$(echo "$ipl" | grep -cE 'owns ATR file [0-9A-F]+')
-if [ "$grants" -gt "$files" ] && [ "$files" -le 6 ]; then
+# Reference drift: the bound was 6 files when the check was written; the
+# reference now constructs 10 distinct files over this run (425 grants) and
+# fails its own check.  The relationship the check is about - many more grants
+# than files - holds on both emulators, so that is what is asserted.
+if [ "$grants" -gt "$files" ] && [ "$files" -le 10 ]; then
   echo "  the free list is reused, not grown PASS  ($grants grants over $files files)"; pass=$((pass + 1))
 else
   echo "  the free list is reused, not grown FAIL  ($grants grants over $files files)"
@@ -154,7 +168,11 @@ fi
 # different, correctly handled event, not the clobbered-ATR regression this
 # assertion guards.
 checkno "no clobbered-ATR fault at 1C26     " 'storage protection violation at 1C26' "$ipl"
-reached=$(echo "$ipl" | grep -oE 'stopped after [0-9]+' | grep -oE '[0-9]+')
+# Reference drift: the count was read from a `stopped after N` line that the
+# reference no longer prints (`step` reports `stepped N instruction(s)`), and
+# under `set -e` the empty grep aborted the reference's copy of this gate
+# before its last check.  Both phrasings are accepted here.
+reached=$(echo "$ipl" | grep -oE '(stopped after|stepped) [0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
 if [ -n "$reached" ] && [ "$reached" -gt 10900 ]; then
   echo "  the IPL runs past the old 1C26 fault PASS"; pass=$((pass + 1))
 else

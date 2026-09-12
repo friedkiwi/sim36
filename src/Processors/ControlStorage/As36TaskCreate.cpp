@@ -3,6 +3,8 @@
 // print buffer and the control storage transient bodies.
 #include "Processors/ControlStorage/As36ControlStorageProcessor.h"
 
+#include "Devices/WorkStationController.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -1312,9 +1314,11 @@ bool As36ControlStorageProcessor::runTransient(uint8_t transientId, uint8_t inli
 // Transient 3E, the hosted-M36 TFRM36 parameter-list service: function 01
 // retrieves, 02 ends, selected from rb+17.  WR4's low byte identifies the
 // work station and WR5 receives the status: 00FE no station/display, 00FF
-// a display with no transfer plist, 0003 a plist present.  The bound
-// display's plist comes from the work station controller, which arrives
-// with milestone 6; until then every unit answers as absent.
+// a display with no transfer plist, 0003 a plist present.  A configured
+// display whose transfer has been bound answers 03 for both AUTOSIGNON
+// settings and supplies the complete 80-byte guest copy of the list; a
+// configured display that has not crossed that bind gets the exact no-list
+// answer.
 bool As36ControlStorageProcessor::transientTransferM36(uint8_t function, uint8_t subFunction, int xr1, int requestBlock)
 {
     if (requestBlock == 0) return false;
@@ -1326,13 +1330,17 @@ bool As36ControlStorageProcessor::transientTransferM36(uint8_t function, uint8_t
     }
 
     int unit = RequestBlock::readWr(m_, requestBlock, 4) & 0xFF;
-    trace_.csp("transient 3E: the work station controller (configured terminal unit block lookup for unit {:02X}) is not "
-               "ported yet (milestone 6)",
-               unit);
-    int tub = 0;
+    int tub = resolveConfiguredTubByUnit(unit);
     bool autoSignOn = false;
     bool displayPresent = tub != 0;
     bool plistPresent = false;
+    if (displayPresent) {
+        auto bound = transferredWorkStations_.find(tub);
+        if (bound != transferredWorkStations_.end()) {
+            plistPresent = true;
+            autoSignOn = bound->second;
+        }
+    }
     uint16_t status = !displayPresent ? static_cast<uint16_t>(0x00FE)
                       : !plistPresent ? static_cast<uint16_t>(0x00FF)
                                       : static_cast<uint16_t>(0x0003);
@@ -1364,17 +1372,24 @@ bool As36ControlStorageProcessor::transientTransferM36(uint8_t function, uint8_t
 // The 80-byte guest copy of the transfer plist: +0 the auto-sign-on byte,
 // +1 the ideographic flag, +8 the S/36 user, +16 menu, +24 library, +32
 // procedure, +40 the OS/400 user, all EBCDIC blank-filled, then thirty
-// binary zeros.  The user name comes from the station's backend, which
-// arrives with the work station controller (milestone 6).
+// binary zeros.  The user name is the one the station's session announced.
 std::vector<uint8_t> As36ControlStorageProcessor::buildTfrm36GuestPayload(int unit, bool autoSignOn)
 {
     std::vector<uint8_t> payload(80, 0);
     payload[0] = autoSignOn ? 1 : 0;
     payload[1] = 1;
     for (int i = 8; i < 50; i++) payload[static_cast<std::size_t>(i)] = 0x40;
-    trace_.csp("transient 3E: the station user name for unit {:02X} is not ported yet (milestone 6); the plist carries "
-               "blanks",
-               unit);
+
+    devices::WorkStationSlot* slot = devices_.workStations().find(unit);
+    std::string user = slot == nullptr || slot->isPrinter ? std::string() : slot->backend()->userName();
+    std::string trimmed;
+    for (char c : user)
+        if (!std::isspace(static_cast<unsigned char>(c))) trimmed += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (!trimmed.empty()) {
+        std::vector<uint8_t> encoded = storage::Ebcdic::fromAscii(trimmed);
+        for (std::size_t i = 0; i < std::min<std::size_t>(8, encoded.size()); i++) payload[8 + i] = encoded[i];
+        for (std::size_t i = 0; i < std::min<std::size_t>(10, encoded.size()); i++) payload[40 + i] = encoded[i];
+    }
     return payload;
 }
 

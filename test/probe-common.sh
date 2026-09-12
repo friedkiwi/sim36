@@ -10,7 +10,7 @@ run() {           # run <name> -> transcript on stdout
   "$SIM36" -c "$TMP/$1.sim" 2>&1
 }
 checkin() {       # checkin <name> <fixed-string pattern> <text>
-  if printf '%s\n' "$3" | grep -qF "$2"; then
+  if printf '%s\n' "$3" | grep -qF -- "$2"; then
     echo "  PASS  $1"; pass=$((pass + 1))
   else
     echo "  FAIL  $1 (looked for: $2)"; fail=$((fail + 1))

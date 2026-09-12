@@ -120,21 +120,68 @@ void MonitorCli::executeTokens(const std::vector<std::string>& a)
     else if (verb == "nuptermscan") terminationDependencyScan(a);
     else if (verb == "actions") actions();
     else if (verb == "timers") timers(a);
-    else if (verb == "start" || verb == "stop" || verb == "wait" || verb == "stations" ||
-             verb == "listener-auto-signon" || verb == "wddqstate")
-        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 6)");
-    else if (verb == "diskette" || verb == "tape" || verb == "dsktread" || verb == "dsktwrite" ||
-             verb == "tapetest" || verb == "tapesvc" || verb == "savemain")
-        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 7)");
+    else if (verb == "start") startExecution(a);
+    else if (verb == "stop") stopExecution(a);
+    else if (verb == "wait") waitCommand(a);
+    else if (verb == "stations") stations();
+    else if (verb == "listener-auto-signon") listenerAutoSignOn(a);
+    else if (verb == "wddqstate") wddqState(a);
+    else if (verb == "wsoutput") workstationOutput(a);
+    else if (verb == "prtwrite") printerWrite(a);
+    else if (verb == "prtend") printerEndJob(a);
+    else if (verb == "wswrite") workstationWrite(a);
+    else if (verb == "console") consoleCommand(a);
+    else if (verb == "wsformat") workstationFormat(a);
+    else if (verb == "wsinvite") workstationInvite(a);
+    else if (verb == "wsinput") workstationInput(a);
+    else if (verb == "wsread") workstationRead(a);
+    else if (verb == "wsconfig") wsConfig(a);
+    else if (verb == "wsioch") wsIoch(a);
+    else if (verb == "wsstate") workstationSessionState(a);
+    else if (verb == "wsscan") wsEntryScan(a);
+    else if (verb == "wscontract") wsContract(a);
+    else if (verb == "wsentry") wsEntry(a);
+    else if (verb == "wshri") workStationHriReport(a);
+    else if (verb == "svtubstate") svtubDecisionState(a);
+    else if (verb == "wspresent") wsPresent(a);
+    else if (verb == "wspresentst") wsPresentStation(a);
+    else if (verb == "tfrm36") tfrM36(a);
+    else if (verb == "wsaid") wsAid(a);
+    else if (verb == "wsoc") wsOc(a);
+    else if (verb == "wsuser") wsUser(a);
+    else if (verb == "wspresentws") wsPresentWs(a);
+    else if (verb == "wspost") wsPost(a);
+    else if (verb == "postrk") postRk(a);
+    else if (verb == "callssp") callSsp(a);
+    else if (verb == "signonstmt") signOnStatement(a);
+    else if (verb == "signoncmd") signOnCommand(a);
+    else if (verb == "signonreq") signOnRequest(a);
+    else if (verb == "wsattach") wsAttach(a);
+    else if (verb == "condbelem") conDbElem(a);
+    else if (verb == "msscmsg") msscMsg(a);
+    else if (verb == "signonexp") signonExp(a);
+    else if (verb == "cptcstate") cptcState(a);
+    else if (verb == "tutopology") tuTopology(a);
+    else if (verb == "diskette") diskette(a);
+    else if (verb == "tape") tape(a);
+    else if (verb == "dsktread") disketteRead(a);
+    else if (verb == "dsktwrite") disketteWrite(a);
+    else if (verb == "tapetest") tapeTest(a);
+    else if (verb == "tapesvc") tapeSvc(a);
+    else if (verb == "savemain") saveMain(a);
     else
-        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 6)");
+        throw MonitorError("'" + a[0] + "' is not ported yet (milestone 7)");
 }
 
 void MonitorCli::show(const std::vector<std::string>& a)
 {
     const std::string what = a.size() > 1 ? toLower(a[1]) : "cpu";
     if (what == "workstation") {
-        throw MonitorError("'show workstation' is not ported yet (milestone 6)");
+        if (a.size() != 4 || !equalsIgnoreCase(a[3], "pipeline")) {
+            fmt::print("usage: show workstation <station-id|W1..W7> pipeline\n");
+            return;
+        }
+        workstationPipeline(a[2]);
     } else if (what == "cpu") {
         const machine::MspRegisters& r = m_.state.msp;
         fmt::print("IAR {:04X}  ARR {:04X}  XR1 {:04X}  XR2 {:04X}  PSR {:02X}\n", r.iar, r.arr, r.xr1, r.xr2, r.psr());
@@ -267,7 +314,10 @@ void MonitorCli::setRegister(const std::vector<std::string>& a)
 void MonitorCli::setTrace(const std::vector<std::string>& a)
 {
     if (a.size() < 2) { fmt::print("trace is {}\n", traceFlagsToString(m_.trace.flags)); return; }
-    if (equalsIgnoreCase(a[1], "workstation")) throw MonitorError("'trace workstation' is not ported yet (milestone 6)");
+    if (equalsIgnoreCase(a[1], "workstation")) {
+        workstationTrace(a);
+        return;
+    }
     // `trace member <name>` restricts the full instruction trace to one module
     // past the load-0x1000 aliasing; `trace member off` clears it.
     if (equalsIgnoreCase(a[1], "member")) {
@@ -302,11 +352,13 @@ void MonitorCli::setTrace(const std::vector<std::string>& a)
 
 void MonitorCli::ipl(const std::vector<std::string>& a)
 {
+    if (refuseWhileRunning("ipl")) return;
     if (a.size() > 2) throw MonitorError("usage: ipl [pause]");
     const bool pause = a.size() == 2 && equalsIgnoreCase(a[1], "pause");
     if (a.size() == 2 && !pause)
         throw MonitorError("usage: ipl [pause] (IPL is non-blocking; use 'wait idle [seconds]' to synchronize)");
     m_.reset();
+    resetHostEventState();
     if (!m_.vtocsRead()) m_.readVtocs();
     // No machine-security clause here: the emulator writes no sign-on mode
     // to the guest, so the only true statement is which volume was attached.
@@ -316,17 +368,16 @@ void MonitorCli::ipl(const std::vector<std::string>& a)
         fmt::print("IPL paused before instruction 1; use 'step N' or 'start'\n");
         return;
     }
-    // The reference runs the IPL on a driver thread and returns to the
-    // prompt at once; the driver (and `wait idle`) is milestone 6.  Until
-    // then the machine is driven in the foreground until it stops, which
-    // yields the same trace and the same stop, printed before the prompt
-    // instead of after it.
-    driveMachine(1LL << 40);
+    startExecution(&m_.nativeControlStorage(), "IPL started");
 }
 
 void MonitorCli::boot()
 {
+    // Resetting the machine under a live run would pull the state out from
+    // under the loop that is executing it.
+    if (refuseWhileRunning("boot")) return;
     m_.reset();
+    resetHostEventState();
     if (!m_.vtocsRead()) m_.readVtocs();
     // The boot record is the first sector of #SYSWORK, immediately after
     // VOL1.  It names the phase 1 and phase 2 members and the library.
@@ -408,34 +459,12 @@ void MonitorCli::disassemble(const std::vector<std::string>& a)
     }
 }
 
-// Step the MSP until it stops on its own or the cap is reached.  At each
-// preemption point a pending member breakpoint may arm; at the idle event
-// wait the native timers are serviced and, when one readied an SSP task,
-// execution resumes.  The host event pump (work station attention, the live
-// monitor) and the driver-idle park are milestone 6.
-long long MonitorCli::driveMachine(long long cap)
-{
-    auto& csp = m_.nativeControlStorage();
-    long long total = 0;
-    while (total < cap) {
-        while (total < cap && m_.msp().step()) {
-            ++total;
-            if (m_.msp().atPreemptionPoint()) armPendingMemberBreaks();
-        }
-        if (!m_.msp().stopped() || !csp.idleEventWait()) break;   // fault, or capped
-        int expiredTimers = 0;
-        if (csp.serviceDueNativeTimers(expiredTimers)) {
-            csp.signalNewWork("native timer expiry");
-            m_.msp().start();
-            continue;
-        }
-        break;
-    }
-    return total;
-}
-
 void MonitorCli::step(const std::vector<std::string>& a)
 {
+    // Bounded stepping uses the same event-aware driver loop as continuous
+    // execution; nesting it inside that loop would reorder device
+    // completion.
+    if (refuseWhileRunning("step")) return;
     if (a.size() > 2) throw MonitorError("usage: step [instructions]");
     long long n = 1;
     if (a.size() > 1) {
@@ -528,6 +557,8 @@ void MonitorCli::watch(const std::vector<std::string>& a)
     if (a.size() >= 2 && a[1] == "off") {
         m_.state.clearWatches();
         m_.state.onWatchWrite = nullptr;
+        wsContractAutoWatch_ = false;
+        wsContractWatchStation_.clear();
         fmt::print("watchpoints cleared\n");
         return;
     }
@@ -556,6 +587,11 @@ void MonitorCli::installWatchReporter()
         const std::string where = m_.msp().memberResolver ? m_.msp().memberResolver() : std::string();
         fmt::print("watch {:04X}..{:04X} <- {} (was {})  at IAR {:04X}{}\n", addr, addr + n - 1, hex(after),
                    hex(before), m_.state.msp.iar, where.empty() ? "" : "  in " + where);
+        if (wsContractAutoWatch_) {
+            const int added = refreshWsContractWatches();
+            if (added != 0)
+                fmt::print("WS-CONTRACT auto-watch derived {} new predicate watch(es) from live QH50/QH112 topology\n", added);
+        }
     };
 }
 

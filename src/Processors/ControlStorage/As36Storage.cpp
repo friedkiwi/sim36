@@ -649,8 +649,11 @@ bool As36ControlStorageProcessor::mapByTypeAndId(SvcRequest& req, int list, int 
     includeInDomain(block, "SVC 2F action 4");
     activateControlBlock(block, "SVC 2F");
 
-    // A held work-station read result would be delivered onto this block's
-    // resident frame here; the work station controller is milestone 6.
+    // A held Read Input Fields result for this task is delivered onto THIS
+    // block's resident frame: the module maps its work space here and its
+    // return copy then reads the block at the displacement the read staged,
+    // so the block's own resident frame is the one frame both must share.
+    deliverDeferredWorkStationInput(req.taskBlock, block, type);
 
     int displacement = sourcePage - m_.readByte(block + ProgramBlock::kOffLoadPage);
     return appendMapEntry(rb, pb, startPage, pages, displacement, block, whole, entries, lastEntry);
