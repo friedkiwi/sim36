@@ -187,6 +187,41 @@ bool MachineState::guest24Extents(int field, int length, bool forWrite,
     return true;
 }
 
+bool MachineState::writePageFrames(const std::vector<int>& frames, int displacement,
+                                   const uint8_t* source, int length)
+{
+    if (displacement < 0 || length < 0 || (length != 0 && source == nullptr)) return false;
+    if (length == 0) return true;
+    const long long end = static_cast<long long>(displacement) + length;
+    if (end > static_cast<long long>(frames.size()) * kPageBytes) return false;
+
+    // Validate every independently resident frame first. A bad tail must not
+    // leave a prefix of an input record visible to the guest.
+    int at = displacement;
+    int left = length;
+    while (left > 0) {
+        const int page = at >> kPageShift;
+        const int offset = at & (kPageBytes - 1);
+        const int chunk = std::min(left, kPageBytes - offset);
+        const int frame = frames[static_cast<std::size_t>(page)];
+        if (frame == 0 || !inRange(frame + offset, chunk)) return false;
+        at += chunk;
+        left -= chunk;
+    }
+
+    at = displacement;
+    int sourceOffset = 0;
+    while (sourceOffset < length) {
+        const int page = at >> kPageShift;
+        const int offset = at & (kPageBytes - 1);
+        const int chunk = std::min(length - sourceOffset, kPageBytes - offset);
+        write(frames[static_cast<std::size_t>(page)] + offset, source + sourceOffset, chunk);
+        at += chunk;
+        sourceOffset += chunk;
+    }
+    return true;
+}
+
 bool MachineState::readGuest24Range(int field, uint8_t* destination, int length)
 {
     std::vector<std::pair<int, int>> extents;

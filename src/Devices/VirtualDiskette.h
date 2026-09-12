@@ -176,7 +176,6 @@ private:
     bool ejectCommand(int iob);
     bool autoloader(int iob, int command);
     bool undecoded(int iob, int command);
-    bool resolveBuffer(int bufferField, int& addr);
 
     machine::MachineState& m_;
     monitor::Tracer& trace_;

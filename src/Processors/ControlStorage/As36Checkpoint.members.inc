@@ -27,6 +27,10 @@ public:
         int sessionContentPopulated = 0, clssMapGateSet = 0, wddqWriteForced = 0;
         int expAutoMapped = 0, expGrounded = 0;
         std::vector<int> wsPresentPairs;
+        // task, logical block displacement, byte count, byte values.  This
+        // is the controller-to-workspace handoff waiting for the task's SVC
+        // 2F and has no guest-memory representation yet.
+        std::vector<int> deferredWsInput;
         std::vector<int> directAreaWords;
         std::vector<int> taskWorkAreaFree;
         std::vector<int> workSpaces;

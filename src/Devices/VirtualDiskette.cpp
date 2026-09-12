@@ -326,16 +326,12 @@ bool VirtualDiskette::transfer(int iob, int command, int modifier, int bufferFie
     }
 
     int length = records * declared;
-    int addr;
-    if (!resolveBuffer(bufferField, addr)) {
+    std::vector<std::pair<int, int>> extents;
+    if (!m_.guest24Extents(bufferField, length, !writing, extents)) {
         IoBlock::complete(m_, iob, DisketteIoBlock::kPermanentError);
         return false;
     }
-    if (addr + length > m_.backingBytes()) {
-        trace_.diskIo("  buffer {:06X} + {} outside main storage", addr, length);
-        IoBlock::complete(m_, iob, DisketteIoBlock::kPermanentError);
-        return false;
-    }
+    const int addr = extents.empty() ? 0 : extents.front().first;
 
     if (writing && medium_->readOnly()) {
         trace_.diskIo("  REFUSED - {} is read-only. Set `diskette_readonly = no`, or insert a copy: the media corpus under "
@@ -346,7 +342,10 @@ bool VirtualDiskette::transfer(int iob, int command, int modifier, int bufferFie
     }
 
     std::vector<uint8_t> buffer(static_cast<std::size_t>(length));
-    if (writing) m_.read(addr, buffer.data(), length);
+    if (writing && !m_.readGuest24Range(bufferField, buffer.data(), length)) {
+        IoBlock::complete(m_, iob, DisketteIoBlock::kPermanentError);
+        return false;
+    }
 
     cc = c;
     hh = h;
@@ -381,7 +380,10 @@ bool VirtualDiskette::transfer(int iob, int command, int modifier, int bufferFie
         trace_.diskIo("  wrote {} record(s) of {} B from guest {:06X}, C/H/R {}/{}/{} through {}/{}/{}", records, declared,
                       addr, c, h, r, cc, hh, rr);
     } else {
-        m_.write(addr, buffer.data(), length);
+        if (!m_.writeGuest24Range(bufferField, buffer.data(), length)) {
+            IoBlock::complete(m_, iob, DisketteIoBlock::kPermanentError);
+            return false;
+        }
         lastRead_ = buffer;
         hasLastRead_ = true;
         readsIssued_++;
@@ -473,24 +475,6 @@ bool VirtualDiskette::undecoded(int iob, int command)
                   command, undecodedCommands_);
     IoBlock::complete(m_, iob, 0);
     return true;
-}
-
-// Same field and same flag as the disk's: the buffer address is resolved
-// for EVERY device SVC, real unless bit 0x800000 is set, then translated
-// through the task's ATRs.
-bool VirtualDiskette::resolveBuffer(int bufferField, int& addr)
-{
-    if ((bufferField & IoBlock::kDataBufferTranslated) == 0) {
-        addr = bufferField & 0x7FFFFF;
-        return true;
-    }
-    if (m_.translate(static_cast<uint16_t>(bufferField), machine::MachineState::kAtrTaskGroup0, true, addr)) {
-        trace_.diskIo("  buffer {:06X} is task-translated -> real {:06X}", bufferField, addr);
-        return true;
-    }
-    trace_.diskIo("  buffer {:06X} is task-translated and its page is not mapped", bufferField);
-    addr = 0;
-    return false;
 }
 
 }  // namespace sim36::devices

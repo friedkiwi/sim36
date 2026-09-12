@@ -129,12 +129,9 @@ public:
     // A command-42 Read Input Fields result that has been parsed and
     // staged, held so it can also be delivered onto the work-space storage
     // block's OWN resident frame the moment the display manager maps that
-    // block (SVC 2F action 4).  Input staging remembers the REAL frame that
-    // backed the translated work page at the panel paint; the return copy
-    // instead reads the work space through its own map, which resolves the
-    // SAME logical page to the block's resident frame.  The two coincide
-    // only when the region page was not re-homed between the paint and the
-    // read; the block's resident frame is the single anchor both must share.
+    // block (SVC 2F action 4). The earlier A7 PUT page is retained only as
+    // provenance that this is the display-manager handshake; it is a real
+    // frame and must never be combined with this logical displacement.
     struct DeferredWorkStationInput {
         std::vector<uint8_t> bytes;   // the parsed field bytes (response+3..)
         int blockDisplacement = 0;    // byte offset into the work-space block
@@ -252,7 +249,7 @@ private:
         int capacity = 0;
         // The byte offset within the work-space BLOCK the display manager's
         // return copy reads, or -1 when command 42 did not resolve through
-        // the input-staging page.
+        // the display-manager input handshake.
         int stagingBlockDisplacement = -1;
     };
     struct PendingScreenSave {
@@ -279,7 +276,6 @@ private:
     bool readCurrentConfiguration(int iob);
     bool configureNewWorkStations(int iob);
     bool captureBuffer(int bufferField, int length, bool forWrite, std::vector<int>& addresses);
-    std::vector<int> captureRealBuffer(int address, int length);
     void readCaptured(const std::vector<int>& source, int sourceOffset, uint8_t* destination, int destinationOffset, int length);
     void writeCaptured(const std::vector<int>& destination, int destinationOffset, const uint8_t* source, int sourceOffset,
                        int length);

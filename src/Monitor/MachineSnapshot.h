@@ -20,7 +20,7 @@ namespace sim36::monitor {
 
 class MachineSnapshot {
 public:
-    static constexpr int kVersion = 15;   // 15: the compatibility key-19 handback list is gone
+    static constexpr int kVersion = 16;   // 16: pending workstation replay preserves its logical displacement
 
     struct StationState {
         std::string id;

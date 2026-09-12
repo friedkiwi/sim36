@@ -49,6 +49,12 @@ bool As36ControlStorageProcessor::captureCheckpoint(CheckpointState& out, std::s
     s.actionStatusHigh = actionStatusHigh_;
     s.actionCoverage = captureActionCoverage();
     s.wsPresentPairs = capturePairs(wsPresentByTask_);
+    for (const auto& p : deferredWsInput_) {
+        s.deferredWsInput.push_back(p.first);
+        s.deferredWsInput.push_back(p.second.blockDisplacement);
+        s.deferredWsInput.push_back(static_cast<int>(p.second.bytes.size()));
+        for (uint8_t b : p.second.bytes) s.deferredWsInput.push_back(b);
+    }
     s.directAreaWords = directArea_.captureCheckpoint();
     s.taskWorkAreaFree = twa_.captureCheckpoint();
     for (const auto& p : workSpaces_) {
@@ -136,6 +142,31 @@ bool As36ControlStorageProcessor::restoreCheckpoint(const CheckpointState& s, st
     actionQueue_.clear();
     restoreActionCoverage(s.actionCoverage);
     if (!restorePairs(wsPresentByTask_, s.wsPresentPairs, "workstation-present", failure)) return false;
+    deferredWsInput_.clear();
+    for (std::size_t i = 0; i < s.deferredWsInput.size();) {
+        if (i + 3 > s.deferredWsInput.size()) {
+            failure = "truncated deferred workstation input checkpoint";
+            return false;
+        }
+        const int task = s.deferredWsInput[i++];
+        devices::DeviceSet::DeferredWorkStationInput input;
+        input.blockDisplacement = s.deferredWsInput[i++];
+        const int count = s.deferredWsInput[i++];
+        if (input.blockDisplacement < 0 || count < 0 || i + static_cast<std::size_t>(count) > s.deferredWsInput.size()) {
+            failure = "invalid deferred workstation input checkpoint";
+            return false;
+        }
+        input.bytes.reserve(static_cast<std::size_t>(count));
+        for (int n = 0; n < count; n++) {
+            const int b = s.deferredWsInput[i++];
+            if (b < 0 || b > 0xFF) {
+                failure = "invalid byte in deferred workstation input checkpoint";
+                return false;
+            }
+            input.bytes.push_back(static_cast<uint8_t>(b));
+        }
+        deferredWsInput_[task] = std::move(input);
+    }
     if (!directArea_.restoreCheckpoint(s.directAreaWords)) {
         failure = "invalid direct-area checkpoint";
         return false;

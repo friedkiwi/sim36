@@ -105,7 +105,7 @@ WorkStationSlot* WorkStationController::find(int unitAddress) const
     return it == byUnitAddress_.end() ? nullptr : it->second.get();
 }
 
-int WorkStationController::readCurrentConfiguration(machine::MachineState& m, int buffer, int length,
+int WorkStationController::readCurrentConfiguration(std::vector<uint8_t>& buffer, int length,
                                                     bool autoConfigEnabled)
 {
     int capacity = length > 0 ? (length - 1) / WorkStationSlot::kConfigurationRecordBytes : 0;
@@ -127,7 +127,7 @@ int WorkStationController::readCurrentConfiguration(machine::MachineState& m, in
             // controller stripping its own bits, which is where the machine
             // does it.
             rec[0] &= 0x77;
-            m.write(buffer + written * WorkStationSlot::kConfigurationRecordBytes, rec.data(), static_cast<int>(rec.size()));
+            std::copy(rec.begin(), rec.end(), buffer.begin() + written * WorkStationSlot::kConfigurationRecordBytes);
             trace_.ws("  entry {}: {}", written, hex(rec));
             written++;
         }
@@ -135,11 +135,11 @@ int WorkStationController::readCurrentConfiguration(machine::MachineState& m, in
         trace_.ws("  auto-configuration is disabled - rdcnf emits the terminator alone");
     }
 
-    m.writeByte(buffer + written * WorkStationSlot::kConfigurationRecordBytes, 0xFF);
+    buffer[static_cast<std::size_t>(written * WorkStationSlot::kConfigurationRecordBytes)] = 0xFF;
     return written * WorkStationSlot::kConfigurationRecordBytes + 1;
 }
 
-int WorkStationController::configureNewWorkStations(machine::MachineState& m, int buffer, int length)
+int WorkStationController::configureNewWorkStations(const std::vector<uint8_t>& buffer, int length)
 {
     lastConfigureIncludedZeroAddress_ = false;
     // The configurer computes TWO different counts from the length and they
@@ -157,8 +157,8 @@ int WorkStationController::configureNewWorkStations(machine::MachineState& m, in
     int records = length / WorkStationSlot::kConfigurationRecordBytes;
 
     for (int i = 0; i < records; i++) {
-        std::vector<uint8_t> rec(WorkStationSlot::kConfigurationRecordBytes, 0);
-        m.read(buffer + i * WorkStationSlot::kConfigurationRecordBytes, rec.data(), static_cast<int>(rec.size()));
+        auto begin = buffer.begin() + i * WorkStationSlot::kConfigurationRecordBytes;
+        std::vector<uint8_t> rec(begin, begin + WorkStationSlot::kConfigurationRecordBytes);
 
         // The configurer checks the address's reserved bits before anything
         // else and gives up on the whole request, mid-list, when one is

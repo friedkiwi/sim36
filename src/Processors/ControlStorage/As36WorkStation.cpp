@@ -88,7 +88,7 @@ bool As36ControlStorageProcessor::postRetainedWorkStationCompletion(
         deferredWsInput_[target] = *deferred;
         trace_.csp("work-station Read Input Fields: {} field byte(s) held for task block {:04X} at work-space block "
                    "displacement {:03X}, to be delivered onto the block's resident frame when #WDDG's SVC 2F action 4 "
-                   "maps it (readInputFields staging coherence)",
+                   "maps it (logical workspace replay)",
                    deferred->bytes.size(), target, deferred->blockDisplacement);
     }
     if (TaskBlock::isTaskBlock(m_, target)) {
@@ -1024,30 +1024,30 @@ void As36ControlStorageProcessor::deliverDeferredWorkStationInput(int taskBlock,
     // here shifts the record twice and makes one form consume the following
     // form's fields (for example, a document name becomes subject text).
     int disp = it->second.blockDisplacement;
-    int page = disp >> machine::MachineState::kPageShift;
-    int offset = disp & (machine::MachineState::kPageBytes - 1);
+    const int copied = static_cast<int>(it->second.bytes.size());
+    const int firstPage = disp >> machine::MachineState::kPageShift;
+    const int lastPage = copied == 0 ? firstPage : (disp + copied - 1) >> machine::MachineState::kPageShift;
+    const int pageCount = lastPage - firstPage + 1;
 
-    const std::vector<int>* resident = workSpaceResidentPages(block, "deferred WS input", page, 1);
-    if (resident == nullptr || page >= static_cast<int>(resident->size()) || (*resident)[static_cast<std::size_t>(page)] == 0) {
-        trace_.csp("SVC 2F: deferred Read Input Fields result for task {:04X} not delivered - block {:06X} page {} has no "
-                   "resident frame; the A7 staging copy stands",
-                   taskBlock, block, page);
+    const std::vector<int>* resident = workSpaceResidentPages(block, "deferred WS input", firstPage, pageCount);
+    if (resident == nullptr || lastPage >= static_cast<int>(resident->size())) {
+        trace_.csp("SVC 2F: deferred Read Input Fields result for task {:04X} not delivered - block {:06X} pages {}..{} "
+                   "have no complete resident mapping",
+                   taskBlock, block, firstPage, lastPage);
         deferredWsInput_.erase(it);
         return;
     }
-
-    int frame = (*resident)[static_cast<std::size_t>(page)];
-    int dest = frame + offset;
-    int copied = static_cast<int>(it->second.bytes.size());
-    if (dest < 0 || dest + copied > m_.backingBytes()) {
+    if (!m_.writePageFrames(*resident, disp, it->second.bytes.data(), copied)) {
+        trace_.csp("SVC 2F: deferred Read Input Fields result for task {:04X} not delivered - block {:06X} pages {}..{} "
+                   "do not form a valid independently resident logical range",
+                   taskBlock, block, firstPage, lastPage);
         deferredWsInput_.erase(it);
         return;
     }
-    for (int n = 0; n < copied; n++) m_.writeByte(dest + n, it->second.bytes[static_cast<std::size_t>(n)]);
     deferredWsInput_.erase(it);
-    trace_.csp("SVC 2F: delivered {} Read Input Fields byte(s) onto work-space block {:06X} resident frame {:06X}+{:03X} = "
-               "real {:06X} (readInputFields staging coherence: the frame #WDDG's D418 MVC reads)",
-               copied, block, frame, offset, dest);
+    trace_.csp("SVC 2F: delivered {} Read Input Fields byte(s) onto work-space block {:06X} pages {}..{} at displacement "
+               "{:04X} (each independently resident frame followed; no host-contiguous-page assumption)",
+               copied, block, firstPage, lastPage, disp);
 }
 
 }  // namespace sim36::processors::controlstorage

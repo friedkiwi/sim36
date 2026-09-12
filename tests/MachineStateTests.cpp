@@ -104,6 +104,47 @@ TEST_CASE("state: translated extents follow the registers page by page")
     CHECK(extents[2].second == 0x300);
 }
 
+TEST_CASE("state: guest range copies follow nonadjacent translated frames")
+{
+    MachineState m(64 * 1024, 1024 * 1024);
+    m.atr[MachineState::kAtrTaskGroup0 + 0] = 0x0020;
+    m.atr[MachineState::kAtrTaskGroup0 + 1] = 0x0005;
+    const std::vector<uint8_t> input = {0xA1, 0xB2, 0xC3, 0xD4};
+
+    REQUIRE(m.writeGuest24Range(0x8007FE, input.data(), static_cast<int>(input.size())));
+    CHECK(m.readByte((0x20 << 11) + 0x7FE) == 0xA1);
+    CHECK(m.readByte((0x20 << 11) + 0x7FF) == 0xB2);
+    CHECK(m.readByte(0x05 << 11) == 0xC3);
+    CHECK(m.readByte((0x05 << 11) + 1) == 0xD4);
+    CHECK(m.readByte(0x21 << 11) == 0x00);  // physically adjacent is unrelated
+
+    std::vector<uint8_t> output(input.size(), 0);
+    REQUIRE(m.readGuest24Range(0x8007FE, output.data(), static_cast<int>(output.size())));
+    CHECK(output == input);
+}
+
+TEST_CASE("state: logical page-frame copies never assume adjacent host frames")
+{
+    MachineState m(64 * 1024, 1024 * 1024);
+    const std::vector<int> frames = {0x30000, 0x18000, 0x50000};
+    const std::vector<uint8_t> input = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+
+    REQUIRE(m.writePageFrames(frames, MachineState::kPageBytes - 2,
+                              input.data(), static_cast<int>(input.size())));
+    CHECK(m.readByte(0x30000 + MachineState::kPageBytes - 2) == 0x11);
+    CHECK(m.readByte(0x30000 + MachineState::kPageBytes - 1) == 0x22);
+    CHECK(m.readByte(0x18000) == 0x33);
+    CHECK(m.readByte(0x18003) == 0x66);
+    CHECK(m.readByte(0x30800) == 0x00);  // physically adjacent is unrelated
+
+    std::vector<int> absent = frames;
+    absent[1] = 0;
+    const uint8_t before = m.readByte(0x30000 + MachineState::kPageBytes - 2);
+    CHECK_FALSE(m.writePageFrames(absent, MachineState::kPageBytes - 2,
+                                  input.data(), static_cast<int>(input.size())));
+    CHECK(m.readByte(0x30000 + MachineState::kPageBytes - 2) == before);
+}
+
 TEST_CASE("state: out-of-range access faults instead of throwing")
 {
     MachineState m(4096);

@@ -122,18 +122,18 @@ bool VirtualTape::read(int iob, int command, int length, int bufferField)
     }
 
     int n = std::min(static_cast<int>(block.size()), length);
-    int dst;
-    if (!resolveBuffer(bufferField, dst)) {
+    std::vector<std::pair<int, int>> extents;
+    if (!m_.guest24Extents(bufferField, n, true, extents)) {
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
         return false;
     }
-    if (dst + n > m_.backingBytes()) {
-        trace_.diskIo("  buffer {:06X} + {} outside main storage", dst, n);
+    if (!m_.writeGuest24Range(bufferField, block.data(), n)) {
+        trace_.diskIo("  buffer {:06X} + {} is not fully mapped", bufferField, n);
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
     }
 
-    m_.write(dst, block.data(), n);
+    const int dst = extents.empty() ? 0 : extents.front().first;
     lastRead_ = block;
     hasLastRead_ = true;
     readsIssued_++;
@@ -155,19 +155,18 @@ bool VirtualTape::write(int iob, int command, int length, int bufferField)
 {
     if (!validLength(iob, length)) return false;
 
-    int src;
-    if (!resolveBuffer(bufferField, src)) {
+    std::vector<std::pair<int, int>> extents;
+    if (!m_.guest24Extents(bufferField, length, false, extents)) {
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
-        return false;
-    }
-    if (src + length > m_.backingBytes()) {
-        trace_.diskIo("  buffer {:06X} + {} outside main storage", src, length);
-        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
     }
 
     std::vector<uint8_t> data(static_cast<std::size_t>(length));
-    m_.read(src, data.data(), length);
+    if (!m_.readGuest24Range(bufferField, data.data(), length)) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    const int src = extents.empty() ? 0 : extents.front().first;
     TapeResult r = medium_->writeBlock(data.data(), 0, length);
 
     if (r == TapeResult::NotReady) return notReady(iob);
@@ -232,23 +231,6 @@ void VirtualTape::postError(int iob, int completion, int mic)
 {
     m_.writeHalf(iob + NuTaIob::kOffMic, static_cast<uint16_t>(mic));
     IoBlock::complete(m_, iob, completion);
-}
-
-// Same field and same flag as every device SVC: iob+0x0D..0x0F, honouring
-// the 0x800000 task-translated bit.
-bool VirtualTape::resolveBuffer(int bufferField, int& addr)
-{
-    if ((bufferField & IoBlock::kDataBufferTranslated) == 0) {
-        addr = bufferField & 0x7FFFFF;
-        return true;
-    }
-    if (m_.translate(static_cast<uint16_t>(bufferField), machine::MachineState::kAtrTaskGroup0, true, addr)) {
-        trace_.diskIo("  buffer {:06X} is task-translated -> real {:06X}", bufferField, addr);
-        return true;
-    }
-    trace_.diskIo("  buffer {:06X} is task-translated and its page is not mapped", bufferField);
-    addr = 0;
-    return false;
 }
 
 }  // namespace sim36::devices

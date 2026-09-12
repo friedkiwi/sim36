@@ -162,14 +162,14 @@ public:
     // 0x77; the list is terminated with 0xFF.  Gated on auto-configuration:
     // with it off the answer is the terminator alone, not an error.  Returns
     // the number of bytes written.
-    int readCurrentConfiguration(machine::MachineState& m, int buffer, int length, bool autoConfigEnabled);
+    int readCurrentConfiguration(std::vector<uint8_t>& buffer, int length, bool autoConfigEnabled);
 
     // Configure New Work Stations: the same six-byte records in the other
     // direction.  Reason codes: 5 more records than the device maximum, 2 a
     // zero or non-multiple-of-6 length, 3 the address's 0x88 bits are wrong,
     // 4 that address already has a native active object.  Returns 0 on
     // success or the reason code, which the caller stores at IOB+0x18.
-    int configureNewWorkStations(machine::MachineState& m, int buffer, int length);
+    int configureNewWorkStations(const std::vector<uint8_t>& buffer, int length);
 
     // Result metadata for the configurer's successful-completion tail: the
     // machine remembers whether this request configured station address zero

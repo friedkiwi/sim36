@@ -369,7 +369,7 @@ def main():
         # of 800040 (see the reference's session notes); the reference emulator
         # itself now reports 800640 for the first MAIN read on this volume and
         # fails its own check.  SIM/36 prints the same line as the reference.
-        wait_monitor("workspace 800640 selects staging displacement 640",
+        wait_monitor("workspace 800640 retains logical block displacement 0640;",
                      timeout=10, after=mark)
         if w2.screen.find("Main System/36 help menu"):
             raise AssertionError("MAIN accepted option 1 but did not change panels")

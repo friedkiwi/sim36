@@ -22,7 +22,7 @@ Tag: `cp-7`
   and construction-time refusals (`ConfigError`) when a configured
   diskette or tape folder cannot be used, with the reason.
 - **Snapshots** (`Monitor/MachineSnapshot.*`, `As36Checkpoint.cpp`,
-  `Machine::restoreCheckpoint`): the `S36CKPT` version 15 archive (zip,
+  `Machine::restoreCheckpoint`): the `S36CKPT` version 16 archive (zip,
   minizip-ng) carrying main storage, the address translation registers,
   the registers, the MSP, scheduler, control processor, device, station,
   printer and tape state; `snapshot save/load`; the control processor's

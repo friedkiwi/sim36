@@ -607,6 +607,7 @@ void MachineSnapshot::writeRuntime(Writer& w, machine::Machine& m)
     w.i32(s.wsDeviceStatusPending);
     w.i32(s.wsDeviceStatusDelivered);
     w.ints(s.wsPresentPairs);
+    w.ints(s.deferredWsInput);
     w.u64(s.actionStatusLow);
     w.u64(s.actionStatusHigh);
     w.ints(s.actionCoverage);
@@ -728,6 +729,7 @@ MachineSnapshot::RuntimeState MachineSnapshot::readRuntime(Reader& r)
     c.wsDeviceStatusPending = r.i32();
     c.wsDeviceStatusDelivered = r.i32();
     c.wsPresentPairs = r.ints("workstation-present map");
+    c.deferredWsInput = r.ints("deferred workstation input");
     c.actionStatusLow = r.u64();
     c.actionStatusHigh = r.u64();
     c.actionCoverage = r.ints("SVC 0B action coverage");

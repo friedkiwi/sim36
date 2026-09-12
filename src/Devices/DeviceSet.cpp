@@ -83,6 +83,7 @@ DeviceSet::PendingCheckpoint DeviceSet::capturePendingCheckpoint() const
         s.inputReadPairs.push_back(p.command);
         s.inputReadPairs.push_back(p.bufferField);
         s.inputReadPairs.push_back(p.capacity);
+        s.inputReadPairs.push_back(p.stagingBlockDisplacement);
         s.inputReadPairs.push_back(static_cast<int>(p.destination.size()));
         s.inputReadPairs.insert(s.inputReadPairs.end(), p.destination.begin(), p.destination.end());
     }
@@ -118,12 +119,12 @@ bool DeviceSet::restorePendingCheckpoint(const PendingCheckpoint& s, std::string
     failure.clear();
     const auto& pairs = s.inputReadPairs;
     for (std::size_t i = 0; i < pairs.size();) {
-        if (i + 6 > pairs.size()) {
+        if (i + 7 > pairs.size()) {
             failure = "truncated pending workstation read checkpoint";
             return false;
         }
-        int count = pairs[i + 5];
-        if (count < 0 || i + 6 + static_cast<std::size_t>(count) > pairs.size()) {
+        int count = pairs[i + 6];
+        if (count < 0 || i + 7 + static_cast<std::size_t>(count) > pairs.size()) {
             failure = "invalid captured buffer in pending workstation read checkpoint";
             return false;
         }
@@ -137,10 +138,11 @@ bool DeviceSet::restorePendingCheckpoint(const PendingCheckpoint& s, std::string
         p.command = static_cast<uint8_t>(pairs[i + 2]);
         p.bufferField = pairs[i + 3];
         p.capacity = pairs[i + 4];
-        p.destination.assign(pairs.begin() + static_cast<std::ptrdiff_t>(i) + 6,
-                             pairs.begin() + static_cast<std::ptrdiff_t>(i) + 6 + count);
+        p.stagingBlockDisplacement = pairs[i + 5];
+        p.destination.assign(pairs.begin() + static_cast<std::ptrdiff_t>(i) + 7,
+                             pairs.begin() + static_cast<std::ptrdiff_t>(i) + 7 + count);
         pendingInputReads_.set(pairs[i], std::move(p));
-        i += 6 + static_cast<std::size_t>(count);
+        i += 7 + static_cast<std::size_t>(count);
     }
     if (s.inputStagingPairs.size() % 2 != 0) {
         failure = "invalid workstation input staging checkpoint";
@@ -494,10 +496,10 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
         copied = std::min(available, requested);
         writeCaptured(destination, 0, raw.data(), 3, copied);
         // Also hold the parsed bytes for delivery onto the work-space
-        // block's OWN resident frame when the display manager maps that
-        // block: the copy above landed on the A7-captured staging frame,
-        // which is the SAME frame only when the region page was not re-homed
-        // between panel paint and read.
+        // block's own logical pages when the display manager maps that
+        // block. The immediate copy above belongs only to this read action's
+        // issue-time IOB destination; the earlier A7 PUT page is provenance,
+        // not an alias for either destination.
         if (pending->stagingBlockDisplacement >= 0 && copied > 0) {
             DeferredWorkStationInput held;
             held.bytes.assign(raw.begin() + 3, raw.begin() + 3 + copied);
@@ -1017,22 +1019,21 @@ bool DeviceSet::readInputFields(int iob, WorkStationSlot& slot)
         // worked for one allocation and lost the other.
         int unitBlock = WorkStationIob::resolveUnitBlock(m_, iob);
         int workspace = unitBlock > 0 ? m_.readAddr24(unitBlock + UnitBlock::kOffInputWorkspacePointer) : 0;
-        int selectedDestination = *stagingDestination;
         if ((workspace & IoBlock::kDataBufferTranslated) != 0) {
-            selectedDestination += workspace & 0x7FF;
             // The deferred copy addresses the whole work-space BLOCK, not
-            // the one A7-captured real page.  Keep the translated page bits
-            // here: later sessions can be allocated beyond the block's first
-            // 2 KiB page even though their A7 staging frame is already that
-            // selected page.  Masking to the in-page offset made the third
-            // sign-on replay its fields into page zero (SYS-5552).
+            // the A7 output buffer's captured real page.  Those are distinct
+            // address domains: in the failing three-session case the TUB
+            // selected logical workspace page 2 while the retained PUT page
+            // was physical workspace page 1.  Writing the reply to that PUT
+            // page corrupted another session's workspace before the correct
+            // deferred replay occurred.  The IOB's issue-time destination
+            // remains the immediate controller destination; only the replay
+            // uses this logical block displacement.
             stagingBlockDisplacement = workspace & ~IoBlock::kDataBufferTranslated;
         }
-        if (selectedDestination >= 0 && selectedDestination + capacity <= m_.backingBytes()) {
-            destination = captureRealBuffer(selectedDestination, capacity);
-            trace_.ws("  Read Input Fields: guest TUB {:06X}+0x43 workspace {:06X} selects staging displacement {:03X}", unitBlock,
-                      workspace, selectedDestination - *stagingDestination);
-        }
+        trace_.ws("  Read Input Fields: guest TUB {:06X}+0x43 workspace {:06X} retains logical block displacement {:04X}; "
+                  "A7 PUT page {:06X} is provenance only and is not an input destination",
+                  unitBlock, workspace, stagingBlockDisplacement, *stagingDestination);
     }
 
     // The device-path address is resolved into the element at SVC issue
@@ -1297,21 +1298,18 @@ bool DeviceSet::readCurrentConfiguration(int iob)
     int bufferField = m_.readAddr24(iob + WorkStationIob::kOffDataBuffer);
     int length = WorkStationIob::length(m_, iob);
 
-    int buffer;
-    if (!resolveBuffer(bufferField, buffer)) {
-        IoBlock::complete(m_, iob, 4);
-        return false;
-    }
-
     int capacity = length > 0 ? (length - 1) / WorkStationSlot::kConfigurationRecordBytes : 0;
-    if (buffer + capacity * WorkStationSlot::kConfigurationRecordBytes + 1 > m_.backingBytes()) {
-        trace_.ws("  configuration buffer {:06X} + {} outside main storage", buffer, length);
+    int outputLength = capacity * WorkStationSlot::kConfigurationRecordBytes + 1;
+    std::vector<int> destination;
+    if (!captureBuffer(bufferField, outputLength, true, destination)) {
         IoBlock::complete(m_, iob, 4);
         return false;
     }
 
-    trace_.ws("  Read Current Configuration into {:06X}, {} byte(s) = room for {} record(s)", buffer, length, capacity);
-    int written = workStations_.readCurrentConfiguration(m_, buffer, length, autoConfigEnabled);
+    trace_.ws("  Read Current Configuration into {:06X}, {} byte(s) = room for {} record(s)", bufferField, length, capacity);
+    std::vector<uint8_t> output(static_cast<std::size_t>(outputLength), 0);
+    int written = workStations_.readCurrentConfiguration(output, length, autoConfigEnabled);
+    writeCaptured(destination, 0, output.data(), 0, written);
     trace_.ws("  {} byte(s) written, list terminated with FF", written);
 
     IoBlock::complete(m_, iob, 0);
@@ -1323,14 +1321,16 @@ bool DeviceSet::configureNewWorkStations(int iob)
     int bufferField = m_.readAddr24(iob + WorkStationIob::kOffDataBuffer);
     int length = WorkStationIob::length(m_, iob);
 
-    int buffer;
-    if (!resolveBuffer(bufferField, buffer)) {
+    std::vector<int> source;
+    if (!captureBuffer(bufferField, length, false, source)) {
         IoBlock::complete(m_, iob, 4);
         return false;
     }
 
-    trace_.ws("  Configure New Work Stations from {:06X}, {} byte(s)", buffer, length);
-    int reason = workStations_.configureNewWorkStations(m_, buffer, length);
+    trace_.ws("  Configure New Work Stations from {:06X}, {} byte(s)", bufferField, length);
+    std::vector<uint8_t> input(static_cast<std::size_t>(length), 0);
+    readCaptured(source, 0, input.data(), 0, length);
+    int reason = workStations_.configureNewWorkStations(input, length);
     if (reason != 0) {
         // The configuration error routine's guest-visible status fields, and
         // the end state its post leaves: completion bit 80 cleared, status
@@ -1383,13 +1383,6 @@ bool DeviceSet::captureBuffer(int bufferField, int length, bool forWrite, std::v
                   addresses[0], boundaries);
     }
     return true;
-}
-
-std::vector<int> DeviceSet::captureRealBuffer(int address, int length)
-{
-    std::vector<int> captured(static_cast<std::size_t>(length));
-    for (int n = 0; n < length; n++) captured[static_cast<std::size_t>(n)] = address + n;
-    return captured;
 }
 
 void DeviceSet::readCaptured(const std::vector<int>& source, int sourceOffset, uint8_t* destination, int destinationOffset,

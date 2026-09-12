@@ -135,6 +135,11 @@ public:
                            StorageProtection* fault = nullptr) const;
     bool guest24Extents(int field, int length, bool forWrite,
                         std::vector<std::pair<int, int>>& extents) const;
+    // Copy into a logical range backed by independently allocated 2 KiB
+    // page frames. Zero frame entries are absent. The whole range is
+    // validated before any byte is changed.
+    bool writePageFrames(const std::vector<int>& frames, int displacement,
+                         const uint8_t* source, int length);
     bool readGuest24Range(int field, uint8_t* destination, int length);
     bool writeGuest24Range(int field, const uint8_t* source, int length);
 

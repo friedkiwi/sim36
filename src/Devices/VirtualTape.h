@@ -118,7 +118,6 @@ private:
     bool validLength(int iob, int length);
     bool notReady(int iob);
     void postError(int iob, int completion, int mic);
-    bool resolveBuffer(int bufferField, int& addr);
 
     machine::MachineState& m_;
     monitor::Tracer& trace_;
