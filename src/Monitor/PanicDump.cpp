@@ -1,5 +1,6 @@
 #include "Monitor/PanicDump.h"
 
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <ctime>

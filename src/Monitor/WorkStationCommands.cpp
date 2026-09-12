@@ -1251,7 +1251,7 @@ void MonitorCli::setVolumeWorkStationConfiguration(const std::vector<std::string
         return;
     }
     const std::string name = upper(a[2]);
-    int number;
+    int number = 0;
     if (name.size() != 2 || name[0] != 'W' || !tryDigits(name.substr(1), number) || number < 1 || number > 7) {
         fmt::print("station record must be W1 through W7\n");
         return;
