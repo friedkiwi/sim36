@@ -65,8 +65,9 @@ file are relative to that file.
 ## Media
 
 No System/36 volume image is distributed with SIM/36.  `etc/sim36.sim`
-attaches `var/as36.img` as an overlay; put your own volume there or change
-the path.  Tests that need a volume read `SIM36_VOLUME` at run time and
+attaches none, so the bare emulator always starts; `etc/sim36-appliance.sim`
+attaches `var/as36.img` as an overlay and IPLs, so put your own volume there
+or change the path.  Tests that need a volume read `SIM36_VOLUME` at run time and
 skip (ctest return code 77) when it is unset.
 
 ## Testing

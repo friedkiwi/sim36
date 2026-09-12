@@ -20,7 +20,7 @@ binary with `etc/`, `README.md`, this file and `THIRD_PARTY_NOTICES`.
 ## 2. The volume and the startup command file
 
 SIM/36 ships no System/36 volume.  Put a volume image at `var/as36.img`
-(the default startup file attaches `../var/as36.img` relative to `etc/`),
+(the appliance startup file attaches `../var/as36.img` relative to `etc/`),
 or point the `attach disk0` line of your own command file at it.
 
 ```
@@ -31,10 +31,11 @@ sim36 -s experiment.sim      # execute a command file and exit
 sim36 -t disk,ws             # initial trace classes
 ```
 
-`etc/sim36.sim` is an ordinary monitor command file: it attaches the volume
-as an overlay (writes stay in memory and never reach the file), declares
-station 0.0 as the console and 0.1..0.6 as displays, and leaves you at the
-prompt with the listeners open and no machine constructed.  `show config`
+`etc/sim36.sim` is an ordinary monitor command file: it declares station
+0.0 as the console and 0.1..0.6 as displays and leaves you at the prompt
+with the listeners open, no volume attached and no machine constructed.
+`attach disk0 var/as36.img overlay` attaches the volume (writes stay in
+memory and never reach the file); the appliance file does that for you.  `show config`
 prints the machine as configured; `save config stdout` prints it back as a
 replayable command file.
 
@@ -63,7 +64,8 @@ set of the attached diskette instead of the fixed disk.
 sim36 -c etc/sim36-appliance.sim
 ```
 
-That file includes `etc/sim36.sim` and ends with a bare `ipl`.  The IPL
+That file includes `etc/sim36.sim`, attaches `var/as36.img` as an overlay
+and ends with a bare `ipl`.  The IPL
 starts execution on the guest thread and returns to the `sim36> ` prompt;
 the guest keeps running across its idle waits, and a terminal that attaches
 later is powered on and given a sign-on.

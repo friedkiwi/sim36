@@ -11,15 +11,17 @@
 # ws-interactive off, station role display, device-code 11, listen host
 # 127.0.0.1, signon-at-ipl off, terminal multiplex on, and memory 1024K.
 
-# The volume is not distributed with SIM/36: put a System/36 volume image at
-# var/as36.img (next to etc/), or change the path below.
+# No volume is attached here, so `sim36` always starts: SIM/36 ships no
+# System/36 volume image.  Attach yours at the prompt, or use
+# sim36-appliance.sim, which attaches var/as36.img and IPLs:
 #
-# Attached `overlay`: writes are accepted into memory and never reach the
-# file.  SSP genuinely writes to its volume during IPL (the work station
-# configuration table is rewritten, for one), so a read-write attach makes the
-# volume a mutable output of every run.  Use `rw` deliberately, on a private
-# copy, when writes are wanted.
-attach disk0 ../var/as36.img overlay
+#     attach disk0 var/as36.img overlay
+#
+# `overlay`: writes are accepted into memory and never reach the file.  SSP
+# genuinely writes to its volume during IPL (the work station configuration
+# table is rewritten, for one), so a read-write attach makes the volume a
+# mutable output of every run.  Use `rw` deliberately, on a private copy,
+# when writes are wanted.
 
 # Work-station address 0.0 is the console on every 5250 machine, must be
 # present for the IPL to complete, and binds to this emulator's operator

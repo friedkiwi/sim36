@@ -1,9 +1,12 @@
 # Unattended Advanced/36 appliance.
 #
-# The included file defines the machine, media and stations.  Bare `ipl` then
-# owns the processor across the guest's idle waits; connect an ordinary
-# tn5250 client to the multiplexer (127.0.0.1:2300) and pick a station.
-# No monitor restart or instruction-count driving is needed.
+# The included file defines the machine and its stations; the volume (not
+# distributed with SIM/36; put yours at var/as36.img, next to etc/) is
+# attached here as an overlay, and bare `ipl` then owns the processor across
+# the guest's idle waits.  Connect an ordinary tn5250 client to the
+# multiplexer (127.0.0.1:2300) and pick a station.  No monitor restart or
+# instruction-count driving is needed.
 
 do sim36.sim
+attach disk0 ../var/as36.img overlay
 ipl
