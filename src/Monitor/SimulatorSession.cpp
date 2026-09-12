@@ -736,7 +736,13 @@ void SimulatorSession::reconcileListeners()
             fresh = std::make_unique<host::WorkstationBackend>(s.listenHost, s.listenPort, "station " + s.id(),
                                                                &listenerTrace_, [this] { signalConstructedMachine(); });
         if (console) static_cast<host::WorkstationBackend*>(fresh.get())->attachConsole();
-        else if (shouldListen) fresh->listen();
+        else if (shouldListen) {
+            try {
+                fresh->listen();
+            } catch (const std::runtime_error& e) {
+                fmt::print("warning: {}\n", e.what());
+            }
+        }
         stationBackends_[s.id()] = std::move(fresh);
     }
     std::vector<std::string> gone;
@@ -840,7 +846,14 @@ void SimulatorSession::startMultiplexer()
     if (multiplexer_) return;
     auto mux = std::make_unique<host::StationMultiplexer>(definition_.multiplexHost,
                                                           definition_.multiplexPort, &multiplexerTrace_, this);
-    mux->listen();
+    // A port that is already taken is not fatal: the session comes up
+    // without the multiplexer and `station multiplex on` retries later.
+    try {
+        mux->listen();
+    } catch (const std::runtime_error& e) {
+        fmt::print("warning: {}\n", e.what());
+        return;
+    }
     multiplexer_ = std::move(mux);
     reportMultiplexer();
 }
