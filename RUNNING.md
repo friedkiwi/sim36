@@ -1,0 +1,185 @@
+# Running SIM/36
+
+A short operator guide: build, provide a volume, IPL, and drive the SSP
+sign-on from a live tn5250 client.  Everything below runs from the
+repository root (or from the directory an installed archive was unpacked
+into).
+
+## 1. Build
+
+```sh
+cmake --preset linux           # or: linux-make, windows-static
+cmake --build --preset linux
+ctest --preset linux           # the volume gates skip until a volume is given
+```
+
+The binary is `build/linux/sim36` (`build\windows-static\Release\sim36.exe`
+on Windows).  The packaged archives on the releases page contain the same
+binary with `etc/`, `README.md`, this file and `THIRD_PARTY_NOTICES`.
+
+## 2. The volume and the startup command file
+
+SIM/36 ships no System/36 volume.  Put a volume image at `var/as36.img`
+(the default startup file attaches `../var/as36.img` relative to `etc/`),
+or point the `attach disk0` line of your own command file at it.
+
+```
+sim36                        # reads etc/sim36.sim when it exists, then prompts
+sim36 -c etc/sim36.sim       # the same, explicitly
+sim36 -c machine.sim         # your own startup file
+sim36 -s experiment.sim      # execute a command file and exit
+sim36 -t disk,ws             # initial trace classes
+```
+
+`etc/sim36.sim` is an ordinary monitor command file: it attaches the volume
+as an overlay (writes stay in memory and never reach the file), declares
+station 0.0 as the console and 0.1..0.6 as displays, and leaves you at the
+prompt with the listeners open and no machine constructed.  `show config`
+prints the machine as configured; `save config stdout` prints it back as a
+replayable command file.
+
+> Use `overlay`, or a private copy, and never share an image or a port
+> between concurrent runs.  A read-write attach takes an exclusive lock
+> (`<image>.lock`) and refuses a second attach by name.  Listener ports are
+> not protected; pick private ports when running several emulators.
+
+Media commands:
+
+```
+attach disk0 <image> ro|rw|overlay
+attach diskette0 <image> [ro|rw]      # flat diskette image
+attach tape0 <folder> [ro|rw]         # folder tape with its manifest
+detach <device>
+diskette / dsktread / dsktwrite       # inspect or drive the diskette
+tape status|vtoc|files|...            # inspect or drive the tape
+```
+
+`set machine ipl-source diskette` boots phase 1 from the `#IPLBOOT` data
+set of the attached diskette instead of the fixed disk.
+
+## 3. Run it as an appliance
+
+```sh
+sim36 -c etc/sim36-appliance.sim
+```
+
+That file includes `etc/sim36.sim` and ends with a bare `ipl`.  The IPL
+starts execution on the guest thread and returns to the `sim36> ` prompt;
+the guest keeps running across its idle waits, and a terminal that attaches
+later is powered on and given a sign-on.
+
+For a different machine, copy the command file, change its `set` and
+`attach` commands, and end it with `ipl`.
+
+### 3a. Keeping the monitor while the machine runs
+
+`ipl` runs the freshly reset machine on a guest thread of its own.  Every
+monitor command keeps working (`dump`, `tasklist`, `breakm`, `watch`,
+`snapshot save`, `console put`, `console send`, ...); each one is executed
+by the guest thread at its next architected preemption point, so it sees
+the same state a scripted command sees.  `stop` stops execution at a safe
+point, `start` resumes it, `show status` reports which it is.
+
+`wait idle [seconds]` blocks the monitor (not the machine) until the guest
+parks in its idle wait.  It replaces guessing an instruction count with a
+condition:
+
+```
+set machine ipl-type attend
+ipl
+wait idle 120           ; the IPL SIGN ON panel is now on the console
+console put 6 56 QSECOFR
+console put 16 56 090896
+console put 17 56 120000
+console send Enter
+wait idle 120
+console
+```
+
+`ipl pause` resets and performs the control storage IPL but returns before
+the first guest instruction; it is the deterministic entry for `step N`, and
+`start` continues normally from there.  `step`, `boot` and `reset` are
+refused while execution is in progress (`stop` first).
+
+## 4. Connecting a 5250 client
+
+The console (`W1`, station 0.0) is not a telnet station: use `console` at
+the prompt to replay what the guest wrote to it, and `console put` /
+`console send` to answer.  On an attended IPL it receives the `IPL SIGN ON`
+panel; on an unattended IPL SSP completes without writing to it, and you
+sign on through W2..W7.
+
+By default one listener, the station multiplexer on `127.0.0.1:2300`,
+serves every display station.  Connect anything that speaks 5250:
+
+```sh
+tn5250 telnet://127.0.0.1:2300
+```
+
+You get a panel asking which station to connect to.  Type `W2` (or the
+`port.address` form, `0.1`) and press Enter; the field is pre-filled with
+the lowest free station and the hint beside it is the range this machine
+offers.  A client that sends an RFC 2877 device name that is a station
+(`tn5250 env.DEVNAME=W3 telnet://127.0.0.1:2300`) goes straight there.
+Selecting `W1` asks for confirmation and then shares the console device
+with the monitor's `console` commands.
+
+The multiplexer is not part of the machine: it comes up when configured,
+with or without a constructed machine, and survives `reset` and the next
+`ipl`.  A client that picked W3 while the machine was stopped is on W3 when
+the guest IPLs, on the same socket.
+
+```
+set terminal multiplex off                     # one listener per station instead
+set terminal multiplex listen 127.0.0.1:2400   # move the multiplexer
+set station 0.3 listen 127.0.0.1:2403          # a per-station listener
+```
+
+Printers keep their own listeners (`set station 0.4 role printer`,
+`set station 0.4 device-code PB`, `set station 0.4 listen ...`); a 5250
+printer client such as `lp5250d` receives RFC 2877 print records.
+`prtwrite` and `prtend` drive a printer from the monitor.
+
+`stations` shows which port each station is reached through and what is on
+it.  Hanging up a client powers its display off: whatever the guest had
+outstanding against that terminal fails with "device not attached", and the
+next client on that station is a new power-on with its own sign-on.
+
+## 5. A complete unattended session, scripted
+
+`test/ipl-unattended-main-session.py` is the executable form of this
+guide: it starts the emulator on private ports, IPLs unattended, connects
+a headless 5250 client (`test/tn5250drive.py`), picks W2, signs on, walks
+MAIN to MENU COMMAND and PROGRAM and starts SEU.  `test/ipl-main-session.py`
+does the attended form through the console.  Both need `SIM36_VOLUME`.
+
+## 6. Snapshots and panic dumps
+
+`snapshot save <file>` writes the machine (main storage, registers,
+control processor, scheduler, devices, stations, tape position) as a
+`S36CKPT` archive; `snapshot load <file>` restores it into a machine with
+the same configuration.  Live TN5250 sessions and pending host callbacks
+are not serialisable: detach the client at the boundary you want, save,
+then reconnect after loading.
+
+`panic` asks two questions (what happened, how to reproduce it), writes an
+owner-only zip with the configuration replay, trace settings, station
+state, main storage, the runtime and control processor state, the last I/O
+buffers and the deferred trace tail, prints the file name, and leaves.  The
+archive never contains the volume, diskette or tape media.
+
+## 7. Tracing and inspection
+
+```
+trace csp,svc,ace,disk,ws,sched     ; trace classes; also msp, or off
+trace ws                            ; the work station path only
+tasklist / whereis / modules        ; the SSP tasks, the current member, the loaded members
+dump 08AB 1                         ; guest storage
+tu 00E870 / iob 020600 / ace 03C0   ; decoded control blocks
+sqsstate / mapstate / actions       ; system queue space, address mapping, action controller
+```
+
+`help` lists every command by group.  The trace lines name the guest
+structures they decode and, where the emulator refuses something, say what
+was refused and why: a refusal is a statement about what is known, not a
+placeholder.

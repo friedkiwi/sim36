@@ -514,7 +514,7 @@ std::string PanicDump::create(const std::string& description, const std::string&
                               uint32_t pendingTrace, const std::vector<host::StationBackend*>& backends)
 {
     std::string path = (fs::temp_directory_path() /
-                        fmt::format("s36refemu-panic-{}-{}.zip", utcNow("%Y%m%d-%H%M%S"), randomHex(8)))
+                        fmt::format("sim36-panic-{}-{}.zip", utcNow("%Y%m%d-%H%M%S"), randomHex(8)))
                            .string();
     try {
         {
@@ -532,7 +532,7 @@ std::string PanicDump::create(const std::string& description, const std::string&
             Archive archive(path);
             std::vector<std::string> errors;
             archive.text("README.txt",
-                         "s36refemu panic dump format " + std::to_string(kFormatVersion) + "\n" + "Created UTC: " +
+                         "SIM/36 panic dump format " + std::to_string(kFormatVersion) + "\n" + "Created UTC: " +
                              utcNowRoundTrip() + "\n" +
                              "Mounted media images, tape files and overlay sectors are NOT included.\n"
                              "The bounded last-read I/O buffers are included as operation evidence.\n"

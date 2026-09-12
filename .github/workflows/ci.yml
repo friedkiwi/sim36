@@ -105,3 +105,27 @@ jobs:
         with:
           name: sim36-windows-x64
           path: sim36-windows-x64.zip
+
+  release:
+    # A v* tag publishes the two packaged builds as a GitHub release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-gcc10, windows-msvc142-static]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sim36-linux-x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: sim36-windows-x64
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "SIM/36 ${GITHUB_REF_NAME}" \
+            --notes "SIM/36 ${GITHUB_REF_NAME}: static builds for Linux x64 (g++ 10) and Windows x64 (MSVC v142, Windows 7 and later). See README.md and RUNNING.md inside each archive; THIRD_PARTY_NOTICES lists the statically linked libraries." \
+            sim36-linux-x64.tar.gz sim36-windows-x64.zip

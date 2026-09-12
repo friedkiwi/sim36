@@ -2,7 +2,7 @@
 """Research drive: sign YVANJ on at W2 after an unattended IPL, answering the
 sign-on Read MDT Fields the way a real 5250 display does - SBA + data per
 field with trailing nulls suppressed - instead of the driver's full-length
-fields.  Reproduces panic s36refemu-panic-20260910-205513-bc5d0c13
+fields.  Reproduces a panic dump taken on 2026-09-10
 (SYS-5552 Library <8 nulls> not found).
 
 Set S36_NULL_SUPPRESS=0 to send the driver's usual full-length answer.

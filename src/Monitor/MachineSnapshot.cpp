@@ -422,7 +422,7 @@ MachineSnapshot::Loaded MachineSnapshot::load(const std::string& path)
         Reader r(full.string());
         uint8_t magic[sizeof kMagic];
         r.raw(magic, sizeof magic, "header");
-        if (std::memcmp(magic, kMagic, sizeof kMagic) != 0) invalid("not an s36refemu checkpoint");
+        if (std::memcmp(magic, kMagic, sizeof kMagic) != 0) invalid("not a SIM/36 checkpoint");
         int version = r.i32();
         if (version != kVersion) invalid("unsupported checkpoint version " + std::to_string(version));
         Loaded answer;

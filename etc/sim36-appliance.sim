@@ -1,0 +1,9 @@
+# Unattended Advanced/36 appliance.
+#
+# The included file defines the machine, media and stations.  Bare `ipl` then
+# owns the processor across the guest's idle waits; connect an ordinary
+# tn5250 client to the multiplexer (127.0.0.1:2300) and pick a station.
+# No monitor restart or instruction-count driving is needed.
+
+do sim36.sim
+ipl

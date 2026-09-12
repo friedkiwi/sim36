@@ -41,7 +41,7 @@ def main():
         if replacements != 1:
             raise AssertionError("research configuration has no disk0 attachment")
         temporary_config = tempfile.NamedTemporaryFile(
-            mode="w", prefix="s36refemu-dw-", suffix=".sim", delete=False)
+            mode="w", prefix="sim36-dw-", suffix=".sim", delete=False)
         temporary_config.write(definition)
         temporary_config.close()
         config = temporary_config.name

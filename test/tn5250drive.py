@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tn5250drive - a scriptable, headless 5250 display station for s36refemu.
+"""tn5250drive - a scriptable, headless 5250 display station for SIM/36.
 
 TEST-ONLY.  Nothing here is imported by the emulator; it changes no emulator
 behaviour.  It is a *client*: it speaks RFC 1205 / RFC 2877 over a socket to a
@@ -1179,7 +1179,7 @@ def run_script(lines, sessions=None, out=sys.stdout):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(
-        description="Drive a 5250 station against a running s36refemu.",
+        description="Drive a 5250 station against a running SIM/36.",
         epilog=HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--script", help="script file, or - for stdin")
     ap.add_argument("--port", type=int, help="attach this station and dump it")
