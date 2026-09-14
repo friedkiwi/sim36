@@ -333,8 +333,16 @@ std::vector<uint8_t> ConsoleDisplay::screenContent(const ConsoleField& f) const
 {
     std::vector<uint8_t> bytes(static_cast<std::size_t>(std::max(0, f.length)));
     int start = offset(f.row, f.col);
-    for (int n = 0; n < f.length; n++)
-        bytes[static_cast<std::size_t>(n)] = screen_[static_cast<std::size_t>((start + n) % static_cast<int>(screen_.size()))];
+    for (int n = 0; n < f.length; n++) {
+        uint8_t value = screen_[static_cast<std::size_t>((start + n) % static_cast<int>(screen_.size()))];
+        // A null is an unwritten display cell.  A 5250 controller returns
+        // it to the application as an EBCDIC blank when it materializes a
+        // fixed-width input field.  Keeping the raw null is observable when
+        // a client omits an unchanged field from a Read-MDT response:
+        // CATALOG's blank output-file field then becomes an invalid utility
+        // control-statement character (SYS-4109).
+        bytes[static_cast<std::size_t>(n)] = value == 0 ? static_cast<uint8_t>(0x40) : value;
+    }
     return bytes;
 }
 

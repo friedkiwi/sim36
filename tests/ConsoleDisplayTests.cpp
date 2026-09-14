@@ -93,6 +93,31 @@ TEST_CASE("console display: truncated modified fields are blank padded")
     CHECK(slice(expanded, 3, 8) == roundTrip("SYSTEM  "));
 }
 
+TEST_CASE("console display: omitted null-filled input fields are returned as blanks")
+{
+    host::ConsoleDisplay display(0, false);
+    const std::vector<uint8_t> format = {
+        0x04, 0x40,
+        // CATALOG clears the screen with nulls, then defines a defaulted
+        // selection field and a wholly empty output-file field.
+        0x11, 0x08, 0x38, 0x1D, 0x48, 0x20, 0x30, 0x00, 0x05,
+        0xC1, 0xD3, 0xD3, 0x00, 0x00,
+        0x11, 0x10, 0x42, 0x1D, 0x48, 0x20, 0x30, 0x00, 0x08,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    display.apply(format.data(), 0, static_cast<int>(format.size()));
+
+    // A real Read-MDT reply contains only the field the operator changed;
+    // the empty output-file field is omitted altogether.
+    const std::vector<uint8_t> reply = {
+        0x08, 0x3A, 0xF1, 0x11, 0x08, 0x39, 0xC1, 0xD3, 0xD3,
+    };
+    const std::vector<uint8_t> expanded = display.expandModifiedInput(reply);
+    REQUIRE(expanded.size() == 16);
+    CHECK(slice(expanded, 3, 5) == roundTrip("ALL  "));
+    CHECK(slice(expanded, 8, 8) == roundTrip("        "));
+}
+
 TEST_CASE("console display: DisplayWrite/36 CREATE honors SOH and FCW resequencing")
 {
     host::ConsoleDisplay display(0, false);

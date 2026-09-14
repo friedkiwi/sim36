@@ -136,6 +136,31 @@ def main():
             raise TimeoutError("LIST ALL did not display BASICSMP\n%s" %
                                session.screen.render(fields=True))
 
+        # CATALOG's help panel is split across two input pages. This drives
+        # the reported form shape: the first Enter returns ALL/F1 as modified
+        # fields while the empty output-file field is omitted; the second
+        # returns NAME. The controller must expand that omitted null-filled
+        # field as EBCDIC blanks.
+        if os.environ.get("S36_LIST_CATALOG_FORM") == "1":
+            session.type_at(8, 58, "ALL")
+            session.type_at(10, 67, "F1")
+            session.press("Enter")
+            session.wait_for_text("To list entries alphabetically", timeout=30)
+            session.type_at(14, 67, "NAME")
+            check_mark = len(transcript)
+            session.press("Enter")
+            mark = len(transcript)
+            command("wait idle 60")
+            wait_monitor("wait: guest is idle after", timeout=65, after=mark)
+            with changed:
+                text = "".join(transcript[check_mark:])
+            with session.lock:
+                saw_rejected = any(session.screen.contains(value) for value in rejected)
+                screen = session.screen.render("=== CATALOG RESULT ===", fields=True)
+            if ("CHECK [program]" in text or "CHECK [CSP/MSP/channel]" in text or
+                    saw_rejected or any(value in text for value in rejected)):
+                raise AssertionError("CATALOG form failed\n%s\n%s" % (screen, text[-12000:]))
+
         # Optional post-screen key sequence.  This keeps application-level
         # regressions tied to the real panel that accepts the keys instead of
         # merely proving that the command's loader was entered.
