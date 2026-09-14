@@ -127,7 +127,7 @@ void MonitorCli::startExecution(As36ControlStorageProcessor* csp, const std::str
         liveThread_ = std::thread([this, csp] { liveBody(csp); });
         liveThreadId_ = liveThread_.get_id();
     }
-    fmt::print("execution: {}; the monitor stays available ('stop' to pause, 'wait idle' to sync)\n", what);
+    fmt::print("execution: {}\n", what);
 }
 
 void MonitorCli::liveBody(As36ControlStorageProcessor* csp)
