@@ -634,11 +634,14 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
 // already-owned SVC-43 element.
 bool MonitorCli::deliverPendingInputStatuses(As36ControlStorageProcessor& csp)
 {
-    const bool posted = false;
+    bool posted = false;
     for (auto& sp : m_.stations()) {
         devices::VirtualWorkstation& s = *sp;
         if (s.isPrinter() || s.tubAddress == 0 || !s.attentionPending()) continue;
-        if (csp.deliverWorkStationInputStatus(s.tubAddress)) s.takeAttentionPending();
+        if (csp.deliverWorkStationInputStatus(s.tubAddress)) {
+            s.takeAttentionPending();
+            posted = true;
+        }
     }
     return posted;
 }

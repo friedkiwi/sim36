@@ -119,12 +119,12 @@ check "Overrides Y is accepted through the TN5250 console" \
       "phase 4 Overrides Y reached date/time confirmation: yes"
 check "a bare confirmation Enter retains fields and opens IPL OVERRIDES MENU" \
       "phase 4 bare confirmation Enter reached IPL OVERRIDES MENU: yes"
-check "override option 2 reaches SSP and retains the selected value" \
+check "override option 2 completes attended IPL and reaches the main menu" \
       "phase 4 option 2 received an SSP response: yes"
 check "override option 2 leaves the terminal keyboard usable" \
       "phase 4 option 2 left keyboard usable: yes"
-check "Cmd7 after the option-2 response also reaches SSP" \
-      "phase 4 Cmd7 received an SSP response: yes"
+check "Cmd3 after the completed IPL also reaches SSP" \
+      "phase 4 Cmd3 received an SSP response: yes"
 
 # --- preconnected unattended system console -------------------------------
 check "the multiplexer paints nothing over an unattended W1 once constructed" \

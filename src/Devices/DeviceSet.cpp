@@ -189,6 +189,30 @@ int DeviceSet::countPendingPutWithInvitesForUnit(int unitAddress) const
     return count;
 }
 
+bool DeviceSet::hasPendingInputForUnit(int unitAddress) const
+{
+    const int unit = unitAddress & 0xFF;
+    for (const auto& key : pendingInputReads_.keys()) {
+        const PendingInputRead* pending = pendingInputReads_.find(key);
+        if (pending != nullptr && pending->slot != nullptr && pending->slot->unitAddress() == unit &&
+            pending->slot->backend()->pendingInput() > 0)
+            return true;
+    }
+    for (const auto& key : pendingPutWithInvites_.keys()) {
+        WorkStationSlot* const* pending = pendingPutWithInvites_.find(key);
+        if (pending != nullptr && *pending != nullptr && (*pending)->unitAddress() == unit &&
+            (*pending)->backend()->inviteResponsePending())
+            return true;
+    }
+    for (const auto& key : pendingC1Completions_.keys()) {
+        const int* pendingUnit = pendingC1Completions_.find(key);
+        WorkStationSlot* slot = pendingUnit == nullptr ? nullptr : workStations_.find(*pendingUnit);
+        if (pendingUnit != nullptr && *pendingUnit == unit && slot != nullptr && slot->backend()->pendingInput() > 0)
+            return true;
+    }
+    return false;
+}
+
 void DeviceSet::recordAction0Activation(int unitAddress) { recordPowerOnActivation(unitAddress, "NuWsIoAction(0)"); }
 
 void DeviceSet::recordPowerOnActivation(int unitAddress, const std::string& producer)

@@ -292,17 +292,17 @@ out.append("phase 4 bare confirmation Enter reached IPL OVERRIDES MENU: %s" %
            ("yes" if preipl_console.screen.contains("IPL OVERRIDES MENU") else "no"))
 preipl_console.type_into("Option", "2")
 preipl_console.press("Enter")
-preipl_console.wait_for_change(timeout=30)
+preipl_console.wait_for_text("Main System/36 help menu", timeout=30)
 out.append("phase 4 option 2 received an SSP response: %s" %
            ("yes" if preipl_console.screen.contains(
-               "IPL OVERRIDES - PROGRAMS TO BE RUN DURING IPL") else "no"))
+               "Main System/36 help menu") else "no"))
 out.append("phase 4 option 2 left keyboard usable: %s" %
            ("yes" if not preipl_console.screen.error else "no"))
-show("phase 4 IPL override option 2 result", preipl_console)
-preipl_console.press("Cmd7")
+show("phase 4 completed attended IPL", preipl_console)
+preipl_console.press("Cmd3")
 preipl_console.wait_for_change(timeout=30)
-out.append("phase 4 Cmd7 received an SSP response: yes")
-show("phase 4 after Cmd7 from option 2 response", preipl_console)
+out.append("phase 4 Cmd3 received an SSP response: yes")
+show("phase 4 after Cmd3 from completed IPL", preipl_console)
 preipl_console.close()
 send(proc, "stop")
 send(proc, "quit")

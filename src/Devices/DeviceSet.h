@@ -198,6 +198,7 @@ public:
     int pendingControllerInviteCount() const { return static_cast<int>(pendingControllerInvites_.size()); }
     int pendingPutWithInviteCount() const { return pendingPutWithInvites_.size(); }
     int countPendingPutWithInvitesForUnit(int unitAddress) const;
+    bool hasPendingInputForUnit(int unitAddress) const;
     int pendingScreenSaveCount() const { return pendingScreenSaves_.size(); }
     int pendingAction0ActivationCount() const { return static_cast<int>(pendingAction0ActivationUnits_.size()); }
 

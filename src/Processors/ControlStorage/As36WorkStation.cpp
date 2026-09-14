@@ -37,7 +37,40 @@ bool As36ControlStorageProcessor::observePendingDeviceInput()
 
 bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock)
 {
-    return devices_.tryDeliverInputStatus(unitBlock);
+    if (unitBlock == 0 || m_.readHalf(unitBlock) != WorkStationIob::kUnitBlockEyecatcher) return false;
+    const int unit = m_.readByte(unitBlock + WorkStationIob::kOffUnitAddress);
+    const bool completesRetainedRead = devices_.hasPendingInputForUnit(unit);
+    if (!devices_.tryDeliverInputStatus(unitBlock)) return false;
+
+    // A response to an already-retained Put/Get or Read Input Fields has an
+    // ACE of its own. completePendingWorkStationInput(), called immediately
+    // after this status half, posts that ACE; posting 002D as well would
+    // duplicate one keystroke into the command router.
+    if (completesRetainedRead) {
+        trace_.csp("work-station input status reached TU {:06X}; its retained device ACE supplies the guest wake",
+                   unitBlock);
+        return true;
+    }
+
+    // A terminal response is unsolicited controller status, not completion
+    // of the later Read Input Fields request. The native controller reports
+    // that status to SSP's command-router task as event 002D; the router then
+    // issues the read which consumes the retained field record. Merely
+    // copying WSCF into the TUB leaves every SSP task asleep with the input
+    // stranded in the host queue (most visibly when Cmd3 returns a menu).
+    int owner = findTaskById(kConsoleOwnerTaskId, 0);
+    if (owner == 0) {
+        trace_.csp("work-station input status reached TU {:06X}, but command-router task {:04X} is not present; status "
+                   "remains in the TU for SSP to inspect",
+                   unitBlock, kConsoleOwnerTaskId);
+        return true;
+    }
+
+    const bool accepted = postTypedEventToTask(owner, kWorkStationDeviceStatusEvent, unitBlock,
+                                                "work-station input status");
+    trace_.csp("work-station input status: TU {:06X} -> command-router task {:04X}, event {:04X} ({})",
+               unitBlock, owner, kWorkStationDeviceStatusEvent, accepted ? "accepted" : "not accepted");
+    return true;
 }
 
 bool As36ControlStorageProcessor::completePendingWorkStationInput()

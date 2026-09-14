@@ -109,11 +109,14 @@ TEST_CASE("workstation: an A7 response survives until the same IOB's C1 status "
 
     terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None,
                                                  std::vector<uint8_t>{0x01, 0x01, 0xF1}));
+    CHECK(devices.hasPendingInputForUnit(0x01));
+    CHECK_FALSE(devices.hasPendingInputForUnit(0x02));
     REQUIRE(devices.tryDeliverInputStatus(tub));
     int completedIob = 0;
     REQUIRE(devices.tryCompletePendingInput(completedIob));
     CHECK(completedIob == iob);
     CHECK(devices.pendingPutWithInviteCount() == 0);
+    CHECK_FALSE(devices.hasPendingInputForUnit(0x01));
 
     // SSP now submits the same C1 IOB to import the response WSCF.  This
     // must complete from the already accepted Enter, without inviting and
