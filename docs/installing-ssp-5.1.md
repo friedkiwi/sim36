@@ -27,21 +27,6 @@ The captures use ImageDisk (`.IMD`). Cylinder 0 contains 26 256-byte label
 sectors. The SSP volumes' data tracks contain 8 1024-byte sectors; the
 microcode volumes use 15 512-byte sectors.
 
-## Prerequisites
-
-- A SIM/36 checkout and C++ build environment.
-- `VCPKG_ROOT` configured for the repository's CMake preset.
-- Python 3, `curl`, and `unzip`.
-
-From the repository root:
-
-```sh
-cmake --preset linux
-cmake --build --preset linux
-```
-
-The resulting executable is `build/linux/sim36`.
-
 ## 1. Download and unpack the archive
 
 ```sh
