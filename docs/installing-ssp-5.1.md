@@ -55,24 +55,13 @@ One sector in the archived `SSP51-11.IMD` is marked unreadable. The explicit
 the capture rather than silently inventing data. Volume 11 is not needed to
 reach the generation program.
 
-## 3. Create a blank fixed disk and inspect volume 1
+## 3. Create a blank fixed disk
 
 The configured Advanced/36 geometry is 819200 256-byte sectors:
 
 ```sh
 truncate -s 209715200 work/ssp51-new.img
-
-build/linux/sim36 -s /dev/stdin <<'EOF'
-attach disk0 work/ssp51-new.img rw
-attach diskette0 work/ssp51/flat/SSP51-01.img ro
-ipl pause
-diskette
-quit
-EOF
 ```
-
-The diskette report should identify a 5.25-inch volume with owner
-`5727SS65190V01`.
 
 ## 4. Restore the base SSP volumes
 
@@ -82,8 +71,7 @@ set machine load-source diskette
 set machine ipl-type attend
 attach disk0 work/ssp51-new.img rw
 attach diskette0 work/ssp51/flat/SSP51-01.img ro
-ipl pause
-start
+ipl
 wait idle 120
 console
 EOF
