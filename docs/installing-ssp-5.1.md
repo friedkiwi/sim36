@@ -1,28 +1,7 @@
-# SSP 5.1 generation from the archived distribution media
+# Install SSP 5.1
 
-## Current status
-
-SIM/36 can convert the publicly archived SSP 5.1 diskettes, IPL the first
-diskette, initialize the blank fixed disk's SSP system area, restore `SSPMRI`
-and `SSPBASE`, read both 5364 microcode volumes, and IPL the generated fixed
-disk. The generated SSP is bootable.
-
-The repository contains no IBM distribution media or generated SSP volume,
-and there is no prebuilt-volume fallback. The user supplies the archived
-distribution media and creates the fixed-disk image locally.
-
-## Public media
-
-The 5363/5364 SSP 5.1 diskette archive is publicly mirrored by bitsavers.
-
-The archive contains `SSP-5.1/SSP51-01.IMD` through `SSP51-11.IMD`, plus
-the `MCODE11`/`MCODE12` and `MCODE61`/`MCODE62` pairs. The 5364 personality
-used by the virtual Advanced/36 selects `DSKT11` and `DSKT12`; the 5363
-personality selects `DSKT61` and `DSKT62`.
-
-The captures use ImageDisk (`.IMD`). Cylinder 0 contains 26 256-byte label
-sectors. The SSP volumes' data tracks contain 8 1024-byte sectors; the
-microcode volumes use 15 512-byte sectors.
+This guide creates and boots a new SSP 5.1 fixed-disk image. Start in the
+root of a SIM/36 checkout with SIM/36 and a `tn5250` client ready to run.
 
 ## 1. Download and unpack the archive
 
