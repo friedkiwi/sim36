@@ -916,10 +916,10 @@ void SimulatorSession::media(const Args& a)
     if (target == "disk0") {
         requireConfigurable();
         if (attach) {
-            need(a, 3, "attach disk0 <image> [ro|rw]");
+            need(a, 3, "attach disk0 <image> [ro|rw|overlay]");
             std::string path = resolvePath(a[2]);
-            bool overlay = definition_.volumeOverlay;
-            bool readOnly = definition_.volumeReadOnly;
+            bool overlay = false;
+            bool readOnly = false;
             if (a.size() > 3) {
                 // `overlay` accepts writes and holds them in memory, so the
                 // guest sees a writable disk while the image is never touched.
@@ -939,9 +939,12 @@ void SimulatorSession::media(const Args& a)
         if (attach) {
             need(a, 3, "attach diskette0 <image> [ro|rw]");
             std::string path = resolvePath(a[2]);
-            if (a.size() > 3) definition_.disketteReadOnly = parseMode(a[3]);
+            definition_.disketteReadOnly = a.size() > 3 ? parseMode(a[3]) : false;
             definition_.diskettePath = path;
-            if (machine_) monitor_->executeTokens({"diskette", "insert", path});
+            if (machine_) {
+                machine_->config.disketteReadOnly = definition_.disketteReadOnly;
+                monitor_->executeTokens({"diskette", "insert", path});
+            }
         } else {
             definition_.diskettePath.clear();
             if (machine_) monitor_->executeTokens({"diskette", "eject"});

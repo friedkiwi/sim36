@@ -47,13 +47,16 @@ replayable command file.
 Media commands:
 
 ```
-attach disk0 <image> ro|rw|overlay
+attach disk0 <image> [ro|rw|overlay]
 attach diskette0 <image> [ro|rw]      # flat diskette image
 attach tape0 <folder> [ro|rw]         # folder tape with its manifest
 detach <device>
 diskette / dsktread / dsktwrite       # inspect or drive the diskette
 tape status|vtoc|files|...            # inspect or drive the tape
 ```
+
+Fixed disks and diskettes are attached read-write when the mode is omitted.
+Use `ro` for media that must not be changed.
 
 `set machine ipl-source diskette` boots phase 1 from the `#IPLBOOT` data
 set of the attached diskette instead of the fixed disk.

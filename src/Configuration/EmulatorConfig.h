@@ -38,15 +38,15 @@ struct StationConfig {
 // tape file).  Leave folderPath empty for an EMPTY drive.
 struct TapeConfig {
     std::string folderPath;
-    // Writable by default, unlike the fixed disk and diskette: a tape's whole
-    // purpose is save/restore, and a save writes it.
+    // Writable by default: a tape's whole purpose is save/restore, and a save
+    // writes it.
     bool readOnly = false;
 };
 
 class EmulatorConfig {
 public:
     std::string volumePath;
-    bool volumeReadOnly = true;
+    bool volumeReadOnly = false;
     // Writes are accepted and held in memory, never committed.  Takes
     // precedence over volumeReadOnly when set.
     bool volumeOverlay = false;
@@ -59,7 +59,7 @@ public:
     // empty drive.  There is deliberately no geometry beside it: the volume
     // declares its own layout in VOL1.
     std::string diskettePath;
-    bool disketteReadOnly = true;
+    bool disketteReadOnly = false;
 
     // Sectors of task work area, direct area word 1124.  SA21-9436's TWAL
     // entry: "The default value is 60 sectors."

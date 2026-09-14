@@ -1,18 +1,48 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+
 #include "Configuration/ConfigError.h"
 #include "Configuration/EmulatorConfig.h"
 #include "Configuration/IplSourceTable.h"
 #include "Monitor/CommandRegistry.h"
 #include "Monitor/ConfigurationRenderer.h"
+#include "Monitor/SimulatorSession.h"
 #include "Monitor/Tracer.h"
+#include "Storage/DiskBackend.h"
 
 using namespace sim36::configuration;
 using sim36::monitor::ConfigurationRenderer;
 
+namespace {
+
+struct EmptyVolume {
+    std::filesystem::path path;
+
+    EmptyVolume()
+    {
+        path = std::filesystem::temp_directory_path() /
+               ("sim36-media-default-" +
+                std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".img");
+        std::vector<uint8_t> image(9000 * sim36::storage::DiskBackend::kSectorBytes, 0);
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(image.data()),
+                  static_cast<std::streamsize>(image.size()));
+    }
+
+    ~EmptyVolume() { std::filesystem::remove(path); }
+};
+
+}  // namespace
+
 TEST_CASE("config: the default definition validates once a volume and console exist")
 {
     EmulatorConfig c;
+    CHECK_FALSE(c.volumeReadOnly);
+    CHECK_FALSE(c.disketteReadOnly);
     CHECK_THROWS_AS(c.validate("t"), ConfigError);
     c.volumePath = "x.img";
     CHECK_THROWS_AS(c.validate("t"), ConfigError);   // no console
@@ -22,6 +52,29 @@ TEST_CASE("config: the default definition validates once a volume and console ex
     CHECK_NOTHROW(c.validate("t"));
     c.mainStorageKb = 2048;
     CHECK_THROWS_AS(c.validate("t"), ConfigError);
+}
+
+TEST_CASE("media attach without a mode resets fixed disk and diskette to writable")
+{
+    EmptyVolume volume;
+    sim36::monitor::SimulatorSession session;
+    const std::string path = volume.path.string();
+
+    session.execute("attach disk0 \"" + path + "\" ro");
+    CHECK(session.definition().volumeReadOnly);
+    session.execute("attach disk0 \"" + path + "\"");
+    CHECK_FALSE(session.definition().volumeReadOnly);
+    CHECK_FALSE(session.definition().volumeOverlay);
+    session.execute("attach disk0 \"" + path + "\" overlay");
+    CHECK(session.definition().volumeOverlay);
+    session.execute("attach disk0 \"" + path + "\"");
+    CHECK_FALSE(session.definition().volumeReadOnly);
+    CHECK_FALSE(session.definition().volumeOverlay);
+
+    session.execute("attach diskette0 \"" + path + "\" ro");
+    CHECK(session.definition().disketteReadOnly);
+    session.execute("attach diskette0 \"" + path + "\"");
+    CHECK_FALSE(session.definition().disketteReadOnly);
 }
 
 TEST_CASE("config: machine identity is independent of the CSP implementation")
