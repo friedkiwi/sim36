@@ -73,7 +73,6 @@ attach disk0 work/ssp51-new.img rw
 attach diskette0 work/ssp51/flat/SSP51-01.img ro
 ipl
 wait idle 120
-console
 EOF
 ```
 
@@ -135,7 +134,6 @@ set machine load-source disk
 attach disk0 work/ssp51-new.img rw
 ipl
 wait idle 120
-console
 EOF
 ```
 
