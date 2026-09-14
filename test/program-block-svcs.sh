@@ -106,7 +106,7 @@ check "31  Q bit 3 reaches the flags byte   " 'nucbldsb flags 50 (Q bit 3, maxim
 # the reference emits "not cleared" here because this synthetic swap area's
 # base identifier 00 has no QH block on queue header 46 to resolve through,
 # and the reference test fails that check itself.  The behaviour, not the
-# stale expectation, is the parity target (docs/checkpoints/05-*.md).
+# stale expectation, is the parity target recorded by this test.
 check "32  swap area is deallocated (not clearable: no QH for base 00)" 'swap area of 258 sector(s) at relative sector 34 not cleared and deallocated'
 check "32  the block is freed               " 'control block 00FFB0 dequeued and freed (64 bytes)'
 check "32  an ATASK block is on no queue    " 'is on no queue - nucwsbsq returns zero'

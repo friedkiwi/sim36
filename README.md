@@ -5,9 +5,10 @@ written in C++17.
 
 ## Status
 
-Experimental.  SIM/36 can IPL an SSP 5.1 volume created from the
-distribution media on bitsavers (see `docs/installing-ssp-5.1.md`), and an
-SSP 7.5 disk image dumped from an Advanced/36.
+Experimental. SIM/36 can IPL user-supplied SSP 5.1 and SSP 7.5 volumes.
+The repository distributes no IBM media or generated SSP volumes. Generation
+of a fresh SSP 5.1 volume from the public distribution diskettes is not yet
+complete; see `docs/installing-ssp-5.1.md` for the current frontier.
 
 ## Something is broken
 
