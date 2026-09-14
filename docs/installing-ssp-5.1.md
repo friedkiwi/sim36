@@ -31,13 +31,17 @@ microcode volumes use 15 512-byte sectors.
 
 ```sh
 mkdir -p work/ssp51
-curl -L -o work/ssp51/S36-5.25.zip \
+curl --fail --location --user-agent 'Mozilla/5.0' \
+  --output work/ssp51/S36-5.25.zip \
   https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip
 unzip -o -d work/ssp51 work/ssp51/S36-5.25.zip
 ls work/ssp51/S36-5.25/SSP-5.1
 ```
 
-The last command should show `SSP51-01.IMD` through `SSP51-11.IMD`.
+Bitsavers rejects curl's default user agent with HTTP 403, so the explicit
+browser user agent is required. `--fail` prevents curl from saving an HTTP
+error page under the `.zip` name. The last command should show
+`SSP51-01.IMD` through `SSP51-11.IMD`.
 
 ## 2. Convert the diskettes
 
