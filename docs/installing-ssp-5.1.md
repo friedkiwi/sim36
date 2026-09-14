@@ -68,8 +68,14 @@ ipl
 W1 first displays `SYS-3908`. Press Enter to reveal the more specific
 `SYS-3922 SSP level error. SSP = 05, Microcode = 00`, then press Enter again
 on W1. These are diagnostics for the initially empty system area, not a
-terminal failure. The reload initializes the system files, processes volume
-1, and asks for volume 2.
+terminal failure.
+
+![The initial SYS-3908 and SYS-3922 diagnostics](images/ssp51/initial-diagnostics.png)
+
+The reload initializes the system files, processes volume 1, and asks for
+volume 2:
+
+![SSP requesting SSPMRI volume 02](images/ssp51/request-volume-02.png)
 
 When SSP requests the next `SSPMRI` volume, replace the diskette from the
 SIM/36 monitor:
@@ -94,12 +100,16 @@ Press Enter on W1 and wait for generation to finish. `MCODE11` is an optional
 additional physical-microcode volume and is not needed by the virtual
 Advanced/36.
 
-SSP finishes generation and displays a completion panel similar to:
+SSP reports several `SYS-3913` errors while processing the physical 5364
+control-storage modules. Press Enter at each prompt until the complete error
+list is visible:
+
+![The complete SYS-3913 microcode error list](images/ssp51/microcode-errors.png)
+
+The screen above is not the completion screen. Press Enter once more. SSP
+repaints the panel and adds these lines below the errors:
 
 ```text
-SSP GENERATION AND RELOAD - MESSAGES
-Relocating system area
-SYS-3913 Microcode error. Type-81. Module ID-801E WSDVCCS
 SSP reload complete, remove diskettes.
 Microcode load complete, remove diskette.
 SSP generation complete, MSIPL from disk required.
@@ -108,11 +118,9 @@ SSP generation complete, MSIPL from disk required.
 The `SYS-3913` entries describe unresolved references in physical 5364
 control-storage modules. The Advanced/36 CSP implements those services
 natively and does not load or retain the physical microcode, so these entries
-do not prevent the generated SSP from running. Press Enter when prompted to
-advance through the messages. Once the panel includes `SSP generation
-complete, MSIPL from disk required`, generation is finished: do not press
-Enter again even if the panel still offers it. Return to the SIM/36 monitor
-and IPL the generated fixed disk:
+do not prevent the generated SSP from running. Once `SSP generation complete,
+MSIPL from disk required` is visible, generation is finished. Return to the
+SIM/36 monitor and IPL the generated fixed disk:
 
 ```text
 diskette eject
