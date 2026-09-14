@@ -40,12 +40,10 @@ Start SIM/36 and leave its monitor running:
 sim36
 ```
 
-At the `sim36>` prompt, configure the installation media and terminal
-multiplexer:
+At the `sim36>` prompt, configure the attended diskette reload and its
+installation media:
 
 ```text
-set terminal multiplex on
-set terminal multiplex listen 127.0.0.1:2300
 set machine load-source diskette
 set machine ipl-type attend
 attach disk0 work/ssp51-new.img rw
