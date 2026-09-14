@@ -134,7 +134,7 @@ bool VirtualDiskette::execute(int iob, uint8_t qByte)
             // would let the guest run on believing a transfer happened.
             trace_.diskIo("  command {:02X} ({}) is NOT IMPLEMENTED. The decoded set is {}. SA21-9243-4 figure 8-3 (8-8) "
                           "lists the device's commands; this model implements the ones MSIPL phase 1 issues plus read "
-                          "and write. docs/s36/diskette-ios.md",
+                          "and write",
                           command, DisketteIoBlock::commandName(command), DisketteIoBlock::knownCommands());
             IoBlock::complete(m_, iob, DisketteIoBlock::kPermanentError);
             return false;
@@ -453,8 +453,7 @@ bool VirtualDiskette::ejectCommand(int iob)
 bool VirtualDiskette::autoloader(int iob, int command)
 {
     trace_.diskIo("  {} ({:02X}) is a 72MD autoloader command (SA21-9243-4 8-8); this drive has one slot and no picker, so "
-                  "there is nothing to move. Completed 40 - see docs/s36/diskette-ios.md for why that answer is not "
-                  "certain",
+                  "there is nothing to move. Completed 40; that answer on real hardware without a magazine is not certain",
                   DisketteIoBlock::commandName(command), command);
     IoBlock::complete(m_, iob, 0);
     return true;
@@ -470,8 +469,7 @@ bool VirtualDiskette::undecoded(int iob, int command)
     undecodedCommands_++;
     trace_.diskIo("  command {:02X} is UNDECODED - it is not in SA21-9243-4 8-8's set and nothing in this corpus names it. "
                   "Answered complete without touching the medium or the buffer, because phase 1 issues it immediately "
-                  "before the seek and the read that DO work; refusing stops the machine here. Request {} of its kind. "
-                  "docs/s36/diskette-ios.md",
+                  "before the seek and the read that DO work; refusing stops the machine here. Request {} of its kind",
                   command, undecodedCommands_);
     IoBlock::complete(m_, iob, 0);
     return true;

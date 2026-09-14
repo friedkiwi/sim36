@@ -142,9 +142,6 @@ void MonitorCli::diskette(const std::vector<std::string>& a)
     fmt::print("  geometry    {} cylinders x {} head(s) = {} bytes\n", g.cylinders(), g.heads(), g.totalBytes());
     fmt::print("  reads {} ({} record(s))   writes {} ({} record(s))\n", drive.readsIssued(), drive.recordsRead(),
                drive.writesIssued(), drive.recordsWritten());
-    if (drive.undecodedCommands() > 0)
-        fmt::print("  {} UNDECODED command(s) (DE/DF) answered without being understood - docs/s36/diskette-ios.md\n",
-                   drive.undecodedCommands());
 }
 
 void MonitorCli::disketteRead(const std::vector<std::string>& a)
