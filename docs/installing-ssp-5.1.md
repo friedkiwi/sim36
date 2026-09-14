@@ -65,34 +65,54 @@ truncate -s 209715200 work/ssp51-new.img
 
 ## 4. Restore the base SSP volumes
 
-```sh
-build/linux/sim36 -s /dev/stdin <<'EOF'
+Start SIM/36 and leave its monitor running:
+
+```text
+sim36
+```
+
+At the `sim36>` prompt, configure the installation media and terminal
+multiplexer:
+
+```text
+set terminal multiplex on
+set terminal multiplex listen 127.0.0.1:2300
 set machine load-source diskette
 set machine ipl-type attend
 attach disk0 work/ssp51-new.img rw
 attach diskette0 work/ssp51/flat/SSP51-01.img ro
-ipl
-wait idle 120
-EOF
 ```
 
-The first panel contains `SYS-3908`; press Enter to reveal the more specific
-`SYS-3922 SSP level error. SSP = 05, Microcode = 00`, then press Enter again.
-These are diagnostics for the initially empty system area, not a terminal
-failure. The reload initializes the system files, processes volume 1, and
-asks for volume 2.
+In another terminal, connect a 5250 client to the multiplexer:
+
+```sh
+tn5250 telnet://127.0.0.1:2300
+```
+
+On the station-selection panel, enter `W1` and press Enter. Then start the
+installation from the SIM/36 monitor:
+
+```text
+ipl
+wait idle 120
+```
+
+W1 first displays `SYS-3908`. Press Enter to reveal the more specific
+`SYS-3922 SSP level error. SSP = 05, Microcode = 00`, then press Enter again
+on W1. These are diagnostics for the initially empty system area, not a
+terminal failure. The reload initializes the system files, processes volume
+1, and asks for volume 2.
 
 For each requested base volume through `SSP51-07.img`, replace the diskette
-and continue:
+from the SIM/36 monitor:
 
 ```text
 diskette insert work/ssp51/flat/SSP51-02.img
-console send Enter
-wait idle 120
 ```
 
-Repeat for volumes 03 through 07. Volumes 08 through 11 contain optional
-products and are not part of the base SSP restore.
+Press Enter on W1, then use `wait idle 120` at the monitor. Repeat for
+volumes 03 through 07. Volumes 08 through 11 contain optional products and
+are not part of the base SSP restore.
 
 ## 5. Finish generation
 
@@ -102,12 +122,15 @@ in this order:
 
 ```text
 diskette insert work/ssp51/flat/MCODE11.img
-console send Enter
-wait idle 120
-diskette insert work/ssp51/flat/MCODE12.img
-console send Enter
-wait idle 120
 ```
+
+Press Enter on W1 and wait for the next media request. Then use:
+
+```text
+diskette insert work/ssp51/flat/MCODE12.img
+```
+
+Press Enter on W1 again and wait for generation to finish.
 
 SSP finishes generation and displays a completion panel similar to:
 
@@ -125,16 +148,17 @@ control-storage modules. The Advanced/36 CSP implements those services
 natively and does not load or retain the physical microcode, so these entries
 do not prevent the generated SSP from running. Do not press Enter repeatedly
 to page through the unused physical-microcode diagnostics. Once the panel says
-`SSP generation complete`, remove the diskette and IPL the generated fixed
-disk in a fresh SIM/36 invocation:
+`SSP generation complete`, return to the SIM/36 monitor and IPL the generated
+fixed disk:
 
-```sh
-build/linux/sim36 -s /dev/stdin <<'EOF'
+```text
+diskette eject
+stop
+reset --yes
 set machine load-source disk
-attach disk0 work/ssp51-new.img rw
 ipl
 wait idle 120
-EOF
 ```
 
-The resulting display should be the SSP 5.1 IPL sign-on screen.
+The multiplexer connection survives the reset. W1 should display the SSP 5.1
+IPL sign-on screen.
