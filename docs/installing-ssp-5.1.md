@@ -3,31 +3,31 @@
 ## Current status
 
 This is **not yet a complete installation procedure**. SIM/36 can convert
-the publicly archived SSP 5.1 diskettes, IPL the first diskette, run
-`#IPLBOOT` / `MSPID`, and reach SSP's `SSP GENERATION AND RELOAD` program
-(`#MSREL`). Starting with a blank fixed disk does not currently produce a
-bootable SSP installation: the run stops with `SYS-3908 System error--an
-invalid SSP was found`.
+the publicly archived SSP 5.1 diskettes, IPL the first diskette, initialize
+the blank fixed disk's SSP system area, restore `SSPMRI` and `SSPBASE`, and
+read both 5364 microcode volumes. It does not yet complete the hardware
+microcode-load phase, so the resulting fixed disk is not bootable.
 
-The repository contains no IBM distribution media and no generated SSP
-volume. There is no prebuilt-volume fallback. The steps below are useful for
-reproducing the implemented part of the path and for continuing development;
-they do not install SSP end to end.
+The repository contains no IBM distribution media or generated SSP volume,
+and there is no prebuilt-volume fallback. The steps below reproduce the
+implemented path for continuing development; they do not install SSP end to
+end.
 
 ## Public media
 
 The 5363/5364 SSP 5.1 diskette archive is publicly mirrored by bitsavers:
 
-- <http://bitsavers.trailing-edge.com/bits/IBM/System_36/5363/S36-5.25.zip>
-- <http://bitsavers.trailing-edge.com/bits/IBM/System_36/5_inch/>
+- <https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip>
+- <https://www.bitsavers.org/bits/IBM/System_36/5363/>
 
-The first archive contains `SSP-5.1/SSP51-01.IMD` through
-`SSP51-11.IMD`, plus `MCODE11.IMD` and `MCODE12.IMD`. The primary
-`bitsavers.org` host may reject command-line downloads with HTTP 403; the
-trailing-edge mirror serves the same archive.
+The archive contains `SSP-5.1/SSP51-01.IMD` through `SSP51-11.IMD`, plus
+the `MCODE11`/`MCODE12` and `MCODE61`/`MCODE62` pairs. The 5364 personality
+used by the virtual Advanced/36 selects `DSKT11` and `DSKT12`; the 5363
+personality selects `DSKT61` and `DSKT62`.
 
 The captures use ImageDisk (`.IMD`). Cylinder 0 contains 26 256-byte label
-sectors; the data tracks contain 8 1024-byte sectors.
+sectors. The SSP volumes' data tracks contain 8 1024-byte sectors; the
+microcode volumes use 15 512-byte sectors.
 
 ## Prerequisites
 
@@ -49,7 +49,7 @@ The resulting executable is `build/linux/sim36`.
 ```sh
 mkdir -p work/ssp51
 curl -L -o work/ssp51/S36-5.25.zip \
-  http://bitsavers.trailing-edge.com/bits/IBM/System_36/5363/S36-5.25.zip
+  https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip
 unzip -o -d work/ssp51 work/ssp51/S36-5.25.zip
 ls work/ssp51/S36-5.25/SSP-5.1
 ```
@@ -91,7 +91,7 @@ EOF
 The diskette report should identify a 5.25-inch volume with owner
 `5727SS65190V01`.
 
-## 4. Reproduce the current generation frontier
+## 4. Restore the base SSP volumes
 
 ```sh
 build/linux/sim36 -s /dev/stdin <<'EOF'
@@ -100,41 +100,97 @@ set machine ipl-type attend
 attach disk0 work/ssp51-new.img rw
 attach diskette0 work/ssp51/flat/SSP51-01.img ro
 ipl pause
-poke 0850 8D
 start
 wait idle 120
 console
-quit
 EOF
 ```
 
-The `poke` supplies a customize byte that a real machine derives from its
-unit definition table. SIM/36 does not yet synthesize that table.
+No `poke` is required. On a blank disk the virtual Advanced/36 publishes
+system-customize value `8D`, the 5364-family value accepted by SSP 5.1. An
+installed disk's unit definition table replaces this seed during every IPL.
 
-The expected frontier is:
+The first panel contains `SYS-3908`; press Enter to reveal the more specific
+`SYS-3922 SSP level error. SSP = 05, Microcode = 00`, then press Enter again.
+These are diagnostics for the initially empty system area, not a terminal
+failure. The reload initializes the system files, processes volume 1, and
+asks for volume 2.
+
+For each requested base volume through `SSP51-07.img`, replace the diskette
+and continue:
+
+```text
+diskette insert work/ssp51/flat/SSP51-02.img
+console send Enter
+wait idle 120
+```
+
+Repeat for volumes 03 through 07. Volumes 08 through 11 contain optional
+products and are not part of the base SSP restore.
+
+## 5. Reproduce the current microcode frontier
+
+After volume 07, the panel names functional microcode volume `DSKT12` and
+also says to insert additional microcode volumes first. Supply both volumes
+in this order:
+
+```text
+diskette insert work/ssp51/flat/MCODE11.img
+console send Enter
+wait idle 120
+diskette insert work/ssp51/flat/MCODE12.img
+console send Enter
+wait idle 120
+```
+
+The current frontier is:
 
 ```text
 SSP GENERATION AND RELOAD - MESSAGES
 Relocating system area
-SYS-3908 System error--an invalid SSP was found
+SYS-3913 Microcode error. Type-81. Module ID-801E WSDVCCS
 ```
 
-Reaching this panel proves that diskette IPL, `#IPLBOOT`, `MSPID`, and entry
-to `#MSREL` worked. It does **not** mean that SSP was installed, and the
-blank fixed disk is not bootable afterwards.
+SIM/36's virtual control processor has no writable hardware microcode store.
+Diskette command `DF`, issued once per hardware module by the reload, is
+currently acknowledged without implementing that load. Acknowledging the
+panels exposes the other affected hardware modules and eventually reaches an
+invalid zero-length SVC 06 request. This remains an emulator gap, not a usable
+way to finish generation.
+
+## What `0850` means
+
+Low-storage byte `0850` and its copy at `08BD` are the first customize byte
+of the system record in the unit definition table at fixed-disk sector 26.
+The control-storage IPL copies that byte from an installed disk. For a blank
+disk, the virtual Advanced/36 now seeds both locations with `8D` before MSP
+starts.
+
+SSP 5.1's `MSPID` checks `0850` twice and accepts only `8B` or `8D`. The
+choice remains live later in `#MSREL`: `8B` requests the 5363 `DSKT61/62`
+pair, while `8D` requests the 5364 `DSKT11/12` pair. It is therefore machine
+configuration, not a magic “continue installation” flag.
+
+An existing SSP 7.5 volume supplies `89` from its UDT, so the new blank-disk
+seed has no effect on it. SSP 7.5 is more permissive and normalizes the value
+during `MSNIP`: `89` and `8C` become `8E`; `8E` and `8F` are retained; other
+tested values, including `00`, `8B`, `8D`, and `FF`, become `8D`. Every tested
+value still reached sign-on. Thus a manual `poke 0850 8D` changes SSP 7.5's
+running compatibility branch, but it neither repairs nor updates its on-disk
+UDT.
 
 ## What remains before this can be called an installation guide
 
 The missing work is:
 
-1. Initialize the blank fixed disk with the system-area, VTOC, and unit
-   definition structures expected by `#MSREL`.
-2. Preserve and automate the multi-volume exchange sequence for the
-   `SSPMRI`, `SSPBASE`, and microcode data sets.
-3. Replace the customize-byte `poke` with unit-definition-table synthesis.
-4. Add a clean-room regression that starts only with a blank fixed disk and
-   the downloaded archives, completes generation, re-IPLs from fixed disk,
-   and reaches SSP sign-on.
+1. Decode and implement the Advanced/36-native contract for the `DE`/`DF`
+   microcode-load operations, or explicitly virtualize the whole hardware
+   microcode phase without presenting false per-module failures.
+2. Complete generation and verify that it writes the final UDT and boot
+   records required for a fixed-disk IPL.
+3. Automate the media exchange sequence and add a clean-room regression that
+   starts only with a blank fixed disk and the downloaded archive, completes
+   generation, re-IPLs from fixed disk, and reaches SSP sign-on.
 
-Until those four items are implemented and tested, users cannot install SSP
+Until those three items are implemented and tested, users cannot install SSP
 5.1 from the public archives by following repository instructions alone.

@@ -54,6 +54,11 @@ constexpr int kDeviceFlags08B2 = 0x08B2;    // 80 class 0x40, 40 class 0xC0
 constexpr int kDeviceFlags08B6 = 0x08B6;    // 08 when BOTH id-B1 units are present
 constexpr int kDeviceFlags08BC = 0x08BC;    // 02 and 08
 constexpr int kSystemCustomize1Copy = 0x08BD;
+// A disk with a UDT replaces both bytes in systemEntryArm().  A blank disk
+// has no system entry yet, so the virtual Advanced/36 must publish the
+// compatible 5364-family selector itself.  SSP 5.1 consumes 8D both as its
+// supported-machine gate and to select the DSKT11/DSKT12 microcode set.
+constexpr uint8_t kVirtualSystemCustomize1 = 0x8D;
 constexpr int kSerialPrefix = 0x08BF;       // name[5..8]
 constexpr int kMaxDevices08C3 = 0x08C3;     // ..08C6, the controllers' device counts
 constexpr int kLanUnit7Configure = 0x08DB;  // ..08DF
@@ -137,6 +142,16 @@ bool GuestLowStorage::build(machine::MachineState& m, monitor::Tracer& trace, in
 {
     error.clear();
     setHostProcessorInfo(m, trace, host);
+
+    // This is pre-UDT configuration, not a reload workaround.  Real hardware
+    // obtains the byte during system configuration before SSP generation can
+    // run.  buildFromUnitDefinitionTable() follows this call and overwrites
+    // the seed from an installed volume (for example, SSP 7.5 supplies 89).
+    m.writeByte(kSystemCustomize1, kVirtualSystemCustomize1);
+    m.writeByte(kSystemCustomize1Copy, kVirtualSystemCustomize1);
+    trace.csp("low storage: 0850 and 08BD = {:02X}, virtual 5364-family system customize seed; a disk UDT system entry "
+              "overrides both",
+              kVirtualSystemCustomize1);
 
     // One register holding -1 is stored as a halfword to BOTH guest 0x0904
     // and guest 0x3FFE.  A storage dump of a running Advanced/36 reads FF FF

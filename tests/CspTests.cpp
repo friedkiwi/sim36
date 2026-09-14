@@ -3,6 +3,9 @@
 // SVC 0E drives it.
 #include <doctest/doctest.h>
 
+#include <string>
+#include <vector>
+
 #include "Configuration/EmulatorConfig.h"
 #include "Machine/MachineState.h"
 #include "Monitor/Tracer.h"
@@ -104,4 +107,29 @@ TEST_CASE("guest low storage: queue headers are 3-byte values at 0B03 + 4n")
     CHECK(GuestLowStorage::queueHeader(37) == 0xB01 + 4 * 37);
     CHECK(GuestLowStorage::kTaskBlock == 0xF00);
     CHECK(GuestLowStorage::kEyeTaskBlock == 0xE3C2);
+}
+
+TEST_CASE("guest low storage seeds the blank-disk system customize selector")
+{
+    machine::MachineState m(1024 * 1024);
+    monitor::Tracer trace;
+    GuestLowStorage::HostInfo host;
+    std::string error;
+
+    REQUIRE(GuestLowStorage::build(m, trace, 819200, host, error));
+    CHECK(error.empty());
+    CHECK(m.readByte(0x0850) == 0x8D);
+    CHECK(m.readByte(0x08BD) == 0x8D);
+
+    // The seed is only a pre-UDT default.  A system entry's first customize
+    // byte replaces both copies when an installed volume supplies one.
+    std::vector<uint8_t> udt(4096);
+    udt[0] = 0x01;   // system entry
+    udt[1] = 0xFF;
+    udt[2] = 0xFF;
+    udt[8] = 1;      // customize area length
+    udt[11] = 0x89;
+    GuestLowStorage::walkUnitDefinitionTable(m, trace, udt.data(), static_cast<int>(udt.size()));
+    CHECK(m.readByte(0x0850) == 0x89);
+    CHECK(m.readByte(0x08BD) == 0x89);
 }
