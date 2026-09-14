@@ -384,6 +384,25 @@ bool As36ControlStorageProcessor::performTransfer(SvcRequest& req, const std::st
         // The new block chains to the CALLER's: a transfer pushes a frame
         // and this is the link SVC 11 returns along.
         m_.writeAddr24(rb + RequestBlock::kOffPrevious, req.requestBlock);
+
+        // A synchronous transfer with no return replaces the caller's
+        // program, rather than making an ordinary call frame.  Its program
+        // request area therefore survives the replacement.  This is the
+        // pb+63-sized area following the 64-byte supervisor portion of the
+        // request block; map entries begin after it and are copied separately
+        // by nucmclr below.  Copy only the common part when the two programs
+        // request different-sized areas, leaving any larger callee tail zero.
+        if ((req.q & kKeepCallersBlock) == 0 && req.requestBlock != 0) {
+            int callerPb = m_.readAddr24(req.requestBlock + RequestBlock::kOffProgramBlock);
+            int callerUnits = callerPb == 0 ? 0 : m_.readByte(callerPb + ProgramBlock::kOffRequestBlockUnits);
+            int calleeUnits = m_.readByte(pb + ProgramBlock::kOffRequestBlockUnits);
+            int bytes = std::min(callerUnits, calleeUnits) * GuestHeap::kGranularity;
+            for (int i = 0; i < bytes; i++)
+                m_.writeByte(rb + RequestBlock::kOffMapTableBase + i,
+                             m_.readByte(req.requestBlock + RequestBlock::kOffMapTableBase + i));
+            trace_.csp("{}: no-return transfer carried {} byte(s) of program request area from rb {:06X} to rb {:06X}",
+                       call, bytes, req.requestBlock, rb);
+        }
     }
 
     // The callee's instruction-fetch and direct-operand prefixes both come
@@ -1032,15 +1051,16 @@ bool As36ControlStorageProcessor::terminateTaskRoot(SvcRequest& req)
         continued = transferControl(continuation, "SVC 11 nupterm slot 4", entry, 0);
         if (continued) {
             pushNativeTransferContinuation(tb, NativeTransferContinuation::NuptermSlot4);
-            // The machine released these frames before the transfer; here
-            // the program block deletion waits until the transfer has
-            // finished reading the retained terminating request block, since
-            // an immediately reused program block would alias rb+41.  There
-            // is no intervening guest execution, so the observable ordering
-            // is identical.
-            int released = releaseRequestChainProgramState(terminatingRb, "SVC 11 nupterm post-slot-4 release");
-            trace_.csp("SVC 11: nupterm post-slot-4 released {} old request frame reference(s); current rb is {:04X}",
-                       released, currentRequestBlock_);
+            // The native continuation keeps using the terminating frame's
+            // addressability after the transfer itself.  #CTEI can call
+            // #DPCL, whose MAP action 7 names that retained request block;
+            // releasing its PB and map references here made Cmd7 on HISTORY
+            // inherit an empty address space and fault on the next read.
+            // The cleanup arm releases the chain when the native continuation
+            // returns.  With tb+32.40 clear, SLIC deliberately retains the
+            // whole context and so do we.
+            trace_.csp("SVC 11: nupterm slot-4 retained old request frame addressability through the native continuation; "
+                       "current rb is {:04X}", currentRequestBlock_);
         }
         // The post may have requested a dispatch when the return target was
         // waiting; the termination program is nevertheless entered at once
@@ -1297,6 +1317,9 @@ bool As36ControlStorageProcessor::copyCallerAddressability(int callerRb, int cal
     int destinationCount = 0;
     if (!skipCallerProgram) {
         int pages = m_.readHalf(callerPb + ProgramBlock::kOffPageCount) & 0xFF;
+        int regionPages = m_.readHalf(callerPb + StorageBlock::kOffSizePages);
+        int disk = m_.readAddr24(callerPb + StorageBlock::kOffDiskAddress);
+        if (disk != 0 && regionPages > pages) pages = regionPages;
         MapTable::write(m_, destinationTable, ProgramBlock::loadPage(m_, callerPb), pages, 0, callerPb);
         referenceInheritedMapObject(callerPb, call + " nucmclr caller program");
         destinationCount++;

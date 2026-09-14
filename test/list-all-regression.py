@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive MAIN's LIST ALL command and reject processor checks."""
+"""Drive a MAIN command to a screen or trace milestone and reject failures."""
 
 import os
 import subprocess
@@ -69,10 +69,6 @@ def main():
             session.wait_for_text("Connect to workstation", timeout=20)
             session.type_into("Connect to workstation", workstation)
             session.press("Enter")
-            if number == 1:
-                session.wait_for_text("Connecting to system console", timeout=20)
-                session.type_into("Connecting to system console", "Y")
-                session.press("Enter")
             session.wait_for_text("SIGN ON", timeout=60)
             session.type_into("User ID", user)
             mark = len(transcript)
@@ -81,18 +77,23 @@ def main():
             session.press("Enter")
             session.wait_for_text("Main System/36 help menu", timeout=90)
 
-        session = sessions[-1]
+        target = os.environ.get("S36_LIST_STATION", "W2").upper()
+        session = sessions[int(target[1:]) - 1]
 
         mark = len(transcript)
         command("wait idle 30")
         wait_monitor("wait: guest is idle after", timeout=35, after=mark)
         if os.environ.get("S36_LIST_TRACE") == "1":
             command("trace isn flow csp")
-            command("trace member $MAIN")
+            command("trace member " + os.environ.get("S36_LIST_TRACE_MEMBER", "$MAIN"))
             for watch in os.environ.get("S36_LIST_WATCH", "").split(","):
                 if watch.strip():
                     command("watch " + watch.strip())
-        session.type_at(22, 3, "LISTLIBR ALL,SOURCE,#LIBRARY,USER,NOPAGE")
+        statement = os.environ.get("S36_LIST_COMMAND", "LISTLIBR ALL,SOURCE,#LIBRARY,USER,NOPAGE")
+        expected_screen = os.environ.get("S36_LIST_EXPECT_SCREEN", "BASICSMP")
+        expected_monitor = os.environ.get("S36_LIST_EXPECT_MONITOR", "")
+        rejected = os.environ.get("S36_LIST_REJECT", "")
+        session.type_at(22, 3, statement)
         check_mark = len(transcript)
         session.press("Enter")
 
@@ -100,10 +101,12 @@ def main():
         saw_listing = False
         while time.monotonic() < deadline:
             with session.lock:
-                saw_listing |= session.screen.contains("BASICSMP")
+                saw_listing |= bool(expected_screen) and session.screen.contains(expected_screen)
+                saw_rejected = bool(rejected) and session.screen.contains(rejected)
             with changed:
                 text = "".join(transcript[check_mark:])
-            if "CHECK [program]" in text or "storage protection" in text:
+            saw_listing |= bool(expected_monitor) and expected_monitor in text
+            if "CHECK [program]" in text or "storage protection" in text or saw_rejected or (rejected and rejected in text):
                 print(session.screen.render("=== LIST ALL ===", fields=True), file=sys.stderr)
                 with changed:
                     lines = transcript[:]
@@ -114,17 +117,38 @@ def main():
                 print("".join(lines[max(0, hit - 120):hit + 20]), file=sys.stderr)
                 raise AssertionError("LIST ALL stopped on a processor check")
             if saw_listing:
-                time.sleep(30)
+                time.sleep(float(os.environ.get("S36_LIST_SETTLE", "30")))
                 with changed:
                     text = "".join(transcript[check_mark:])
-                if "CHECK [program]" in text or "storage protection" in text:
+                with session.lock:
+                    saw_rejected = bool(rejected) and session.screen.contains(rejected)
+                if "CHECK [program]" in text or "storage protection" in text or saw_rejected or (rejected and rejected in text):
                     raise AssertionError("LIST ALL stopped after displaying source")
                 break
             time.sleep(0.05)
         if not saw_listing:
             raise TimeoutError("LIST ALL did not display BASICSMP\n%s" %
                                session.screen.render(fields=True))
-        print("PASS: LIST ALL displayed source without a processor check")
+
+        # Optional post-screen key sequence.  This keeps application-level
+        # regressions tied to the real panel that accepts the keys instead of
+        # merely proving that the command's loader was entered.
+        for key in (k.strip() for k in os.environ.get("S36_LIST_KEYS", "").split(",") if k.strip()):
+            generation = session.generation
+            session.press(key)
+            deadline = time.monotonic() + 5
+            while session.generation == generation and time.monotonic() < deadline:
+                time.sleep(0.05)
+            session.settle(quiet=0.2, timeout=5)
+            with changed:
+                text = "".join(transcript[check_mark:])
+            if "CHECK [program]" in text or "CHECK [CSP/MSP/channel]" in text or "storage protection" in text:
+                raise AssertionError("%s caused a processor check\n%s\n%s" %
+                                     (key, session.screen.render(fields=True), text[-12000:]))
+        if "S36_LIST_COMMAND" in os.environ:
+            print("PASS: %s reached its expected output without a processor check" % statement)
+        else:
+            print("PASS: LIST ALL displayed source without a processor check")
     finally:
         for session in sessions:
             session.close()

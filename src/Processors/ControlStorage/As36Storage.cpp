@@ -500,8 +500,7 @@ bool As36ControlStorageProcessor::mapAnotherRequestBlock(int rb, int pb, int oth
     int entriesBefore = entries;
     int otherPb = m_.readAddr24(other + RequestBlock::kOffProgramBlock);
     if (otherPb == 0) {
-        trace_.csp("SVC 2F: request block {:06X} has no program block", other);
-        return false;
+        return refuse("SVC 2F: request block {:06X} has no program block", other);
     }
 
     int otherRbAt = other >> machine::MachineState::kPageShift;
@@ -524,6 +523,9 @@ bool As36ControlStorageProcessor::mapAnotherRequestBlock(int rb, int pb, int oth
             block = otherPb;
             at = ProgramBlock::loadPage(m_, otherPb);
             count = ProgramBlock::pageCount(m_, otherPb);
+            int regionPages = m_.readHalf(otherPb + StorageBlock::kOffSizePages);
+            int disk = m_.readAddr24(otherPb + StorageBlock::kOffDiskAddress);
+            if (disk != 0 && regionPages > count) count = regionPages;
             displacement = 0;
         } else {
             int e = table + (i - 1) * MapTable::kEntryBytes;
@@ -548,8 +550,16 @@ bool As36ControlStorageProcessor::mapAnotherRequestBlock(int rb, int pb, int oth
         else if (eye == GuestLowStorage::kEyeRequestBlock)
             objectPages = ((MapTable::blockEnd(m_, block) - 1) >> machine::MachineState::kPageShift) -
                           (block >> machine::MachineState::kPageShift) + 1;
-        else
-            objectPages = m_.readHalf(block + ProgramBlock::kOffPageCount);
+        else {
+            int residentPages = m_.readHalf(block + ProgramBlock::kOffPageCount);
+            int regionPages = m_.readHalf(block + StorageBlock::kOffSizePages);
+            int disk = m_.readAddr24(block + StorageBlock::kOffDiskAddress);
+            // An ATASK program block can describe a virtual region larger
+            // than its resident module.  Pages in that tail are backed by
+            // the task work area at PB+24, and are valid MAP sources even
+            // though PB+18 counts only the resident prefix.
+            objectPages = disk != 0 && regionPages > residentPages ? regionPages : residentPages;
+        }
         int available = objectPages - displacement;
         if (count > available) count = available;
         if (count <= 0) continue;
@@ -765,6 +775,24 @@ void As36ControlStorageProcessor::buildTranslationRegisters(int tb)
         int pages = ProgramBlock::pageCount(m_, pb);
         for (int i = 0; i < pages && first + i < kAtrCount; i++, mapped++)
             atr[first + i] = static_cast<uint16_t>((bytes >> ProgramBlock::kLoadPageShift) + i);
+
+        // An ATASK program owns a larger PB+16 virtual region whose tail is
+        // backed by PB+24 in the task work area.  Those pages are part of the
+        // program's own addressability just as surely as its resident PB+18
+        // prefix; expose them in the task's base ATR image too.
+        int regionPages = m_.readHalf(pb + StorageBlock::kOffSizePages);
+        int disk = m_.readAddr24(pb + StorageBlock::kOffDiskAddress);
+        if (disk != 0 && regionPages > pages && first + pages < kAtrCount) {
+            int tail = std::min(regionPages - pages, kAtrCount - first - pages);
+            const std::vector<int>* backing = workSpaceResidentPages(pb, "nucratr", pages, tail);
+            if (backing != nullptr) {
+                for (int i = 0; i < tail; i++, mapped++)
+                    atr[first + pages + i] = static_cast<uint16_t>(
+                        (*backing)[static_cast<std::size_t>(pages + i)] >> machine::MachineState::kPageShift);
+                trace_.csp("nucratr: program block {:06X} task-work-area tail pages {}..{} mapped at region pages {}..{}",
+                           pb, pages, pages + tail - 1, first + pages, first + pages + tail - 1);
+            }
+        }
     }
 
     applyMapTable(rb, pb, atr);
@@ -839,15 +867,37 @@ void As36ControlStorageProcessor::applyMapTable(int rb, int pb, uint16_t* atr)
             continue;
         }
 
-        // Never more pages than the block itself says it has.
-        int limit = m_.readHalf(block + ProgramBlock::kOffPageCount) - displacement;
-        if (pages > limit) pages = limit;
-        int page = (moduleBytes(block) >> machine::MachineState::kPageShift) + displacement;
+        int requested = pages;
+        int residentPages = m_.readHalf(block + ProgramBlock::kOffPageCount);
+        int resident = std::max(0, std::min(requested, residentPages - displacement));
+        if (resident != 0) {
+            int page = (moduleBytes(block) >> machine::MachineState::kPageShift) + displacement;
+            for (int n = 0; n < resident && start + n < kAtrCount; n++)
+                atr[start + n] = static_cast<uint16_t>(page + n);
+            trace_.csp("nucratr: map entry {} - region pages {}..{} are program block {:06X} resident pages {}..{}", i,
+                       start, start + resident - 1, block, page, page + resident - 1);
+        }
 
-        for (int n = 0; n < pages && start + n < kAtrCount; n++) atr[start + n] = static_cast<uint16_t>(page + n);
-
-        trace_.csp("nucratr: map entry {} - region pages {}..{} are program block {:06X} resident pages {}..{}", i, start,
-                   start + pages - 1, block, page, page + pages - 1);
+        // An ATASK block's PB+16 region may extend past its PB+18 resident
+        // module.  The remainder lives in its task-work-area allocation and
+        // is paged exactly like an SB when a MAP entry exposes it.
+        int tailDisplacement = displacement + resident;
+        int tail = requested - resident;
+        int regionPages = m_.readHalf(block + StorageBlock::kOffSizePages);
+        int disk = m_.readAddr24(block + StorageBlock::kOffDiskAddress);
+        if (tail > 0 && disk != 0 && regionPages > residentPages && tailDisplacement < regionPages) {
+            tail = std::min(tail, regionPages - tailDisplacement);
+            const std::vector<int>* backing = workSpaceResidentPages(block, "nucratr", tailDisplacement, tail);
+            if (backing != nullptr) {
+                for (int n = 0; n < tail && start + resident + n < kAtrCount; n++)
+                    atr[start + resident + n] = static_cast<uint16_t>(
+                        (*backing)[static_cast<std::size_t>(tailDisplacement + n)] >> machine::MachineState::kPageShift);
+                trace_.csp("nucratr: map entry {} - region pages {}..{} are program block {:06X} task-work-area pages "
+                           "{}..{}",
+                           i, start + resident, start + resident + tail - 1, block, tailDisplacement,
+                           tailDisplacement + tail - 1);
+            }
+        }
     }
 }
 
@@ -870,6 +920,8 @@ const std::vector<int>* As36ControlStorageProcessor::workSpaceResidentPages(int 
     int disk = m_.readAddr24(sb + StorageBlock::kOffDiskAddress);
     int capacity = m_.readHalf(sb + StorageBlock::kOffSizePages);
     int highWater = m_.readHalf(sb + StorageBlock::kOffPagesMapped);
+    if (m_.readHalf(sb + StorageBlock::kOffEyecatcher) == GuestLowStorage::kEyeProgramBlock && capacity > highWater)
+        highWater = capacity;
     if (disk == 0 || highWater == 0) {
         trace_.csp("{}: storage block {:06X} has no swap area (+24..26 = {:06X}, {} mapped/high-water page(s)) - its pages "
                    "stay protected",
