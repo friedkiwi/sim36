@@ -91,6 +91,16 @@ step 1
 set xr1 001B
 set iar 1031
 step 1
+# Reusing a control-block address or changing its live extent must not retain
+# an allocator sized for the former block.  The existing four-page heap has
+# displacement zero partially occupied; shrink the live SB to one page and
+# verify SVC 2C starts a fresh, bounded allocator at zero.
+poke 0D10 00 01
+set pxr1 00
+set xr1 0D00
+set wr6 0040
+set iar 1038
+step 1
 quit
 EOS
 
@@ -124,6 +134,8 @@ check "51  indirect XR1                      " 'get 1 sector(s) at 26 (address 0
 check "51  relative is refused               " 'RELATIVE task work area address'
 check "51  JCBWSWA without a JCB             " 'nuerr code 106'
 check "51  put to a read-only volume         " 'put REFUSED'
+check "2C  changed SB extent resets allocator" 'work space at storage block 000D00 changed size from 8192 to 2048 bytes; discarded stale allocator state'
+check "2C  reset allocator remains in bounds " 'assigned 64 bytes at displacement 0000 of the work space at 000D00 -> XR1 = 800000'
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

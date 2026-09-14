@@ -135,8 +135,14 @@ bool As36ControlStorageProcessor::translatedAssignOrFree(SvcRequest& req)
 WorkSpaceHeap* As36ControlStorageProcessor::workSpaceFor(int block)
 {
     auto it = workSpaces_.find(block);
-    if (it != workSpaces_.end()) return it->second.get();
     int bytes = StorageBlock::sizeBytes(m_, block);
+    if (it != workSpaces_.end() && it->second->capacity() == bytes) return it->second.get();
+    if (it != workSpaces_.end()) {
+        trace_.csp("work space at storage block {:06X} changed size from {} to {} bytes; discarded stale allocator "
+                   "state before SVC 2C/2D",
+                   block, it->second->capacity(), bytes);
+        workSpaces_.erase(it);
+    }
     if (bytes <= 0) return nullptr;
     auto heap = std::make_unique<WorkSpaceHeap>(bytes);
     WorkSpaceHeap* raw = heap.get();

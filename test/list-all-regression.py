@@ -93,9 +93,26 @@ def main():
         expected_screen = os.environ.get("S36_LIST_EXPECT_SCREEN", "BASICSMP")
         expected_monitor = os.environ.get("S36_LIST_EXPECT_MONITOR", "")
         rejected = tuple(value for value in os.environ.get("S36_LIST_REJECT", "").split("|") if value)
-        session.type_at(22, 3, statement)
-        check_mark = len(transcript)
-        session.press("Enter")
+        if os.environ.get("S36_LIST_CATALOG_MENU") == "1":
+            statement = "MAIN 2 -> SYSSESN 5 -> LIBRFILE 1 -> LIBRARY 3 -> LIBRLIST 3"
+            check_mark = len(transcript)
+            for choice, panel in (("2", "Perform general system activities"),
+                                  ("5", "Work with files, libraries, or folders"),
+                                  ("1", "Work with libraries"),
+                                  ("3", "List library information"),
+                                  ("3", "Name of entry to be listed")):
+                session.type_at(22, 3, choice)
+                generation = session.generation
+                session.press("Enter")
+                deadline = time.monotonic() + 30
+                while session.generation == generation and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                session.settle(quiet=0.2, timeout=5)
+                session.wait_for_text(panel, timeout=30)
+        else:
+            session.type_at(22, 3, statement)
+            check_mark = len(transcript)
+            session.press("Enter")
 
         deadline = time.monotonic() + 120
         saw_listing = False
@@ -161,6 +178,51 @@ def main():
                     saw_rejected or any(value in text for value in rejected)):
                 raise AssertionError("CATALOG form failed\n%s\n%s" % (screen, text[-12000:]))
 
+            page_target = os.environ.get("S36_LIST_CATALOG_PAGE_TARGET", "")
+            if page_target:
+                reached_target = False
+                for page in range(100):
+                    with session.lock:
+                        if session.screen.contains(page_target):
+                            reached_target = True
+                            break
+                        # CATALOG returns here after the final page.  Library
+                        # contents vary between test volumes, so reaching the
+                        # end cleanly is stronger than requiring one name.
+                        if session.screen.contains("List library information"):
+                            break
+                    check_mark = len(transcript)
+                    try:
+                        session.press("Enter")
+                    except TimeoutError as exc:
+                        with changed:
+                            text = "".join(transcript[check_mark:])
+                        raise AssertionError("CATALOG stopped before page containing %r\n%s\n%s" %
+                                             (page_target, session.screen.render(fields=True), text[-12000:])) from exc
+                    mark = len(transcript)
+                    command("wait idle 30")
+                    wait_monitor("wait: guest is idle after", timeout=35, after=mark)
+                    with changed:
+                        text = "".join(transcript[check_mark:])
+                    if "CHECK [program]" in text or "CHECK [CSP/MSP/channel]" in text:
+                        raise AssertionError("CATALOG page %d caused a processor check\n%s\n%s" %
+                                             (page + 1, session.screen.render(fields=True), text[-12000:]))
+                else:
+                    raise AssertionError("CATALOG did not finish within 100 pages\n%s" %
+                                         session.screen.render(fields=True))
+
+                if reached_target:
+                    check_mark = len(transcript)
+                    session.press("Enter")
+                    mark = len(transcript)
+                    command("wait idle 30")
+                    wait_monitor("wait: guest is idle after", timeout=35, after=mark)
+                    with changed:
+                        text = "".join(transcript[check_mark:])
+                    if "CHECK [program]" in text or "CHECK [CSP/MSP/channel]" in text:
+                        raise AssertionError("Enter after %s caused a processor check\n%s\n%s" %
+                                             (page_target, session.screen.render(fields=True), text[-12000:]))
+
         # Optional post-screen key sequence.  This keeps application-level
         # regressions tied to the real panel that accepts the keys instead of
         # merely proving that the command's loader was entered.
@@ -176,7 +238,7 @@ def main():
             if "CHECK [program]" in text or "CHECK [CSP/MSP/channel]" in text or "storage protection" in text:
                 raise AssertionError("%s caused a processor check\n%s\n%s" %
                                      (key, session.screen.render(fields=True), text[-12000:]))
-        if "S36_LIST_COMMAND" in os.environ:
+        if "S36_LIST_COMMAND" in os.environ or os.environ.get("S36_LIST_CATALOG_MENU") == "1":
             print("PASS: %s reached its expected output without a processor check" % statement)
         else:
             print("PASS: LIST ALL displayed source without a processor check")

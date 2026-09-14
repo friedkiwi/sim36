@@ -227,7 +227,7 @@ public:
     // "not exceed FFC0 hex bytes": 64 KB less one element.
     static constexpr int kMaximumLength = 0xFFC0;
 
-    explicit WorkSpaceHeap(int bytes) { free_.push_back({0, bytes}); }
+    explicit WorkSpaceHeap(int bytes) : capacity_(bytes > 0 ? bytes : 0) { free_.push_back({0, capacity_}); }
 
     static int round(int bytes) { return (bytes + kGranularity - 1) & ~(kGranularity - 1); }
 
@@ -238,6 +238,7 @@ public:
     // the current free areas (if adjacent)".
     void free(int at, int bytes);
     int available() const;
+    int capacity() const { return capacity_; }
 
     std::vector<int> captureCheckpoint() const;
     bool restoreCheckpoint(const std::vector<int>& v);
@@ -246,6 +247,7 @@ private:
     struct Range {
         int at, length;
     };
+    int capacity_ = 0;
     std::vector<Range> free_;
 };
 

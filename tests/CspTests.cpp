@@ -15,6 +15,14 @@
 using namespace sim36;
 using namespace sim36::processors::controlstorage;
 
+TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")
+{
+    WorkSpaceHeap heap(2 * machine::MachineState::kPageBytes);
+    CHECK(heap.capacity() == 4096);
+    CHECK(heap.restoreCheckpoint({0, 4096}));
+    CHECK_FALSE(heap.restoreCheckpoint({0xB000, 0x2000}));
+}
+
 TEST_CASE("ATR pool rebases saved real frames when resident storage moves")
 {
     NuPttPool pool;

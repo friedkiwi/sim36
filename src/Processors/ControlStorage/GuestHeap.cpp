@@ -602,8 +602,15 @@ std::vector<int> WorkSpaceHeap::captureCheckpoint() const
 bool WorkSpaceHeap::restoreCheckpoint(const std::vector<int>& v)
 {
     if ((v.size() & 1) != 0) return false;
-    free_.clear();
-    for (size_t i = 0; i < v.size(); i += 2) free_.push_back({v[i], v[i + 1]});
+    std::vector<Range> restored;
+    int end = 0;
+    for (size_t i = 0; i < v.size(); i += 2) {
+        int at = v[i], length = v[i + 1];
+        if (at < end || length < 0 || at > capacity_ || length > capacity_ - at) return false;
+        restored.push_back({at, length});
+        end = at + length;
+    }
+    free_ = std::move(restored);
     return true;
 }
 
