@@ -191,8 +191,9 @@ SimulatorSession::SimulatorSession() = default;
 
 SimulatorSession::SimulatorSession(EmulatorConfig definition) : definition_(std::move(definition))
 {
+    definition_.applyDefaultStationsIfNoneDeclared();
     if (!definition_.volumePath.empty()) reportVolume(definition_.volumePath);
-    if (!definition_.stations.empty()) reconcileListeners();
+    reconcileListeners();
     if (definition_.stationMultiplex) startMultiplexer();
 }
 
@@ -206,6 +207,10 @@ SimulatorSession::~SimulatorSession()
 
 void SimulatorSession::activateConfiguredServices()
 {
+    // A command file that declares any stations defines the whole station
+    // set.  If it declares none, expose the built-in seven-station controller
+    // before listeners and pre-IPL configuration views are activated.
+    definition_.applyDefaultStationsIfNoneDeclared();
     reconcileListeners();
     if (definition_.stationMultiplex) startMultiplexer();
 }
