@@ -128,6 +128,7 @@ add_executable(sim36_tests
     tests/ConfigTests.cpp
     tests/ConsoleDisplayTests.cpp
     tests/CspTests.cpp
+    tests/DeviceSetTests.cpp
     tests/EbcdicTests.cpp
     tests/FixedDiskTests.cpp
     tests/MachineStateTests.cpp

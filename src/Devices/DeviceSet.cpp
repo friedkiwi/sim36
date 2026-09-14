@@ -435,11 +435,11 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
     for (auto& p : pendingPutWithInvites_.items()) {
         WorkStationSlot* slot = *p.second;
         if (!slot->backend()->tryCompleteInviteResponse()) continue;
-        // The control field belongs to this action and is one-shot: leaving
-        // it in the controller cache lets a later, unrelated class-C1 PUT
-        // consume the old AID as though the operator had answered that new
-        // display.
-        inputResponseStatus_.erase(slot->unitAddress());
+        // Keep the control field through this action's following C1 pass.
+        // Completing the retained A7 and importing its response status are
+        // two guest-visible phases of the same controller operation.  A new
+        // C0 A7 clears stale status in beginOutputRequest(), so preserving it
+        // here cannot leak the AID into an unrelated display operation.
         IoBlock::complete(m_, p.first, 0);
         pendingPutWithInvites_.erase(p.first);
         completedIob = p.first;
