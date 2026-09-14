@@ -201,7 +201,7 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
                    "iar", "xr1", "xr2", "arr", "psr", "pxr1", "pxr2", "pdir", "piar",
                    "wr4", "wr5", "wr6", "wr7"});
         } else if (at(1, "machine") && pos == 2) {
-            words({"model", "memory", "task-work-area", "host-model", "host-processor-model",
+            words({"model", "csp-type", "memory", "task-work-area", "host-model", "host-processor-model",
                    "host-processor-feature", "ipl-type", "ipl-source", "load-source",
                    "listener-auto-signon", "signon-use-router", "signon-statement",
                    "signon-request", "signon-router-key", "ws-interactive"});
@@ -209,6 +209,10 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
                    (at(2, "listener-auto-signon") || at(2, "signon-use-router") ||
                     at(2, "signon-statement") || at(2, "signon-request") || at(2, "ws-interactive"))) {
             words({"on", "off"});
+        } else if (at(1, "machine") && pos == 3 && at(2, "model")) {
+            words({"advanced36", "5363", "5364"});
+        } else if (at(1, "machine") && pos == 3 && at(2, "csp-type")) {
+            words({"advanced36"});
         } else if (at(1, "station") && pos == 3) {
             words({"role", "device-code", "listen", "signon-at-ipl"});
         } else if (at(1, "station") && pos == 4 && at(3, "role")) {

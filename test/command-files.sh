@@ -62,6 +62,8 @@ printf '%s\nshow config\nquit\n' "$replay" >"$TMP/replay.sim"
 out=$("$SIM36" -c "$TMP/replay.sim" 2>&1) || true
 has "stdout configuration is replayable" "memory                 512K"
 has "replayed configuration retains overlay" "$SIM36_VOLUME  overlay"
+has "replayed configuration retains machine model" "model                  5363"
+has "replayed configuration retains CSP type" "csp type               advanced36 (virtual)"
 
 mkdir "$TMP/nested"
 printf 'save config saved.sim\nquit\n' >"$TMP/nested/write.sim"

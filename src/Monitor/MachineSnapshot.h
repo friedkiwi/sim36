@@ -20,7 +20,7 @@ namespace sim36::monitor {
 
 class MachineSnapshot {
 public:
-    static constexpr int kVersion = 16;   // 16: pending workstation replay preserves its logical displacement
+    static constexpr int kVersion = 17;   // 17: machine identity and CSP implementation are independent
 
     struct StationState {
         std::string id;

@@ -527,6 +527,9 @@ void SimulatorSession::setMachine(const Args& a)
     if (key == "model") {
         if (!configuration::ModelTable::isKnown(a[3])) throw MonitorError("unknown model '" + a[3] + "'");
         definition_.model = a[3];
+    } else if (key == "csp-type") {
+        if (!configuration::CspTypeTable::isKnown(a[3])) throw MonitorError("unknown CSP type '" + a[3] + "'");
+        definition_.cspType = a[3];
     } else if (key == "memory" || key == "main-storage") definition_.mainStorageKb = parseMemoryKb(a[3]);
     else if (key == "task-work-area" || key == "task-work-area-sectors") definition_.taskWorkAreaSectors = parseInt(a[3]);
     else if (key == "host-model") definition_.hostModel = a[3];

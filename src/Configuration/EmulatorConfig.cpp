@@ -110,6 +110,7 @@ EmulatorConfig& EmulatorConfig::operator=(const EmulatorConfig& other)
     iplSourceName = other.iplSourceName;
     loadSourceName = other.loadSourceName;
     model = other.model;
+    cspType = other.cspType;
     stations = other.stations;
     tape = other.tape ? std::make_unique<TapeConfig>(*other.tape) : nullptr;
     return *this;
@@ -299,11 +300,21 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
                         "unknown model '{}'; known models are {}", v, names));
                 }
                 c.model = v;
+            } else if (k == "csp_type") {
+                if (!CspTypeTable::isKnown(v)) {
+                    std::string names;
+                    for (const std::string& t : CspTypeTable::known()) {
+                        if (!names.empty()) names += ", ";
+                        names += t;
+                    }
+                    throw ConfigError(path, lineNo, fmt::format(
+                        "unknown CSP type '{}'; known types are {}", v, names));
+                }
+                c.cspType = v;
             } else if (k == "csp_model")
                 throw ConfigError(path, lineNo,
                     "'csp_model' is obsolete: it conflated the machine model, the CSP "
-                    "kind and the CSP variant. Use 'model' - the kind and variant derive "
-                    "from it. See docs/s36/machine-models-and-startup.md");
+                    "implementation and its variant. Use 'model' and 'csp_type'.");
             else throw ConfigError(path, lineNo, "unknown machine key '" + k + "'");
         } else if (tape != nullptr) {
             if (k == "folder") tape->folderPath = v;
@@ -338,6 +349,11 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
 void EmulatorConfig::validate(const std::string& path)
 {
     if (volumePath.empty()) throw ConfigError(path, 0, "[machine] volume is required");
+
+    if (!CspTypeTable::supportsModel(cspType, model))
+        throw ConfigError(path, 0, fmt::format(
+            "CSP type {} does not support machine model {}; advanced36 currently supports "
+            "advanced36, 5363 and 5364", cspType, model));
 
     std::string type;
     if (!IplSourceTable::tryNormalizeType(iplType, type))

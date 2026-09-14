@@ -116,7 +116,7 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     GuestLowStorage::HostInfo host;
     std::string error;
 
-    REQUIRE(GuestLowStorage::build(m, trace, 819200, host, error));
+    REQUIRE(GuestLowStorage::build(m, trace, 819200, host, 0x8D, error));
     CHECK(error.empty());
     CHECK(m.readByte(0x0850) == 0x8D);
     CHECK(m.readByte(0x08BD) == 0x8D);
@@ -132,4 +132,16 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     GuestLowStorage::walkUnitDefinitionTable(m, trace, udt.data(), static_cast<int>(udt.size()));
     CHECK(m.readByte(0x0850) == 0x89);
     CHECK(m.readByte(0x08BD) == 0x89);
+}
+
+TEST_CASE("guest low storage accepts the 5363 system customize selector")
+{
+    machine::MachineState m(1024 * 1024);
+    monitor::Tracer trace;
+    GuestLowStorage::HostInfo host;
+    std::string error;
+
+    REQUIRE(GuestLowStorage::build(m, trace, 819200, host, 0x8B, error));
+    CHECK(m.readByte(0x0850) == 0x8B);
+    CHECK(m.readByte(0x08BD) == 0x8B);
 }

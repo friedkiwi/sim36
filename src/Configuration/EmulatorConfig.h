@@ -100,9 +100,10 @@ public:
     // from sector 8191; `diskette` reads the diskette-resident phase 1.
     std::string loadSourceName = "disk";
 
-    // The user-facing knob.  Everything else about the processor complex
-    // derives from it.
+    // Machine identity is independent of the CSP implementation.  This lets
+    // the virtual Advanced/36 CSP expose a 5363 or 5364 personality to SSP.
     std::string model = "advanced36";
+    std::string cspType = "advanced36";
 
     std::vector<StationConfig> stations;
     std::unique_ptr<TapeConfig> tape;
@@ -114,9 +115,10 @@ public:
     bool loadsFromDiskette() const;
     bool iplRequestsReload() const;
     int iplSource() const;
-    CspKind cspKind() const { return ModelTable::kindOf(model); }
-    std::string cspVariant() const { return ModelTable::variantOf(model); }
+    CspKind cspKind() const { return CspTypeTable::kindOf(cspType); }
+    std::string cspVariant() const { return CspTypeTable::variantOf(cspType); }
     int maxMainStorageKb() const { return ModelTable::maxStorageKb(model); }
+    uint8_t systemCustomize1() const { return ModelTable::systemCustomize1(model); }
 
     const StationConfig* console() const;
     StationConfig* findStation(int port, int address);

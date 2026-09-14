@@ -485,6 +485,7 @@ std::vector<uint8_t> MachineSnapshot::writeDiagnosticRuntime(machine::Machine& m
 void MachineSnapshot::writeConfig(Writer& w, const EmulatorConfig& c)
 {
     w.string(c.model);
+    w.string(c.cspType);
     w.i32(c.mainStorageKb);
     w.i32(c.taskWorkAreaSectors);
     w.string(c.hostModel);
@@ -519,6 +520,7 @@ EmulatorConfig MachineSnapshot::readConfig(Reader& r)
 {
     EmulatorConfig c;
     c.model = r.string();
+    c.cspType = r.string();
     c.mainStorageKb = r.i32();
     c.taskWorkAreaSectors = r.i32();
     c.hostModel = r.string();

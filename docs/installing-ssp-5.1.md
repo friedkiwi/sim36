@@ -163,8 +163,10 @@ way to finish generation.
 Low-storage byte `0850` and its copy at `08BD` are the first customize byte
 of the system record in the unit definition table at fixed-disk sector 26.
 The control-storage IPL copies that byte from an installed disk. For a blank
-disk, the virtual Advanced/36 now seeds both locations with `8D` before MSP
-starts.
+disk, `set machine model 5363` seeds both locations with `8B`; models `5364`
+and `advanced36` seed them with `8D`. The independent
+`set machine csp-type advanced36` selects the virtual execution engine and
+does not change the SSP-visible model identity.
 
 SSP 5.1's `MSPID` checks `0850` twice and accepts only `8B` or `8D`. The
 choice remains live later in `#MSREL`: `8B` requests the 5363 `DSKT61/62`

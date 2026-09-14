@@ -133,7 +133,7 @@ public:
     // does not fit 24 bits is refused: false is returned and `error` carries
     // the reason.
     static bool build(machine::MachineState& m, monitor::Tracer& trace, int volumeSectors,
-                      const HostInfo& host, std::string& error);
+                      const HostInfo& host, uint8_t systemCustomize1, std::string& error);
 
     // Walk the unit definition table exactly as the IPL does.  `udt` is the
     // 4 KB the IPL disk read fetches (16 sectors from 1-based 27), which the

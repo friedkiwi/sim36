@@ -83,14 +83,12 @@ Machine::Machine(const EmulatorConfig& cfg, const SessionBackends* sessionBacken
         devices_->tape.load(std::move(t));
     }
 
-    // A model whose CSP kind is microcode needs a CSP interpreter and the
-    // microcode volume set for that model and stage.
     if (cfg.cspKind() != CspKind::Virtual)
         throw std::runtime_error(fmt::format(
-            "model {} needs a microcode control storage processor, which is not "
-            "implemented: it would require a CSP interpreter and the microcode "
-            "volume set for that model and stage. See "
-            "docs/s36/machine-models-and-startup.md", cfg.model));
+            "CSP type {} is not implemented", cfg.cspType));
+    if (!configuration::CspTypeTable::supportsModel(cfg.cspType, cfg.model))
+        throw std::runtime_error(fmt::format(
+            "CSP type {} does not support machine model {}", cfg.cspType, cfg.model));
     csp_ = std::make_unique<processors::controlstorage::As36ControlStorageProcessor>(state, config, *devices_, *disk_, trace);
     auto* csp = csp_.get();
     state.stateDescriber = [csp] { return csp->describeSrcState(); };

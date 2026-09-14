@@ -1,12 +1,9 @@
-// The machine models, and what each implies.
-//
-// Model is the user-facing knob; CSP kind, CSP variant and the storage
-// ceiling all derive from it.  There are more CSP variants than machine types
-// because the 5360 alone spans three documented processor stages, and Stage 3
-// adds base-plus-displacement instructions the earlier ones lack, so "5360"
-// without a stage does not name a processor.
+// Machine identity and control-storage processor implementation are separate
+// choices.  A virtual CSP may expose a physical model's SSP-visible identity
+// even though that pairing could not exist as IBM hardware.
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -24,10 +21,18 @@ class ModelTable {
 public:
     static bool isKnown(const std::string& model);
     static std::vector<std::string> known();
-    static CspKind kindOf(const std::string& model);
-    static std::string variantOf(const std::string& model);
     static int maxStorageKb(const std::string& model);
+    static uint8_t systemCustomize1(const std::string& model);
     static std::string noteFor(const std::string& model);
+};
+
+class CspTypeTable {
+public:
+    static bool isKnown(const std::string& type);
+    static std::vector<std::string> known();
+    static CspKind kindOf(const std::string& type);
+    static std::string variantOf(const std::string& type);
+    static bool supportsModel(const std::string& type, const std::string& model);
 };
 
 }  // namespace sim36::configuration

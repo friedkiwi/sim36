@@ -1,6 +1,8 @@
 # Keep this definition listener-free: stdout must contain replay commands only,
 # with no listener announcements mixed into the saved configuration.
 set machine memory 512K
+set machine model 5363
+set machine csp-type advanced36
 set terminal multiplex listen 127.0.0.1:4399
 set terminal multiplex off
 attach disk0 @VOLUME@ overlay

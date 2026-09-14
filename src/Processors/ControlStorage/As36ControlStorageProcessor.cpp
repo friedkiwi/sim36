@@ -135,7 +135,7 @@ void As36ControlStorageProcessor::iplMainProcessor()
     host.processorModel = cfg_.hostProcessorModel;
     std::string error;
     if (!GuestLowStorage::build(m_, trace_, static_cast<int>(std::min<long long>(disk_.sectorCount(), 0x7FFFFFFF)),
-                                host, error)) {
+                                host, cfg_.systemCustomize1(), error)) {
         // A volume too large for the 24-bit disk-end field is a configuration
         // fault; the low storage written so far stands, as it does on the
         // reference, and the IPL stops here with the reason.

@@ -23,6 +23,26 @@ TEST_CASE("config: the default definition validates once a volume and console ex
     CHECK_THROWS_AS(c.validate("t"), ConfigError);
 }
 
+TEST_CASE("config: machine identity is independent of the CSP implementation")
+{
+    EmulatorConfig c;
+    c.volumePath = "x.img";
+    c.applyDefaultStationsIfNoneDeclared();
+
+    c.model = "5363";
+    c.cspType = "advanced36";
+    CHECK(c.systemCustomize1() == 0x8B);
+    CHECK(c.cspKind() == CspKind::Virtual);
+    CHECK_NOTHROW(c.validate("t"));
+
+    c.model = "5364";
+    CHECK(c.systemCustomize1() == 0x8D);
+    CHECK_NOTHROW(c.validate("t"));
+
+    c.model = "5360-s3";
+    CHECK_THROWS_AS(c.validate("t"), ConfigError);
+}
+
 TEST_CASE("config: printers need a printer device code")
 {
     EmulatorConfig c;
