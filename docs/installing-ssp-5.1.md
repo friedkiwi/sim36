@@ -2,16 +2,14 @@
 
 ## Current status
 
-This is **not yet a complete installation procedure**. SIM/36 can convert
-the publicly archived SSP 5.1 diskettes, IPL the first diskette, initialize
-the blank fixed disk's SSP system area, restore `SSPMRI` and `SSPBASE`, and
-read both 5364 microcode volumes. It does not yet complete the hardware
-microcode-load phase, so the resulting fixed disk is not bootable.
+SIM/36 can convert the publicly archived SSP 5.1 diskettes, IPL the first
+diskette, initialize the blank fixed disk's SSP system area, restore `SSPMRI`
+and `SSPBASE`, read both 5364 microcode volumes, and IPL the generated fixed
+disk. The generated SSP is bootable.
 
 The repository contains no IBM distribution media or generated SSP volume,
-and there is no prebuilt-volume fallback. The steps below reproduce the
-implemented path for continuing development; they do not install SSP end to
-end.
+and there is no prebuilt-volume fallback. The user supplies the archived
+distribution media and creates the fixed-disk image locally.
 
 ## Public media
 
@@ -128,7 +126,7 @@ wait idle 120
 Repeat for volumes 03 through 07. Volumes 08 through 11 contain optional
 products and are not part of the base SSP restore.
 
-## 5. Reproduce the current microcode frontier
+## 5. Finish generation
 
 After volume 07, the panel names functional microcode volume `DSKT12` and
 also says to insert additional microcode volumes first. Supply both volumes
@@ -143,20 +141,36 @@ console send Enter
 wait idle 120
 ```
 
-The current frontier is:
+SSP finishes generation and displays a completion panel similar to:
 
 ```text
 SSP GENERATION AND RELOAD - MESSAGES
 Relocating system area
 SYS-3913 Microcode error. Type-81. Module ID-801E WSDVCCS
+SSP reload complete, remove diskettes.
+Microcode load complete, remove diskette.
+SSP generation complete, MSIPL from disk required.
 ```
 
-SIM/36's virtual control processor has no writable hardware microcode store.
-Diskette command `DF`, issued once per hardware module by the reload, is
-currently acknowledged without implementing that load. Acknowledging the
-panels exposes the other affected hardware modules and eventually reaches an
-invalid zero-length SVC 06 request. This remains an emulator gap, not a usable
-way to finish generation.
+The `SYS-3913` entries describe unresolved references in physical 5364
+control-storage modules. The Advanced/36 CSP implements those services
+natively and does not load or retain the physical microcode, so these entries
+do not prevent the generated SSP from running. Do not press Enter repeatedly
+to page through the unused physical-microcode diagnostics. Once the panel says
+`SSP generation complete`, remove the diskette and IPL the generated fixed
+disk in a fresh SIM/36 invocation:
+
+```sh
+build/linux/sim36 -s /dev/stdin <<'EOF'
+set machine load-source disk
+attach disk0 work/ssp51-new.img rw
+ipl
+wait idle 120
+console
+EOF
+```
+
+The resulting display should be the SSP 5.1 IPL sign-on screen.
 
 ## What `0850` means
 
@@ -181,18 +195,16 @@ value still reached sign-on. Thus a manual `poke 0850 8D` changes SSP 7.5's
 running compatibility branch, but it neither repairs nor updates its on-disk
 UDT.
 
-## What remains before this can be called an installation guide
+## Advanced/36 microcode behavior
 
-The missing work is:
+The virtual Advanced/36 has no writable control storage and needs no physical
+microcode image. Diskette commands `DE` and `DF` are acknowledged as lifecycle
+operations; the ordinary diskette read commands transfer the distribution
+records. The emulator adds no microcode directory, module store, level table,
+or patch table of its own. Any physical-module records the legacy SSP
+generation writes are opaque guest data and are ignored by the virtual CSP.
 
-1. Decode and implement the Advanced/36-native contract for the `DE`/`DF`
-   microcode-load operations, or explicitly virtualize the whole hardware
-   microcode phase without presenting false per-module failures.
-2. Complete generation and verify that it writes the final UDT and boot
-   records required for a fixed-disk IPL.
-3. Automate the media exchange sequence and add a clean-room regression that
-   starts only with a blank fixed disk and the downloaded archive, completes
-   generation, re-IPLs from fixed disk, and reaches SSP sign-on.
-
-Until those three items are implemented and tested, users cannot install SSP
-5.1 from the public archives by following repository instructions alone.
+The remaining improvement is automation: a clean-room integration test should
+start with a blank fixed disk and externally supplied archive, exchange the
+requested media, re-IPL from fixed disk, and verify the SSP sign-on. IBM media
+and generated fixed-disk images must not be committed to the repository.
