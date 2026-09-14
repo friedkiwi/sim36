@@ -104,10 +104,6 @@ console
 EOF
 ```
 
-No `poke` is required. On a blank disk the virtual Advanced/36 publishes
-system-customize value `8D`, the 5364-family value accepted by SSP 5.1. An
-installed disk's unit definition table replaces this seed during every IPL.
-
 The first panel contains `SYS-3908`; press Enter to reveal the more specific
 `SYS-3922 SSP level error. SSP = 05, Microcode = 00`, then press Enter again.
 These are diagnostics for the initially empty system area, not a terminal
