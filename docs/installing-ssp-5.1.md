@@ -94,7 +94,6 @@ installation from the SIM/36 monitor:
 
 ```text
 ipl
-wait idle 120
 ```
 
 W1 first displays `SYS-3908`. Press Enter to reveal the more specific
@@ -110,9 +109,9 @@ from the SIM/36 monitor:
 diskette insert work/ssp51/flat/SSP51-02.img
 ```
 
-Press Enter on W1, then use `wait idle 120` at the monitor. Repeat for
-volumes 03 through 07. Volumes 08 through 11 contain optional products and
-are not part of the base SSP restore.
+Press Enter on W1 and wait for the next media request. Repeat for volumes 03
+through 07. Volumes 08 through 11 contain optional products and are not part
+of the base SSP restore.
 
 ## 5. Finish generation
 
@@ -157,7 +156,6 @@ stop
 reset --yes
 set machine load-source disk
 ipl
-wait idle 120
 ```
 
 The multiplexer connection survives the reset. W1 should display the SSP 5.1
