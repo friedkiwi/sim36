@@ -122,32 +122,21 @@ out.append("phase 1 direct-drop client saw a menu: %s"
 out.append(direct.screen.render())
 send(proc, "stations")
 
-# A third client declines W1, returns to selection, and is then refused on an
-# already-taken W2.
+# A third client is refused on an already-taken W2.
 refused = tn.Session(MUX1, name="refused").connect()
 refused.wait_for_invite(20)
-refused.type_into("Connect to workstation", "W1")
-refused.press("Enter")
-refused.wait_for_change(timeout=15)
-show("phase 1 after selecting W1", refused)
-refused.type_into("Connecting to system console", "n")
-refused.press("Enter")
-refused.wait_for_change(timeout=15)
-show("phase 1 after declining W1", refused)
 refused.type_into("Connect to workstation", "W2")
 refused.press("Enter")
 refused.wait_for_change(timeout=15)
 show("phase 1 after selecting the taken W2", refused)
 
-# A fourth client accepts W1 in lower case.  It joins the SAME console backend
-# the monitor uses; the retained guest output is replayed over its socket.
+# A fourth client selects W1.  It joins the SAME console backend the monitor
+# uses immediately; the retained guest output is replayed over its socket.
 console = tn.Session(MUX1, name="console").connect()
 console.wait_for_invite(20)
 console.type_into("Connect to workstation", "W1")
 console.press("Enter")
 console.wait_for_change(timeout=15)
-console.type_into("Connecting to system console", "y")
-console.press("Enter")
 show("phase 1 attached system console", console)
 send(proc, "stations")
 # A monitor-originated display write still takes the real console backend.  It
@@ -227,14 +216,13 @@ early.send_record(record, wire)
 time.sleep(0.5)
 out.append("phase 3 output-error response caused selector repaint: %s" %
            ("yes" if early.generation != generation else "no"))
-# Reproduce clients which send cursor+AID only when Enter accepts an unchanged
-# prefilled field. The server must use the displayed W2 default in this case;
-# requiring the client to retype W2 makes the menu look functional but inert.
-record, wire = early.frame(0x00, bytes([16, 33, 0xF1]))
-early.invited.clear()
-early.send_record(record, wire)
+# Select W2 explicitly so this phase continues to exercise the ordinary
+# workstation rebind path while the menu itself verifies that W1 is now the
+# first offered station.
+early.type_into("Connect to workstation", "W2")
+early.press("Enter")
 early.wait_for_change(timeout=15)
-out.append("=== phase 3 after accepting prefilled W2 with no machine ===")
+out.append("=== phase 3 after selecting W2 with no machine ===")
 out.append(early.screen.render())
 
 send(proc, "stations")
@@ -265,8 +253,8 @@ out.append("".join(lines).rstrip())
 
 
 # ---------------------------------------------------------------- phase 4 ---
-# Exact attended-console lifecycle: select and confirm W1 while no machine
-# exists, then IPL. `attended` is the natural spelling an operator used in the
+# Exact attended-console lifecycle: select W1 while no machine exists, then
+# IPL. `attended` is the natural spelling an operator used in the
 # field; it must normalize to `attend`, and the already-connected socket must
 # receive SSP's real IPL SIGN ON panel when construction starts.
 MUX4 = int(os.environ.get("S36_MUX_PORT4", "3950"))
@@ -277,9 +265,6 @@ send(proc, "set machine ipl-type attended")
 preipl_console = tn.Session(MUX4, name="preipl-console").connect()
 preipl_console.wait_for_invite(20)
 preipl_console.type_into("Connect to workstation", "W1")
-preipl_console.press("Enter")
-preipl_console.wait_for_change(timeout=15)
-preipl_console.type_into("Connecting to system console", "Y")
 preipl_console.press("Enter")
 preipl_console.wait_for_change(timeout=15)
 out.append("phase 4 W1 parked before IPL: %s" %
@@ -339,9 +324,6 @@ send(proc, "set machine ipl-type unattended")
 unattended_console = tn.Session(MUX5, name="unattended-console").connect()
 unattended_console.wait_for_invite(20)
 unattended_console.type_into("Connect to workstation", "W1")
-unattended_console.press("Enter")
-unattended_console.wait_for_change(timeout=15)
-unattended_console.type_into("Connecting to system console", "Y")
 unattended_console.press("Enter")
 unattended_console.wait_for_change(timeout=15)
 send(proc, "ipl")

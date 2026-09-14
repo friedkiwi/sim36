@@ -174,14 +174,6 @@ private:
             message_ = "no station " + (kind == '.' ? id : "W" + std::to_string(number)) + " on this machine";
             return false;
         }
-        if (v->isConsole) {
-            confirmingConsole_ = true;
-            consoleKind_ = kind;
-            consoleNumber_ = number;
-            consoleId_ = id;
-            paintConsoleConfirmation();
-            return true;
-        }
         return handOver(*v);
     }
 
@@ -204,17 +196,6 @@ private:
             return;
         }
         uint8_t aid = d[2];
-        if (confirmingConsole_) {
-            std::string answer = aid == 0xF1 ? trim(ebcdic(d, 3, static_cast<int>(d.size()) - 3)) : std::string();
-            confirmingConsole_ = false;
-            if (answer == "Y" || answer == "y") {
-                std::vector<MultiplexStationView> all = stations();
-                const MultiplexStationView* console = lookup(all, consoleKind_, consoleNumber_, consoleId_);
-                if (console != nullptr && handOver(*console)) return;
-            }
-            paint();
-            return;
-        }
         // Enter is the only key the menu acts on.  Anything else repaints,
         // which is what a real panel does with an unhandled AID.
         if (aid != 0xF1) {
@@ -310,22 +291,6 @@ private:
         return s;
     }
 
-    void paintConsoleConfirmation()
-    {
-        ScreenBuilder b;
-        b.clearUnit();
-        b.text(1, centre(kTitleWidth), kTitle);
-        const int row = 16;
-        b.text(row, 3, "Connecting to system console - continue?");
-        fieldRow_ = row;
-        fieldCol_ = 44;
-        b.field(row, 43, 1, "_");
-        b.text(row, 46, "(Y/N)");
-        b.insertCursor(fieldRow_, fieldCol_);
-        b.readInputFields();
-        session_->send(WorkstationOpcode::PutGet, WorkstationRecordFlags::None, b.bytes().data(), 0, b.length());
-    }
-
     void paint()
     {
         std::vector<MultiplexStationView> all = stations();
@@ -372,17 +337,16 @@ private:
     static std::string defaultSelection(const std::vector<MultiplexStationView>& stations)
     {
         for (const MultiplexStationView& v : stations)
-            if (!v.isConsole && v.available) return "W" + std::to_string(v.number);
+            if (v.available) return "W" + std::to_string(v.number);
         return std::string();
     }
 
-    // "(W2-W7)": the range that can actually be picked, derived from the
+    // "(W1-W7)": the range that can actually be picked, derived from the
     // configured machine rather than a constant.
     static std::string selectableHint(const std::vector<MultiplexStationView>& stations)
     {
         int low = 0, high = 0, count = 0;
         for (const MultiplexStationView& v : stations) {
-            if (v.isConsole) continue;
             if (count == 0 || v.number < low) low = v.number;
             if (count == 0 || v.number > high) high = v.number;
             count++;
@@ -407,10 +371,6 @@ private:
     std::string message_;
     std::string defaultSelection_;
     int fieldRow_ = 0, fieldCol_ = 0;
-    bool confirmingConsole_ = false;
-    char consoleKind_ = '\0';
-    int consoleNumber_ = 0;
-    std::string consoleId_;
 };
 
 // ---- the multiplexer ----------------------------------------------------------------

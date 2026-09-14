@@ -44,9 +44,9 @@ check "the title is centred on row 1" \
 check "the volume is shown by basename, with its size and its mode" \
       "Drive 1: as36.img  200M overlay"
 check "the prompt defaults to the next available station and hints the range" \
-      "Connect to workstation . . .  W2       (W2-W7)"
+      "Connect to workstation . . .  W1       (W1-W7)"
 check "the client finds the prompt as a real 5250 input field" \
-      "Connect to workstation   'W2    '"
+      "Connect to workstation   'W1    '"
 check "a running machine says so, at the bottom right" \
       "Machine status: running"
 
@@ -64,14 +64,10 @@ check "and lands straight on station 0.2" \
 check "the station records the device name the client arrived with" \
       "devname W3"
 
-# --- console confirmation and refusals ------------------------------------
-check "W1 asks before attaching the system console" \
+# --- console selection and refusals ---------------------------------------
+check_absent "W1 attaches without a confirmation prompt" \
       "Connecting to system console - continue?"
-check_absent "the W1 confirmation no longer warns that unattended W1 gets no sign-on" \
-      "IPL type is unattended: W1 receives no sign-on panel."
-check "anything other than Y returns to workstation selection" \
-      "=== phase 1 after declining W1 ==="
-check "lower-case y attaches W1 to the real console backend" \
+check "selecting W1 attaches it to the real console backend" \
       "=== phase 1 attached system console ==="
 check_absent "the obsolete clipped console-refusal message is gone" \
       "driven from the monitor, not over telnet"
@@ -82,13 +78,13 @@ check "stdio console output resumes after the W1 client disconnects" \
 check "a station that already has a client is refused by name" \
       "W2 (0.1) already has a client attached"
 check "and the default moves on to the next station that is actually free" \
-      "Connect to workstation . . .  W4       (W2-W7)"
+      "Connect to workstation . . .  W1       (W1-W7)"
 
 # --- it scales past the seven-station default ------------------------------
 check "a ten-station, two-controller machine is served by one listener" \
       "terminal multiplex listening on 127.0.0.1:3910; 9 display stations available"
 check "the hint widens to the configured machine rather than a constant" \
-      "(W2-W10)"
+      "(W1-W10)"
 check "the port.address form resolves through the same resolver as W<n>" \
       "1.0  device 11  mux 127.0.0.1:3910   attached"
 

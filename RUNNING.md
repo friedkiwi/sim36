@@ -105,11 +105,11 @@ refused while execution is in progress (`stop` first).
 
 ## 4. Connecting a 5250 client
 
-The console (`W1`, station 0.0) is not a telnet station: use `console` at
-the prompt to replay what the guest wrote to it, and `console put` /
-`console send` to answer.  On an attended IPL it receives the `IPL SIGN ON`
-panel; on an unattended IPL SSP completes without writing to it, and you
-sign on through W2..W7.
+The console (`W1`, station 0.0) is available through the station multiplexer
+and through the monitor's `console`, `console put`, and `console send`
+commands. On an attended IPL it receives the `IPL SIGN ON` panel; on an
+unattended IPL SSP completes without writing to it, and you sign on through
+one of the workstations.
 
 By default one listener, the station multiplexer on `127.0.0.1:2300`,
 serves every display station.  Connect anything that speaks 5250:
@@ -118,13 +118,13 @@ serves every display station.  Connect anything that speaks 5250:
 tn5250 telnet://127.0.0.1:2300
 ```
 
-You get a panel asking which station to connect to.  Type `W2` (or the
-`port.address` form, `0.1`) and press Enter; the field is pre-filled with
+You get a panel asking which station to connect to. Type `W1` (or the
+`port.address` form, `0.0`) and press Enter; the field is pre-filled with
 the lowest free station and the hint beside it is the range this machine
 offers.  A client that sends an RFC 2877 device name that is a station
 (`tn5250 env.DEVNAME=W3 telnet://127.0.0.1:2300`) goes straight there.
-Selecting `W1` asks for confirmation and then shares the console device
-with the monitor's `console` commands.
+Selecting `W1` immediately shares the console device with the monitor's
+`console` commands.
 
 The multiplexer is not part of the machine: it comes up when configured,
 with or without a constructed machine, and survives `reset` and the next

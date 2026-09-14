@@ -84,10 +84,6 @@ def main():
             session.wait_for_text("Connect to workstation", timeout=20)
             session.type_into("Connect to workstation", workstation)
             session.press("Enter")
-            if number == 1:
-                session.wait_for_text("Connecting to system console", timeout=20)
-                session.type_into("Connecting to system console", "Y")
-                session.press("Enter")
             session.wait_for_text("SIGN ON", timeout=60)
             session.type_into("User ID", user)
 
