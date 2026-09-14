@@ -1,11 +1,13 @@
 #include <doctest/doctest.h>
 
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <vector>
 
 #include "Devices/DeviceSet.h"
+#include "Devices/VirtualDiskette.h"
 #include "Devices/WorkStationIob.h"
 #include "Host/StationBackend.h"
 #include "Processors/ControlStorage/ActionControlElement.h"
@@ -32,6 +34,36 @@ struct EmptyVolume
 };
 
 }  // namespace
+
+TEST_CASE("virtual CSP acknowledges diskette control-storage operations")
+{
+    machine::MachineState state(64 * 1024);
+    monitor::Tracer trace;
+    trace.flags = monitor::TraceCsp;
+    std::FILE* log = std::tmpfile();
+    REQUIRE(log != nullptr);
+    trace.to(log);
+    devices::VirtualDiskette diskette(state, trace);
+
+    constexpr int iob = 0x1000;
+    for (int command : {devices::DisketteIoBlock::kCommandControlStorageDe,
+                        devices::DisketteIoBlock::kCommandControlStorageDf}) {
+        state.writeByte(iob + devices::DisketteIoBlock::kOffCommand, static_cast<uint8_t>(command));
+        for (int n = 0; n < 4; ++n) state.writeByte(iob + devices::DisketteIoBlock::kOffStatus0 + n, 0xFF);
+        REQUIRE(diskette.execute(iob, 0));
+        CHECK(state.readByte(iob + 6) == 0x40);
+        for (int n = 0; n < 4; ++n) CHECK(state.readByte(iob + devices::DisketteIoBlock::kOffStatus0 + n) == 0);
+    }
+    CHECK(diskette.virtualCspOperations() == 2);
+
+    std::rewind(log);
+    std::string output;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof buffer, log) != nullptr) output += buffer;
+    CHECK(output.find("control-storage operation DE acknowledged successfully") != std::string::npos);
+    CHECK(output.find("control-storage operation DF acknowledged successfully") != std::string::npos);
+    std::fclose(log);
+}
 
 TEST_CASE("workstation: an A7 response survives until the same IOB's C1 status "
           "phase")

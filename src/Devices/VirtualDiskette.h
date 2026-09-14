@@ -89,11 +89,11 @@ public:
     static constexpr int kCommandEjectDiskette = 0xD9;
     static constexpr int kCommandOrientAutoloader = 0xDA;
     static constexpr int kCommandAbortAutoloader = 0xDB;
-    // DE and DF are not in the System/34 set and nothing names them.  They
-    // are the pair IPL phase 1 issues, and on a drive with no autoloader DE
-    // is the first diskette command of the whole IPL.
-    static constexpr int kCommandUndecodedDe = 0xDE;
-    static constexpr int kCommandUndecodedDf = 0xDF;
+    // DE and DF are the control-storage lifecycle pair used around a
+    // diskette load. A virtual Advanced/36 has no writable control storage,
+    // so these are acknowledged as successful compatibility operations.
+    static constexpr int kCommandControlStorageDe = 0xDE;
+    static constexpr int kCommandControlStorageDf = 0xDF;
 
     // Autoloader slot 01, "I/O slot 1 (carriage orient position)",
     // SA21-9243-4 8-10: the only slot a drive without a magazine has.
@@ -151,8 +151,9 @@ public:
     // The most recent transfer, so the monitor can show what a read produced.
     const std::vector<uint8_t>& lastRead() const { return lastRead_; }
     bool hasLastRead() const { return hasLastRead_; }
-    // How many DE/DF requests have been answered without being understood.
-    long long undecodedCommands() const { return undecodedCommands_; }
+    // How many DE/DF control-storage operations the virtual CSP has
+    // acknowledged successfully.
+    long long virtualCspOperations() const { return virtualCspOperations_; }
 
     // Swapping media under a running machine is a CHANGE and latches; the
     // power-on load into an empty drive is not.
@@ -175,7 +176,7 @@ private:
     bool select(int iob);
     bool ejectCommand(int iob);
     bool autoloader(int iob, int command);
-    bool undecoded(int iob, int command);
+    bool acknowledgeVirtualCspOperation(int iob, int command);
 
     machine::MachineState& m_;
     monitor::Tracer& trace_;
@@ -188,7 +189,7 @@ private:
     // way to clear a not ready condition."
     bool mediaChanged_ = false;
     long long readsIssued_ = 0, recordsRead_ = 0, writesIssued_ = 0, recordsWritten_ = 0;
-    long long undecodedCommands_ = 0;
+    long long virtualCspOperations_ = 0;
     std::vector<uint8_t> lastRead_;
     bool hasLastRead_ = false;
 };

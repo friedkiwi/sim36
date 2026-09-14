@@ -368,9 +368,9 @@ std::string renderDevices(machine::Machine& m)
                      "last-read-sector={}\n",
                      d.disk.readsIssued(), d.disk.sectorsRead(), d.disk.writesIssued(), d.disk.sectorsWritten(),
                      d.disk.lastReadSector());
-    s += fmt::format("diskette counters: reads={} records-read={} writes={} records-written={} undecoded={}\n",
+    s += fmt::format("diskette counters: reads={} records-read={} writes={} records-written={} virtual-csp-successes={}\n",
                      d.diskette.readsIssued(), d.diskette.recordsRead(), d.diskette.writesIssued(),
-                     d.diskette.recordsWritten(), d.diskette.undecodedCommands());
+                     d.diskette.recordsWritten(), d.diskette.virtualCspOperations());
     s += fmt::format("tape counters: reads={} writes={} controls={} unmapped={}\n", d.tape.readsIssued(),
                      d.tape.writesIssued(), d.tape.controlOps(), d.tape.unmappedCommands());
     return s;

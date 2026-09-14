@@ -38,8 +38,8 @@ const char* DisketteIoBlock::commandName(int command)
         case kCommandEjectDiskette: return "eject diskette";
         case kCommandOrientAutoloader: return "orient autoloader";
         case kCommandAbortAutoloader: return "abort autoloader";
-        case kCommandUndecodedDe: return "UNDECODED DE";
-        case kCommandUndecodedDf: return "UNDECODED DF";
+        case kCommandControlStorageDe: return "virtual CSP operation DE";
+        case kCommandControlStorageDf: return "virtual CSP operation DF";
         default: return "unknown";
     }
 }
@@ -89,6 +89,13 @@ bool VirtualDiskette::execute(int iob, uint8_t qByte)
                   DisketteIoBlock::commandName(command), modifier, DisketteIoBlock::modifierText(modifier), bufferField,
                   qByte);
 
+    // These operate on the control processor, not on the removable medium.
+    // Dispatch them before the ready/change checks so the virtual CSP's
+    // success does not depend on a diskette being present or recalibrated.
+    if (command == DisketteIoBlock::kCommandControlStorageDe ||
+        command == DisketteIoBlock::kCommandControlStorageDf)
+        return acknowledgeVirtualCspOperation(iob, command);
+
     if (!hasMedium()) {
         // An empty drive is a normal machine state, not an emulator gap, so
         // the request is ANSWERED rather than refused: the guest is told the
@@ -104,11 +111,9 @@ bool VirtualDiskette::execute(int iob, uint8_t qByte)
         return true;
     }
 
-    // The latched media change: every operation answers 41 without touching
-    // the medium until a recalibrate clears it (SA21-9243-4 8-13).  DE/DF
-    // are outside it because they touch neither the medium nor the driver.
-    if (mediaChanged_ && command != DisketteIoBlock::kCommandUndecodedDe &&
-        command != DisketteIoBlock::kCommandUndecodedDf && !isRecalibrate(iob, command, modifier)) {
+    // The latched media change: every medium operation answers 41 without
+    // touching the medium until a recalibrate clears it (SA21-9243-4 8-13).
+    if (mediaChanged_ && !isRecalibrate(iob, command, modifier)) {
         trace_.diskIo("  the media has changed and the drive has not been recalibrated since - completion 41 without "
                       "touching the medium, which is what NuRdDskt's gone gate does (ffffffffc1715610). A recalibrate "
                       "clears it (SA21-9243-4 8-13)");
@@ -126,8 +131,6 @@ bool VirtualDiskette::execute(int iob, uint8_t qByte)
         case DisketteIoBlock::kCommandEjectDiskette: return ejectCommand(iob);
         case DisketteIoBlock::kCommandOrientAutoloader:
         case DisketteIoBlock::kCommandAbortAutoloader: return autoloader(iob, command);
-        case DisketteIoBlock::kCommandUndecodedDe:
-        case DisketteIoBlock::kCommandUndecodedDf: return undecoded(iob, command);
         default:
             // Refused, not answered: a command this model cannot perform on a
             // diskette that IS present is an emulator gap, and answering
@@ -459,18 +462,20 @@ bool VirtualDiskette::autoloader(int iob, int command)
     return true;
 }
 
-// DE and DF, the two commands IPL phase 1 issues that are not in the
-// documented set.  Answered rather than refused, and the reason is
-// measured: with these completed, phase 1 goes on to seek and to read the
-// label track, and its VOL1 field tests pass on real media.  No buffer is
-// touched and no medium is moved.
-bool VirtualDiskette::undecoded(int iob, int command)
+// A virtual Advanced/36 implements the control-processor side of the
+// machine directly. There is consequently no control store to prepare,
+// load or verify. DE/DF retain their lifecycle contract for old SSP code:
+// each request completes successfully, without a module catalogue or an
+// on-disk microcode representation.
+bool VirtualDiskette::acknowledgeVirtualCspOperation(int iob, int command)
 {
-    undecodedCommands_++;
-    trace_.diskIo("  command {:02X} is UNDECODED - it is not in SA21-9243-4 8-8's set and nothing in this corpus names it. "
-                  "Answered complete without touching the medium or the buffer, because phase 1 issues it immediately "
-                  "before the seek and the read that DO work; refusing stops the machine here. Request {} of its kind",
-                  command, undecodedCommands_);
+    virtualCspOperations_++;
+    // Do not allow status left by an earlier physical-media operation to be
+    // mistaken for the result of this successful no-op.
+    for (int n = 0; n < 4; ++n) m_.writeByte(iob + DisketteIoBlock::kOffStatus0 + n, 0);
+    trace_.csp("virtual Advanced/36 CSP: control-storage operation {:02X} acknowledged successfully; no physical "
+               "microcode is loaded or retained (acknowledgement {})",
+               command, virtualCspOperations_);
     IoBlock::complete(m_, iob, 0);
     return true;
 }
