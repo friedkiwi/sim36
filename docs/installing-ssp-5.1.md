@@ -13,10 +13,7 @@ distribution media and creates the fixed-disk image locally.
 
 ## Public media
 
-The 5363/5364 SSP 5.1 diskette archive is publicly mirrored by bitsavers:
-
-- <https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip>
-- <https://www.bitsavers.org/bits/IBM/System_36/5363/>
+The 5363/5364 SSP 5.1 diskette archive is publicly mirrored by bitsavers.
 
 The archive contains `SSP-5.1/SSP51-01.IMD` through `SSP51-11.IMD`, plus
 the `MCODE11`/`MCODE12` and `MCODE61`/`MCODE62` pairs. The 5364 personality
@@ -29,19 +26,10 @@ microcode volumes use 15 512-byte sectors.
 
 ## 1. Download and unpack the archive
 
-```sh
-mkdir -p work/ssp51
-curl --fail --location --user-agent 'Mozilla/5.0' \
-  --output work/ssp51/S36-5.25.zip \
-  https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip
-unzip -o -d work/ssp51 work/ssp51/S36-5.25.zip
-ls work/ssp51/S36-5.25/SSP-5.1
-```
-
-Bitsavers rejects curl's default user agent with HTTP 403, so the explicit
-browser user agent is required. `--fail` prevents curl from saving an HTTP
-error page under the `.zip` name. The last command should show
-`SSP51-01.IMD` through `SSP51-11.IMD`.
+Download [S36-5.25.zip](https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip)
+and extract it under `work/ssp51`. The commands below expect to find
+`SSP51-01.IMD` through `SSP51-11.IMD` under
+`work/ssp51/S36-5.25/SSP-5.1`.
 
 ## 2. Convert the diskettes
 
