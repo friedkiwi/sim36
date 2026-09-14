@@ -322,6 +322,13 @@ bool CommandRegistry::isHostControl(const std::vector<std::string>& a)
         verb == "wait" || verb == "ipl" || verb == "get")
         return true;
     if (verb == "snapshot") return a.size() > 1 && equalsIgnoreCase(a[1], "load");
+    // Ordinary trace-category changes only update an atomic logging mask.
+    // Keep them off the guest-thread command queue: queueing rings the same
+    // doorbell as a terminal and can otherwise advance a pending workstation
+    // transition.  The two trace forms below touch guest-owned structures and
+    // must still be marshalled at a safe instruction boundary.
+    if (verb == "trace")
+        return a.size() < 2 || (!equalsIgnoreCase(a[1], "workstation") && !equalsIgnoreCase(a[1], "member"));
     if (verb == "show")
         return a.size() > 1 && (equalsIgnoreCase(a[1], "config") ||
                                 equalsIgnoreCase(a[1], "status") ||

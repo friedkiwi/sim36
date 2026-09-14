@@ -313,7 +313,7 @@ void MonitorCli::setRegister(const std::vector<std::string>& a)
 
 void MonitorCli::setTrace(const std::vector<std::string>& a)
 {
-    if (a.size() < 2) { fmt::print("trace is {}\n", traceFlagsToString(m_.trace.flags)); return; }
+    if (a.size() < 2) { fmt::print("trace is {}\n", traceFlagsToString(m_.trace.flags.load())); return; }
     if (equalsIgnoreCase(a[1], "workstation")) {
         workstationTrace(a);
         return;
@@ -334,7 +334,7 @@ void MonitorCli::setTrace(const std::vector<std::string>& a)
         return;
     }
     if (equalsIgnoreCase(a[1], "off")) {
-        m_.trace.flags = TraceNone;
+        m_.trace.flags.store(TraceNone);
     } else {
         std::string joined;
         for (std::size_t i = 1; i < a.size(); ++i) {
@@ -342,12 +342,12 @@ void MonitorCli::setTrace(const std::vector<std::string>& a)
             joined += a[i];
         }
         try {
-            m_.trace.flags = parseTraceFlags(joined);
+            m_.trace.flags.store(parseTraceFlags(joined));
         } catch (const std::invalid_argument& e) {
             throw MonitorError(e.what());
         }
     }
-    fmt::print("trace = {}\n", traceFlagsToString(m_.trace.flags));
+    fmt::print("trace = {}\n", traceFlagsToString(m_.trace.flags.load()));
 }
 
 void MonitorCli::ipl(const std::vector<std::string>& a)

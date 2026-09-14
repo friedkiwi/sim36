@@ -3,6 +3,7 @@
 // against, so what it did must be inspectable.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
@@ -47,10 +48,10 @@ std::string traceFlagsToString(uint32_t flags);
 
 class Tracer {
 public:
-    uint32_t flags = TraceNone;
+    std::atomic<uint32_t> flags{TraceNone};
 
     void to(std::FILE* out) { out_ = out; }
-    bool on(uint32_t f) const { return (flags & f) != 0; }
+    bool on(uint32_t f) const { return (flags.load(std::memory_order_relaxed) & f) != 0; }
     long long lines() const { return lines_; }
 
     int deferred();

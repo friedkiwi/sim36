@@ -386,7 +386,7 @@ void MachineSnapshot::save(const std::string& path, const EmulatorConfig& defini
             w.i32(kVersion);
             writeConfig(w, definition);
             w.boolean(machine != nullptr);
-            w.i32(static_cast<int32_t>(machine == nullptr ? pendingTrace : machine->trace.flags));
+            w.i32(static_cast<int32_t>(machine == nullptr ? pendingTrace : machine->trace.flags.load()));
             w.boolean(machine == nullptr ? definition.volumeReadOnly : machine->diskBackend().readOnly());
             w.boolean(machine != nullptr && machine->devices().diskette.hasMedium()
                           ? machine->devices().diskette.medium()->readOnly()

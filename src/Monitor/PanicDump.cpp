@@ -546,7 +546,7 @@ std::string PanicDump::create(const std::string& description, const std::string&
             trySection(errors, "config summary", [&] {
                 archive.text("config/summary.txt", ConfigurationRenderer::renderHuman(config, machine != nullptr));
             });
-            uint32_t flags = machine == nullptr ? pendingTrace : machine->trace.flags;
+            uint32_t flags = machine == nullptr ? pendingTrace : machine->trace.flags.load();
             archive.text("trace/settings.txt", fmt::format("flags={} ({})\n", static_cast<int>(flags), traceFlagsToString(flags)));
             trySection(errors, "chassis stations", [&] { writeChassisStations(archive, backends); });
 

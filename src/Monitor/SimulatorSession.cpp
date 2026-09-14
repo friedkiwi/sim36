@@ -375,8 +375,8 @@ void SimulatorSession::executeTokensCore(const Args& a)
             // already exist before IPL.  Keep their tracers in step with the
             // pending machine trace so transport negotiation can be captured
             // while diagnosing clients that never reach a workstation.
-            listenerTrace_.flags = pendingTrace_;
-            multiplexerTrace_.flags = pendingTrace_;
+            listenerTrace_.flags.store(pendingTrace_);
+            multiplexerTrace_.flags.store(pendingTrace_);
             fmt::print("trace = {} (applies at next IPL)\n", traceFlagsToString(pendingTrace_));
         }
         return;
@@ -457,9 +457,9 @@ void SimulatorSession::constructMachine()
         for (auto& kv : stationBackends_) kv.second->bindMachine(&listenerTrace_, [this] { signalConstructedMachine(); });
         throw MonitorError(e.what());
     }
-    listenerTrace_.flags = pendingTrace_;
-    multiplexerTrace_.flags = pendingTrace_;
-    candidate->trace.flags = pendingTrace_;
+    listenerTrace_.flags.store(pendingTrace_);
+    multiplexerTrace_.flags.store(pendingTrace_);
+    candidate->trace.flags.store(pendingTrace_);
     candidate->readVtocs();
     machine_ = std::move(candidate);
     monitor_ = std::make_unique<MonitorCli>(*machine_);
@@ -476,7 +476,7 @@ void SimulatorSession::releaseMachine()
 {
     if (!machine_) return;
     monitor_->stopExecutionForTeardown();
-    pendingTrace_ = machine_->trace.flags;
+    pendingTrace_ = machine_->trace.flags.load();
     if (multiplexer_) multiplexer_->reclaim();
     monitor_.reset();
     machine_.reset();

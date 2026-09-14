@@ -3,6 +3,7 @@
 #include "Configuration/ConfigError.h"
 #include "Configuration/EmulatorConfig.h"
 #include "Configuration/IplSourceTable.h"
+#include "Monitor/CommandRegistry.h"
 #include "Monitor/ConfigurationRenderer.h"
 #include "Monitor/Tracer.h"
 
@@ -102,4 +103,14 @@ TEST_CASE("trace flags: parse and render as the reference's enum did")
     CHECK(traceFlagsToString(parseTraceFlags("all")) == "All");
     CHECK(traceFlagsToString(TraceDisk | TraceAce) == "Disk, Ace");
     CHECK_THROWS(parseTraceFlags("bogus"));
+}
+
+TEST_CASE("ordinary trace toggles are host controls but guest-owned trace forms are not")
+{
+    using sim36::monitor::CommandRegistry;
+    CHECK(CommandRegistry::isHostControl({"trace"}));
+    CHECK(CommandRegistry::isHostControl({"trace", "ws"}));
+    CHECK(CommandRegistry::isHostControl({"trace", "off"}));
+    CHECK_FALSE(CommandRegistry::isHostControl({"trace", "member", "MSPID"}));
+    CHECK_FALSE(CommandRegistry::isHostControl({"trace", "workstation", "W1", "lifecycle", "on"}));
 }
