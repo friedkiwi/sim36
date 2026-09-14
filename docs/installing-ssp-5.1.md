@@ -7,7 +7,7 @@ root of a SIM/36 checkout with SIM/36 and a `tn5250` client ready to run.
 
 Download [S36-5.25.zip](https://www.bitsavers.org/bits/IBM/System_36/5363/S36-5.25.zip)
 and extract it under `work/ssp51`. The commands below expect to find
-`SSP51-01.IMD` through `SSP51-11.IMD` under
+the `SSP51-*.IMD` files under
 `work/ssp51/S36-5.25/SSP-5.1`.
 
 ## 2. Convert the diskettes
@@ -15,16 +15,14 @@ and extract it under `work/ssp51`. The commands below expect to find
 SIM/36 attaches flat sector data rather than ImageDisk containers:
 
 ```sh
-python3 tools/imd2flat.py --allow-bad -o work/ssp51/flat \
-  work/ssp51/S36-5.25/SSP-5.1/SSP51-*.IMD \
-  work/ssp51/S36-5.25/MCODE11.IMD \
+python3 tools/imd2flat.py -o work/ssp51/flat \
+  work/ssp51/S36-5.25/SSP-5.1/SSP51-{01,02,05,06,07}.IMD \
   work/ssp51/S36-5.25/MCODE12.IMD
 ```
 
-One sector in the archived `SSP51-11.IMD` is marked unreadable. The explicit
-`--allow-bad` above zero-fills that sector; without it the converter refuses
-the capture rather than silently inventing data. Volume 11 is not needed to
-reach the generation program.
+These are the base SSP volumes requested by generation. Volumes 03 and 04
+continue the optional `HELPMRI` data set, and volumes 08 through 11 contain
+optional products.
 
 ## 3. Create a blank fixed disk
 
@@ -73,34 +71,28 @@ on W1. These are diagnostics for the initially empty system area, not a
 terminal failure. The reload initializes the system files, processes volume
 1, and asks for volume 2.
 
-For each requested base volume through `SSP51-07.img`, replace the diskette
-from the SIM/36 monitor:
+When SSP requests the next `SSPMRI` volume, replace the diskette from the
+SIM/36 monitor:
 
 ```text
 diskette insert work/ssp51/flat/SSP51-02.img
 ```
 
-Press Enter on W1 and wait for the next media request. Repeat for volumes 03
-through 07. Volumes 08 through 11 contain optional products and are not part
-of the base SSP restore.
+Press Enter on W1 and wait for the next media request. The base installation
+then requests `SSPBASE`, which starts on volume 05; volumes 03 and 04 are not
+needed. Insert volumes 05, 06, and 07 in the same way as SSP requests them.
 
 ## 5. Finish generation
 
-After volume 07, the panel names functional microcode volume `DSKT12` and
-also says to insert additional microcode volumes first. Supply both volumes
-in this order:
-
-```text
-diskette insert work/ssp51/flat/MCODE11.img
-```
-
-Press Enter on W1 and wait for the next media request. Then use:
+After volume 07, SSP requests functional microcode volume `DSKT12`. Insert:
 
 ```text
 diskette insert work/ssp51/flat/MCODE12.img
 ```
 
-Press Enter on W1 again and wait for generation to finish.
+Press Enter on W1 and wait for generation to finish. `MCODE11` is an optional
+additional physical-microcode volume and is not needed by the virtual
+Advanced/36.
 
 SSP finishes generation and displays a completion panel similar to:
 
@@ -116,10 +108,11 @@ SSP generation complete, MSIPL from disk required.
 The `SYS-3913` entries describe unresolved references in physical 5364
 control-storage modules. The Advanced/36 CSP implements those services
 natively and does not load or retain the physical microcode, so these entries
-do not prevent the generated SSP from running. Do not press Enter repeatedly
-to page through the unused physical-microcode diagnostics. Once the panel says
-`SSP generation complete`, return to the SIM/36 monitor and IPL the generated
-fixed disk:
+do not prevent the generated SSP from running. Press Enter when prompted to
+advance through the messages. Once the panel includes `SSP generation
+complete, MSIPL from disk required`, generation is finished: do not press
+Enter again even if the panel still offers it. Return to the SIM/36 monitor
+and IPL the generated fixed disk:
 
 ```text
 diskette eject
