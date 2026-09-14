@@ -1020,6 +1020,33 @@ bool As36ControlStorageProcessor::terminateTaskRoot(SvcRequest& req)
         return posted;
     }
 
+    // An ordinary asynchronous task returns through its ACE.  Once that
+    // post and the cleanup above have completed, nupterm returns to the
+    // dispatcher; transfer slot 4 is the CTE termination continuation for
+    // tasks which have no requester to return to.  Entering #CTEI for every
+    // successful child task made its initial guard reject the task: normal
+    // allocated IDs are neither the IPL/CTE IDs it admits, nor do they carry
+    // TB_STAT's abnormal-termination bit.  #CTEI consequently issued MIC
+    // 015F, and FETDP recorded SYS-1887 / "No task dump taken" for each
+    // otherwise successful command task.
+    if (aceIsElement && cleanupTaskEnvironment) {
+        releaseTerminatingTaskProgramState(tb, "SVC 11 return-ACE termination after cleanup");
+        redispatch_ = true;
+        enableDispatching("SVC 11 return-ACE termination", "terminating child returned through its completion ACE");
+        trace_.csp("SVC 11: task {:04X} returned through ACE {:04X}; ordinary child termination dispatches without "
+                   "entering transfer slot 4 (#CTEI)",
+                   tb, ace);
+        if (!dispatch("SVC 11 return-ACE termination")) {
+            msp_->halt(fmt::format("SVC 11: task block {:04X} returned through its ACE and no task is ready - "
+                                   "nudspchA's no-task exit (c180e04c){}",
+                                   tb, undischargedActionsSuffix()));
+            idleEventWait_ = true;
+        } else {
+            idleEventWait_ = false;
+        }
+        return posted;
+    }
+
     // The final continuation is not an ordinary dispatch: the terminating
     // task and its request block are made current, Q=01/R=04 is stamped,
     // and slot 4 is entered directly.  The ACE target is only the

@@ -32,17 +32,16 @@ check "stop leaves execution at a safe point" \
 check "the running guest processes the answer and repaints" \
       "SYS-5519 Date or Time changed"
 
-# Determinism yardsticks. The attended IPL is 59388 instructions and ends at
-# nudspchA's no-task exit; answering the panel reaches 74295.  (The reference's
-# copy of this script pins 59382/75497; the reference itself prints 59388 and
-# 74295 today, and SIM/36 matches it line for line - docs/checkpoints/06-*.md.)
-# Both numbers are deterministic for the same guest input and are preserved by
-# bare `ipl` plus explicit `wait idle` synchronization.
-# so continuous execution follows the SAME instruction stream, not a similar one.
-check "asynchronous IPL matches the reference run exactly" \
-      "wait: guest is idle after 59388 instruction(s)"
-check "answering the panel costs the same instructions as the scripted form" \
-      "wait: guest is idle after 74295 instruction(s)"
+# Determinism yardsticks.  A clean attended IPL is 51458 instructions and
+# answering the panel reaches 58444.  The older totals included #CTEI and
+# FETDP runs caused by treating every successful return-ACE task as an error
+# termination; those runs also left SYS-1887 entries in HISTORY.  Both new
+# numbers are deterministic for this guest input and are preserved by bare
+# `ipl` plus explicit `wait idle` synchronization.
+check "asynchronous IPL follows the clean deterministic stream" \
+      "wait: guest is idle after 51458 instruction(s)"
+check "answering the panel follows the clean deterministic stream" \
+      "wait: guest is idle after 58444 instruction(s)"
 check "and stops for the reference reason" \
       "nudspchA's no-task exit (c180e04c)"
 

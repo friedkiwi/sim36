@@ -92,7 +92,7 @@ def main():
         statement = os.environ.get("S36_LIST_COMMAND", "LISTLIBR ALL,SOURCE,#LIBRARY,USER,NOPAGE")
         expected_screen = os.environ.get("S36_LIST_EXPECT_SCREEN", "BASICSMP")
         expected_monitor = os.environ.get("S36_LIST_EXPECT_MONITOR", "")
-        rejected = os.environ.get("S36_LIST_REJECT", "")
+        rejected = tuple(value for value in os.environ.get("S36_LIST_REJECT", "").split("|") if value)
         session.type_at(22, 3, statement)
         check_mark = len(transcript)
         session.press("Enter")
@@ -102,16 +102,21 @@ def main():
         while time.monotonic() < deadline:
             with session.lock:
                 saw_listing |= bool(expected_screen) and session.screen.contains(expected_screen)
-                saw_rejected = bool(rejected) and session.screen.contains(rejected)
+                saw_rejected = any(session.screen.contains(value) for value in rejected)
             with changed:
                 text = "".join(transcript[check_mark:])
             saw_listing |= bool(expected_monitor) and expected_monitor in text
-            if "CHECK [program]" in text or "storage protection" in text or saw_rejected or (rejected and rejected in text):
+            if ("CHECK [program]" in text or "storage protection" in text or saw_rejected or
+                    any(value in text for value in rejected)):
                 print(session.screen.render("=== LIST ALL ===", fields=True), file=sys.stderr)
                 with changed:
                     lines = transcript[:]
                 if os.environ.get("S36_LIST_TRACE") == "1":
-                    print("".join(line for line in lines if "nucmclr" in line or "$MAIN" in line), file=sys.stderr)
+                    trace_member = os.environ.get("S36_LIST_TRACE_MEMBER", "$MAIN")
+                    print("".join(line for line in lines
+                                  if "nucmclr" in line or trace_member in line or
+                                  "SVC 22" in line or "nupterm" in line),
+                          file=sys.stderr)
                 hit = next((n for n, line in enumerate(lines)
                             if "LEVEL 5: main-storage-program" in line), len(lines))
                 print("".join(lines[max(0, hit - 120):hit + 20]), file=sys.stderr)
@@ -121,8 +126,9 @@ def main():
                 with changed:
                     text = "".join(transcript[check_mark:])
                 with session.lock:
-                    saw_rejected = bool(rejected) and session.screen.contains(rejected)
-                if "CHECK [program]" in text or "storage protection" in text or saw_rejected or (rejected and rejected in text):
+                    saw_rejected = any(session.screen.contains(value) for value in rejected)
+                if ("CHECK [program]" in text or "storage protection" in text or saw_rejected or
+                        any(value in text for value in rejected)):
                     raise AssertionError("LIST ALL stopped after displaying source")
                 break
             time.sleep(0.05)
