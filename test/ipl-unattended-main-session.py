@@ -24,6 +24,7 @@ from tn5250drive import Session  # noqa: E402
 def main():
     dw_research = "--dw36-research" in sys.argv[1:]
     cnfig_research = "--cnfigssp-research" in sys.argv[1:]
+    cnfig_apply_research = "--cnfigssp-apply-research" in sys.argv[1:]
     config = os.environ.get("S36_CONFIG",
                             sim36env.default_config())
     temporary_config = None
@@ -125,12 +126,12 @@ def main():
         wait_monitor("0008ab  %s" % active_08ab, timeout=10,
                      after=state_mark)
         w2.type_into("User ID", "YVANJ")
-        if cnfig_research and station_name == "0.0":
+        if (cnfig_research or cnfig_apply_research) and station_name == "0.0":
             w2.type_into("Date", os.environ.get("S36_IPL_DATE", "090896"))
             w2.type_into("Time", os.environ.get("S36_IPL_TIME", "120000"))
         signon_mark = len(transcript)
         w2.press("Enter")
-        if cnfig_research and station_name == "0.0":
+        if (cnfig_research or cnfig_apply_research) and station_name == "0.0":
             # This configured image uses the operator sign-on panel and asks
             # for acknowledgement when its saved date needs changing.
             w2.settle(quiet=0.5, timeout=5)
@@ -147,7 +148,7 @@ def main():
             raise
         w2.wait_for_text("Main System/36 help menu", timeout=10)
 
-        if cnfig_research:
+        if cnfig_research or cnfig_apply_research:
             # Private SSP-media regression for CNFIGSSP's device-code pages.
             # The final Cmd5 used to expose a deferred-input/work-space
             # high-water mismatch as a level-5 storage-protection check in
@@ -172,6 +173,10 @@ def main():
 
             command("trace csp")
             submit("CNFIGSSP", "CONFIGURATION")
+            if cnfig_apply_research:
+                submit("12", "CONFIGURATION MEMBER DEFINITION")
+                print("PASS: CNFIGSSP option 12 reached member selection without looping in #CIRN")
+                return 0
             submit("3", "CONFIGURATION MEMBER DEFINITION")
             submit("5", "CONFIGURATION MEMBER DESCRIPTION")
             submit(None, "CONFIGURATION MEMBER")

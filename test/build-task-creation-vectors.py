@@ -94,9 +94,12 @@ put(0x1013, 0xF4, 0x01, 0x31)                     # ATASK with Q bit 7: WAIT for
 
 # --- the target module -------------------------------------------------------
 # Its header's +10..11 is zero, which is what makes nup2000 skip the entry point
-# table and enter at the load address (c18a57dc).  The instruction is Sense Data
-# Switches, which does nothing and cannot fail.
+# table and enter at the load address (c18a57dc).  Sense Data Switches makes the
+# entry observable without changing state; the following root SVC 11 lets the
+# task-creation gate also prove that termination removes the child from the
+# created-task directory at 0F1D.
 put(0x2000, 0xF4, 0x00, 0x09)
+put(0x2003, 0xF4, 0x00, 0x11)
 
 open(sys.argv[1], 'wb').write(img)
 open(sys.argv[2], 'wb').write(code)

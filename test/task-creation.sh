@@ -104,6 +104,11 @@ set iar 1013
 step 1
 show cpu
 dump 0F00 10
+# The dispatched child is at 2000.  Execute its harmless SVC 09 and then its
+# root SVC 11; nupterm must unlink it from both scheduler queues and the
+# created-task directory which CNFIGSSP's #CIRN scans.
+step 1
+step 1
 quit
 EOF
 
@@ -191,6 +196,11 @@ check "31  the IPL task carries 8C 20 4000 " '000f00  e3 c2 00 09 8c 20 00 fc 40
 # readied dispatch and the entry, not a pinned task id.
 check "31  a readied child gets the processor" 'nucready c1897760 (deferred async transfer completion): nupotb readies task block'
 check "31  ...which enters ITS OWN module  " 'IAR 2000'
+
+# A terminated child retained in the 0F1D directory but absent from queue 39
+# makes #CIRN restart its scan forever.  The task bytes may remain allocated,
+# but the live directory link must be removed during nupterm cleanup.
+check "11  child leaves created-task chain " "removed task $TASK1 from queue 39=True, queue 40=True, created-task chain=True"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

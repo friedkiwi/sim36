@@ -727,8 +727,13 @@ int As36ControlStorageProcessor::releaseTaskWorkSpaces(int tb, const std::string
     return released;
 }
 
-// Make a terminal task invisible to both scheduler views: queue 39 (chain
-// 27) then queue 40 (chain 35).
+// Make a terminal task invisible to every task-directory view: queue 39
+// (chain 27), queue 40 (chain 35), and the created-task chain rooted at the
+// IPL task's +29..31.  The last one is not a scheduler queue, but SSP walks
+// it while entering restricted procedures such as CNFIGSSP option 12 and
+// rejects an element which has already disappeared from queue 39.  Retaining
+// a terminated task's composite allocation therefore must not retain its
+// link on this live directory.
 void As36ControlStorageProcessor::retireTerminatingTaskFromScheduler(int tb, const std::string& call)
 {
     constexpr uint8_t kDequeueSystem = 0x60;
@@ -736,9 +741,12 @@ void As36ControlStorageProcessor::retireTerminatingTaskFromScheduler(int tb, con
         queueOperation(GuestLowStorage::queueHeader(kTaskPriorityQueue), tb, TaskBlock::kChainLastQueue39, kDequeueSystem);
     bool wasOnReadyQueue =
         queueOperation(GuestLowStorage::queueHeader(kTaskReadyQueue), tb, TaskBlock::kChainLastQueue40, kDequeueSystem);
-    trace_.csp("{}: nupterm scheduling retirement removed task {:04X} from queue 39={}, queue 40={} (nudeqsys "
-               "c18a4d94/c18a4db0)",
-               call, tb, wasOnTaskQueue ? "True" : "False", wasOnReadyQueue ? "True" : "False");
+    bool wasOnCreatedTaskChain =
+        queueOperation(GuestLowStorage::kTaskBlock + kTbChildChainLast - 2, tb, kTbChildChainLast, kDequeueSystem);
+    trace_.csp("{}: nupterm scheduling retirement removed task {:04X} from queue 39={}, queue 40={}, created-task "
+               "chain={} (nudeqsys c18a4d94/c18a4db0 and the task-directory unlink before nufree)",
+               call, tb, wasOnTaskQueue ? "True" : "False", wasOnReadyQueue ? "True" : "False",
+               wasOnCreatedTaskChain ? "True" : "False");
 }
 
 // Remove the dying task's timer and termination-I/O registrations: queue 54
