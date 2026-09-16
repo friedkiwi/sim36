@@ -22,12 +22,12 @@ struct CspEntry {
     const char* variant;
 };
 
-// Storage ceilings follow the address-compare width and the CCR size codes:
-// 19 bits on the 5360, 20 on the 5362 and 5364, 21 on the 5360 Model D.
+// Storage is not configurable: each identity always exposes its architectural
+// maximum.  Advanced/36 SSP publishes 0x1000 2 KB pages, or 8 MB.
 const std::vector<Entry>& models()
 {
     static const std::vector<Entry> table = {
-        {"advanced36", 1024, 0x8D,
+        {"advanced36", 8192, 0x8D,
          "the configuration IBM shipped; volume's control storage library is empty"},
         {"5360-s1", 512, -1, "original processor, MIM SY31-9000; not digitised"},
         {"5360-s2", 512, -1, "Stage 2, MIM SY31-9015; not digitised"},

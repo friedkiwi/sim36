@@ -50,8 +50,7 @@ TEST_CASE("config: the default definition validates once a volume and console ex
     REQUIRE(c.stations.size() == 7);
     CHECK(c.stations[6].listenPort == 2306);
     CHECK_NOTHROW(c.validate("t"));
-    c.mainStorageKb = 2048;
-    CHECK_THROWS_AS(c.validate("t"), ConfigError);
+    CHECK(c.maxMainStorageKb() == 8192);
 }
 
 TEST_CASE("media attach without a mode resets fixed disk and diskette to writable")
@@ -87,14 +86,24 @@ TEST_CASE("config: machine identity is independent of the CSP implementation")
     c.cspType = "advanced36";
     CHECK(c.systemCustomize1() == 0x8B);
     CHECK(c.cspKind() == CspKind::Virtual);
+    CHECK(c.maxMainStorageKb() == 1024);
     CHECK_NOTHROW(c.validate("t"));
 
     c.model = "5364";
     CHECK(c.systemCustomize1() == 0x8D);
+    CHECK(c.maxMainStorageKb() == 1024);
     CHECK_NOTHROW(c.validate("t"));
 
     c.model = "5360-s3";
     CHECK_THROWS_AS(c.validate("t"), ConfigError);
+}
+
+TEST_CASE("config: main storage is derived from the model and has no setter")
+{
+    sim36::monitor::SimulatorSession session;
+    CHECK(session.definition().maxMainStorageKb() == 8192);
+    CHECK_THROWS(session.execute("set machine memory 512K"));
+    CHECK_THROWS(session.execute("set machine main-storage 512K"));
 }
 
 TEST_CASE("config: printers need a printer device code")

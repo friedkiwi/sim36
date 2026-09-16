@@ -4,7 +4,6 @@ save config stdout
 show storage
 reset
 show status
-set machine memory 1M
 ipl pause
 show storage
 exit

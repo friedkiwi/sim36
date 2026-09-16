@@ -27,7 +27,6 @@ cat > "$TMP/actions.sim" <<EOF
 # Ports nothing else in this suite uses, so a developer with the emulator
 # already running does not get a bind failure.
 set machine model advanced36
-set machine memory 512K
 set machine ipl-type unattend
 set machine ipl-source disk
 attach disk0 as36.img ro

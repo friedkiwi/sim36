@@ -9,7 +9,8 @@
 # task-work-area-sectors 60, listener-auto-signon off, signon-use-router on,
 # signon-statement off, signon-request off, signon-router-key 14,
 # ws-interactive off, station role display, device-code 11, listen host
-# 127.0.0.1, signon-at-ipl off, terminal multiplex on, and memory 1024K.
+# 127.0.0.1, signon-at-ipl off, and terminal multiplex on. Main storage is
+# always the selected model's maximum and is therefore not configurable.
 
 # No volume is attached here, so `sim36` always starts: SIM/36 ships no
 # System/36 volume image.  Attach yours at the prompt, or use

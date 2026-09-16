@@ -1,2 +1,2 @@
 set machine model advanced36
-set machine memory definitely-not-a-size
+set machine task-work-area definitely-not-a-size

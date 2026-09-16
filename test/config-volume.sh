@@ -18,7 +18,6 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 volume=$(cd "$(dirname "$SIM36_VOLUME")" && pwd)/$(basename "$SIM36_VOLUME")
 cat >"$work/volume.sim" <<SIM
 set terminal multiplex off
-set machine memory 512K
 attach disk0 "$volume" overlay
 set station 0.2 role display
 set station 0.0 role console

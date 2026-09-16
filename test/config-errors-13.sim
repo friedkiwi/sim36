@@ -1,4 +1,3 @@
-set machine memory 1024K
 set station 0.0 role console
 set station 0.1 role printer
 set station 0.1 device-code 11

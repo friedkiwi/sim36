@@ -85,23 +85,6 @@ int parseHex(const std::string& value)
     return static_cast<int>(v);
 }
 
-int parseMemoryKb(const std::string& value)
-{
-    std::string s = toLower(value);
-    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
-    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
-    int multiplier = 1;
-    auto endsWith = [&](const char* suffix) {
-        std::string suf(suffix);
-        return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
-    };
-    if (endsWith("kb")) s = s.substr(0, s.size() - 2);
-    else if (endsWith("k")) s = s.substr(0, s.size() - 1);
-    else if (endsWith("mb")) { s = s.substr(0, s.size() - 2); multiplier = 1024; }
-    else if (endsWith("m")) { s = s.substr(0, s.size() - 1); multiplier = 1024; }
-    return parseInt(s) * multiplier;
-}
-
 bool parseBool(const std::string& value)
 {
     if (eq(value, "on") || eq(value, "yes") || eq(value, "true") || value == "1") return true;
@@ -535,8 +518,7 @@ void SimulatorSession::setMachine(const Args& a)
     } else if (key == "csp-type") {
         if (!configuration::CspTypeTable::isKnown(a[3])) throw MonitorError("unknown CSP type '" + a[3] + "'");
         definition_.cspType = a[3];
-    } else if (key == "memory" || key == "main-storage") definition_.mainStorageKb = parseMemoryKb(a[3]);
-    else if (key == "task-work-area" || key == "task-work-area-sectors") definition_.taskWorkAreaSectors = parseInt(a[3]);
+    } else if (key == "task-work-area" || key == "task-work-area-sectors") definition_.taskWorkAreaSectors = parseInt(a[3]);
     else if (key == "host-model") definition_.hostModel = a[3];
     else if (key == "host-processor-model") definition_.hostProcessorModel = a[3];
     else if (key == "host-processor-feature") definition_.hostProcessorFeature = parseHex(a[3]);

@@ -52,11 +52,11 @@ std::string bareName(std::string s)
 
 Machine::Machine(const EmulatorConfig& cfg, const SessionBackends* sessionBackends)
     : config(cfg),
-      // A real Advanced/36 dump is 16 MB even though this SSP model describes
-      // 1 MB of installed main storage: the extra backing is the host's CSP
-      // address space and translated-page store, not installed storage.
-      state(cfg.mainStorageKb * 1024,
-            cfg.cspKind() == CspKind::Virtual ? 16 * 1024 * 1024 : cfg.mainStorageKb * 1024)
+      // A real Advanced/36 dump is 16 MB even though SSP exposes 8 MB of main
+      // storage.  The extra backing is the host's CSP address space and
+      // translated-page store, not installed storage.
+      state(cfg.maxMainStorageKb() * 1024,
+            cfg.cspKind() == CspKind::Virtual ? 16 * 1024 * 1024 : cfg.maxMainStorageKb() * 1024)
 {
     state.attachSrcTracer(&trace);
     disk_ = std::make_unique<storage::DiskBackend>(

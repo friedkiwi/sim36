@@ -1,2 +1,1 @@
-set machine memory 5000K
-ipl pause
+set machine task-work-area definitely-not-a-number

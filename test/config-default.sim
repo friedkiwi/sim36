@@ -12,7 +12,6 @@ trace off
 listener-auto-signon
 listener-auto-signon on
 set machine ipl-type attended
-set machine memory 512K
 set machine signon-router-key 0x17
 set machine host-processor-feature 1234
 set machine model 5363

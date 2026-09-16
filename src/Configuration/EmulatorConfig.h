@@ -50,11 +50,6 @@ public:
     // Writes are accepted and held in memory, never committed.  Takes
     // precedence over volumeReadOnly when set.
     bool volumeOverlay = false;
-    // The model ceiling, not a guess: the control-storage IPL writes CCR size
-    // code 0x05 (= 1 MB) to guest 0x084C unconditionally, so 1 MB is what
-    // every Advanced/36 says it is.
-    int mainStorageKb = 1024;
-
     // A flat diskette image to have in the drive at power-on, or empty for an
     // empty drive.  There is deliberately no geometry beside it: the volume
     // declares its own layout in VOL1.

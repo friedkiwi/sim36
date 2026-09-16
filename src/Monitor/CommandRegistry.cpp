@@ -201,7 +201,7 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
                    "iar", "xr1", "xr2", "arr", "psr", "pxr1", "pxr2", "pdir", "piar",
                    "wr4", "wr5", "wr6", "wr7"});
         } else if (at(1, "machine") && pos == 2) {
-            words({"model", "csp-type", "memory", "task-work-area", "host-model", "host-processor-model",
+            words({"model", "csp-type", "task-work-area", "host-model", "host-processor-model",
                    "host-processor-feature", "ipl-type", "ipl-source", "load-source",
                    "listener-auto-signon", "signon-use-router", "signon-statement",
                    "signon-request", "signon-router-key", "ws-interactive"});

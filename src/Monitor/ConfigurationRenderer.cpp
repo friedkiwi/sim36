@@ -50,8 +50,7 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
     line("machine:");
     line(fmt::format("  model                  {}", c.model));
     line(fmt::format("  csp type               {} ({})", c.cspType, configuration::cspKindName(c.cspKind())));
-    line(fmt::format("  memory                 {}K", c.mainStorageKb));
-    line(fmt::format("  model memory ceiling   {}K [derived]", c.maxMainStorageKb()));
+    line(fmt::format("  memory                 {}K [model maximum]", c.maxMainStorageKb()));
     line(fmt::format("  task work area         {} sectors", c.taskWorkAreaSectors));
     line(fmt::format("  host model             {}", display(c.hostModel)));
     line(fmt::format("  host processor feature {:04X}", c.hostProcessorFeature));
@@ -100,7 +99,6 @@ std::string ConfigurationRenderer::renderReplay(const EmulatorConfig& c)
     auto line = [&](const std::string& s) { w += s; w += '\n'; };
     line(fmt::format("set machine model {}", quoteArgument(c.model)));
     line(fmt::format("set machine csp-type {}", quoteArgument(c.cspType)));
-    line(fmt::format("set machine memory {}K", c.mainStorageKb));
     line(fmt::format("set machine task-work-area-sectors {}", c.taskWorkAreaSectors));
     line(fmt::format("set machine host-model {}", quoteArgument(c.hostModel)));
     line(fmt::format("set machine host-processor-feature {:04X}", c.hostProcessorFeature));

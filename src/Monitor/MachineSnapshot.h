@@ -20,7 +20,7 @@ namespace sim36::monitor {
 
 class MachineSnapshot {
 public:
-    static constexpr int kVersion = 17;   // 17: machine identity and CSP implementation are independent
+    static constexpr int kVersion = 18;   // 18: main storage is derived from the machine model
 
     struct StationState {
         std::string id;

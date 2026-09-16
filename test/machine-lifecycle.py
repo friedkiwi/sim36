@@ -67,14 +67,14 @@ try:
 
     # Construction settings are latched until reset.
     mark = len(lines)
-    command("set machine memory 512K")
+    command("set machine task-work-area 61")
     wait_for("definition is latched by the current IPL", mark, 10)
 
     generation = w2.generation
     mark = len(lines)
     command("reset --yes")
     wait_for("reset complete; machine stopped and configuration editable", mark, 20)
-    command("set machine memory 512K")
+    command("set machine task-work-area 61")
     command("ipl")
     command("wait idle 120")
     wait_for("wait: guest is idle after", mark)

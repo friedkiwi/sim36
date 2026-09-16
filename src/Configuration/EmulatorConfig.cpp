@@ -90,7 +90,6 @@ EmulatorConfig& EmulatorConfig::operator=(const EmulatorConfig& other)
     volumePath = other.volumePath;
     volumeReadOnly = other.volumeReadOnly;
     volumeOverlay = other.volumeOverlay;
-    mainStorageKb = other.mainStorageKb;
     diskettePath = other.diskettePath;
     disketteReadOnly = other.disketteReadOnly;
     taskWorkAreaSectors = other.taskWorkAreaSectors;
@@ -229,7 +228,6 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
                     "sectors per track and the cylinder count are all read off the "
                     "image. Point `diskette` at a flat image and it works. "
                     "docs/file-formats/s36-diskette.md", k));
-            else if (k == "main_storage_kb") c.mainStorageKb = intValue(v);
             else if (k == "task_work_area_sectors") c.taskWorkAreaSectors = intValue(v);
             else if (k == "host_model") c.hostModel = v;
             else if (k == "host_processor_model") c.hostProcessorModel = v;
@@ -359,15 +357,6 @@ void EmulatorConfig::validate(const std::string& path)
     if (!IplSourceTable::tryNormalizeType(iplType, type))
         throw ConfigError(path, 0, "IPL type must be attend/attended or unattend/unattended");
     iplType = type;
-
-    // The ceiling is architectural, not a host limit: SSP reads its own
-    // storage size from a 4-bit CCR code and reaches real storage through
-    // 9-bit ATRs.
-    if (mainStorageKb > maxMainStorageKb())
-        throw ConfigError(path, 0, fmt::format(
-            "main_storage_kb {} exceeds what model {} can describe to itself ({} KB). "
-            "The limit is the ACR width and the CCR size codes, not the host",
-            mainStorageKb, model, maxMainStorageKb()));
 
     // SC21-9052 page 2-16: "The system console must be placed at work
     // station address 0."  A machine with no console never finishes IPL.

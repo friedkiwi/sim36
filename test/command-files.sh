@@ -26,8 +26,8 @@ has "reset reports the resulting operator-visible state" \
     "reset complete; machine stopped and configuration editable"
 has "stopped construction state is visible" "machine stopped"
 has "reset releases the construction latch" "machine configurable (not constructed)"
-count=$(printf '%s\n' "$out" | grep -c 'main storage 1024 KB' || true)
-if [ "$count" -eq 2 ]; then ok "reconstructed storage keeps requested size"; else bad "reconstructed storage keeps requested size"; fi
+count=$(printf '%s\n' "$out" | grep -c 'main storage 8192 KB' || true)
+if [ "$count" -eq 2 ]; then ok "reconstructed storage uses model maximum"; else bad "reconstructed storage uses model maximum"; fi
 
 out=$(run config-show-pre-ipl) || true
 has "show config works before IPL" "configuration editable"
@@ -60,7 +60,7 @@ fi
 
 printf '%s\nshow config\nquit\n' "$replay" >"$TMP/replay.sim"
 out=$("$SIM36" -c "$TMP/replay.sim" 2>&1) || true
-has "stdout configuration is replayable" "memory                 512K"
+has "stdout configuration is replayable" "memory                 1024K [model maximum]"
 has "replayed configuration retains overlay" "$SIM36_VOLUME  overlay"
 has "replayed configuration retains machine model" "model                  5363"
 has "replayed configuration retains CSP type" "csp type               advanced36 (virtual)"
@@ -79,9 +79,9 @@ else
     ok "batch save refuses to overwrite without confirmation"
 fi
 has "batch overwrite refusal explains the opt-in" "use --force"
-printf 'set machine memory 256K\nsave config saved.sim --force\nquit\n' >"$TMP/nested/force.sim"
+printf 'set machine task-work-area 61\nsave config saved.sim --force\nquit\n' >"$TMP/nested/force.sim"
 out=$("$SIM36" -c "$TMP/nested/force.sim" 2>&1) || true
-if grep -q '^set machine memory 256K$' "$TMP/nested/saved.sim"; then
+if grep -q '^set machine task-work-area-sectors 61$' "$TMP/nested/saved.sim"; then
     ok "--force atomically replaces an existing configuration"
 else
     bad "--force atomically replaces an existing configuration"

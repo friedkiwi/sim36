@@ -1,7 +1,6 @@
 # A complete machine and test in one monitor-language file.  This is deliberately
 # listener-free so it can run beside the workstation suites.
 set machine model advanced36
-set machine memory 1024K
 attach disk0 "@VOLUME@" overlay ; paths may be quoted, with an inline comment
 set station 0.0 role console
 set station 0.0 device-code 11

@@ -73,7 +73,7 @@ quit
 SIM
 # Each of these stops its file with an error, so they run one per file.
 n=0
-for bad in "sector 999999999" "dump ffff00 200" "dump zz" "sector x" "set machine memory 512K" \
+for bad in "sector 999999999" "dump ffff00 200" "dump zz" "sector x" "set machine task-work-area 61" \
            "attach disk0 \"$volume\" ro" "reset" "vtoc bogus" "load"; do
     n=$((n + 1))
     printf '%s\n%s\nshow status\nquit\n' "$prelude" "$bad" >"$work/err$n.sim"

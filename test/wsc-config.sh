@@ -17,7 +17,6 @@ cp "$SIM36_VOLUME" "$TMP/volume.img"
 
 cat > "$TMP/config.sim" <<EOF
 set machine model advanced36
-set machine memory 512K
 set machine ipl-type unattend
 set machine ipl-source disk
 attach disk0 volume.img rw

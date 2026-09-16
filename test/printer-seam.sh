@@ -31,7 +31,6 @@ cat > "$TMP/printer.conf" <<'EOF'
 [machine]
   volume           = @VOLUME@
   volume_readonly  = yes
-  main_storage_kb  = 512
   ipl_type         = unattend
   ipl_source       = disk
   model            = advanced36

@@ -2,7 +2,6 @@
 set terminal multiplex listen 127.0.0.1:2499
 set terminal multiplex off
 set machine model advanced36
-set machine memory 1024K
 set machine task-work-area-sectors 60
 set machine host-model 150
 set machine host-processor-feature 2270

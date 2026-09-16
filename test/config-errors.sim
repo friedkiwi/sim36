@@ -1,4 +1,3 @@
 # Parity: definition errors are reported with the same text, and the file
 # stops at the first one.
-set machine memory 512K
 set machine ipl-type mystery
