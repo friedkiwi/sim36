@@ -13,9 +13,22 @@ cmake --build --preset linux
 ctest --preset linux           # the volume gates skip until a volume is given
 ```
 
-The binary is `build/linux/sim36` (`build\windows-static\Release\sim36.exe`
-on Windows).  The packaged archives on the releases page contain the same
-binary with `etc/`, `README.md`, this file and `THIRD_PARTY_NOTICES`.
+The traditional out-of-source flow works as well:
+
+```sh
+mkdir build && cd build
+cmake ..
+cmake --build .
+```
+
+Both forms use an existing `VCPKG_ROOT` when one is set.  Otherwise CMake
+fetches and bootstraps the vcpkg version pinned by `vcpkg.json` inside the
+chosen build directory.
+
+The traditional flow writes `build/sim36`.  With presets, the binary is
+`build/linux/sim36` (`build\windows-static\Release\sim36.exe` on Windows).
+The packaged archives on the releases page contain the same binary with
+`etc/`, `README.md`, this file and `THIRD_PARTY_NOTICES`.
 
 ## 2. The volume and the startup command file
 
