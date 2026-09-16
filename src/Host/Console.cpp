@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
@@ -24,6 +25,36 @@ namespace sim36::host {
 namespace {
 
 bool isSpace(char c) { return c == ' ' || c == '\t'; }
+
+std::filesystem::path environmentPath(const char* name)
+{
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0' ? std::filesystem::path(value) : std::filesystem::path();
+}
+
+// Follow each platform's per-user state convention.  History is deliberately
+// not stored beside the executable or in the current directory: both may be
+// read-only, and separate checkout directories should share operator history.
+std::filesystem::path historyPath()
+{
+#ifdef _WIN32
+    std::filesystem::path root = environmentPath("LOCALAPPDATA");
+    if (root.empty()) {
+        root = environmentPath("USERPROFILE");
+        if (!root.empty()) root /= "AppData/Local";
+    }
+#elif defined(__APPLE__)
+    std::filesystem::path root = environmentPath("HOME");
+    if (!root.empty()) root /= "Library/Application Support";
+#else
+    std::filesystem::path root = environmentPath("XDG_STATE_HOME");
+    if (root.empty()) {
+        root = environmentPath("HOME");
+        if (!root.empty()) root /= ".local/state";
+    }
+#endif
+    return root.empty() ? root : root / "sim36" / "history";
+}
 
 bool startsWithIgnoreCase(const std::string& word, const std::string& prefix)
 {
@@ -64,6 +95,7 @@ void pathCandidates(const std::string& prefix, std::vector<std::string>& out)
 struct Console::Impl {
     replxx::Replxx rx;
     Completer completer;
+    std::filesystem::path historyFile;
 };
 
 Console::Console() : impl_(isInteractive() ? new Impl() : nullptr)
@@ -72,9 +104,22 @@ Console::Console() : impl_(isInteractive() ? new Impl() : nullptr)
     // Only blanks split words: hyphenated commands (listener-auto-signon),
     // dotted station ids and file paths must complete as one word.
     impl_->rx.set_word_break_characters(" \t");
+    impl_->rx.set_max_history_size(1000);
+    impl_->rx.set_unique_history(true);
+    impl_->historyFile = historyPath();
+    if (!impl_->historyFile.empty())
+        impl_->rx.history_load(impl_->historyFile.string());
 }
 
-Console::~Console() { delete impl_; }
+Console::~Console()
+{
+    if (impl_ != nullptr && !impl_->historyFile.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(impl_->historyFile.parent_path(), ec);
+        if (!ec) impl_->rx.history_save(impl_->historyFile.string());
+    }
+    delete impl_;
+}
 
 bool Console::isInteractive()
 {

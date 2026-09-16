@@ -1,6 +1,6 @@
-// Operator line input.  Interactive terminals get line editing, in-session
-// history and tab completion through replxx; redirected input is read
-// verbatim so that a scripted session produces exactly the bytes a diff
+// Operator line input.  Interactive terminals get line editing, persistent
+// per-user history and tab completion through replxx; redirected input is
+// read verbatim so that a scripted session produces exactly the bytes a diff
 // expects.
 #pragma once
 
