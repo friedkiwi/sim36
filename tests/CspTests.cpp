@@ -3,21 +3,103 @@
 // SVC 0E drives it.
 #include <doctest/doctest.h>
 
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
 #include "Configuration/EmulatorConfig.h"
+#include "Devices/DeviceSet.h"
 #include "Devices/WorkStationController.h"
 #include "Machine/MachineState.h"
 #include "Monitor/Tracer.h"
+#include "Processors/ControlStorage/ActionControlElement.h"
+#include "Processors/ControlStorage/As36ControlStorageProcessor.h"
 #include "Processors/ControlStorage/DirectArea.h"
 #include "Processors/ControlStorage/GuestHeap.h"
 #include "Processors/ControlStorage/GuestLowStorage.h"
 #include "Processors/ControlStorage/NuPtt.h"
 #include "Processors/ControlStorage/TaskWorkArea.h"
+#include "Storage/DiskBackend.h"
 
 using namespace sim36;
 using namespace sim36::processors::controlstorage;
+
+namespace {
+
+struct CspEmptyVolume {
+    std::filesystem::path path;
+
+    CspEmptyVolume()
+    {
+        path = std::filesystem::temp_directory_path() /
+               ("sim36-csp-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".img");
+        std::vector<uint8_t> bytes(32 * storage::DiskBackend::kSectorBytes, 0);
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+
+    ~CspEmptyVolume() { std::filesystem::remove(path); }
+};
+
+}  // namespace
+
+TEST_CASE("SSP's final #CCPW power-control wait stops the emulated machine")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int request = 0x1100;
+    constexpr int program = 0x1200;
+    constexpr int logicalBase = 0x1000;
+    constexpr uint16_t iar = 0x13E5;
+    constexpr int frame = 0x20;
+    constexpr int physical = frame * machine::MachineState::kPageBytes + (iar & 0x7FF);
+
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, request, failure));
+    state.writeAddr24(task + 65, request);
+    state.writeAddr24(request + RequestBlock::kOffProgramBlock, program);
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (iar >> machine::MachineState::kPageShift)] = frame;
+    state.writeByte(physical, 0xF1);
+    state.writeByte(physical + 1, 0x87);
+    state.writeByte(physical + 2, 0x03);
+    state.msp.iar = iar;
+    state.msp.pactIar = machine::MspRegisters::kPactTranslate;
+
+    As36ControlStorageProcessor::CheckpointState checkpoint;
+    REQUIRE(csp.captureCheckpoint(checkpoint, failure));
+    checkpoint.loadedMemberData = {program, 94214, logicalBase};
+    checkpoint.loadedMemberNames = {"#OTHER"};
+    REQUIRE(csp.restoreCheckpoint(checkpoint, failure));
+    CHECK_FALSE(csp.detectSystemPowerOff());
+    CHECK_FALSE(csp.mainStorage().stopped());
+
+    checkpoint.loadedMemberNames = {"#CCPW"};
+    REQUIRE(csp.restoreCheckpoint(checkpoint, failure));
+    state.writeByte(physical + 2, 0x04);
+    CHECK_FALSE(csp.detectSystemPowerOff());
+    CHECK_FALSE(csp.mainStorage().stopped());
+    state.writeByte(physical + 2, 0x03);
+
+    REQUIRE(csp.detectSystemPowerOff());
+    CHECK(csp.systemPowerOffRequested());
+    CHECK(csp.mainStorage().stopped());
+    CHECK(csp.mainStorage().stopReason().find("#CCPW+03E5") != std::string::npos);
+
+    // A new power-on or restored machine is live again; the shutdown latch
+    // is host state, not persistent SSP state.
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), 0, 0, failure));
+    CHECK_FALSE(csp.systemPowerOffRequested());
+    CHECK_FALSE(csp.mainStorage().stopped());
+}
 
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")
 {

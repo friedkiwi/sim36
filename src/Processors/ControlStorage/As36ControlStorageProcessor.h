@@ -126,6 +126,10 @@ public:
     std::string describeActiveMember(int taskBlock, int iar) const;
     // Attribute any request-frame program block, not only a task's top frame.
     bool tryProgramBlockMember(int programBlock, int iar, LoadedMember& member, int& offset) const;
+    // SSP's POWER OFF command ends in #CCPW's hardware power-control wait.
+    // Recognize that boundary and turn it into an emulator stop.
+    bool detectSystemPowerOff();
+    bool systemPowerOffRequested() const { return systemPowerOffRequested_; }
     // The emulator's main-storage backing arena, for the monitor: host
     // bookkeeping that diagnoses whether a transfer failed for lack of pages
     // or through fragmentation.
@@ -275,6 +279,7 @@ private:
     int currentRequestBlock_ = 0;
     bool inSupervisorCall_ = false;
     bool redispatch_ = false;
+    bool systemPowerOffRequested_ = false;
     int dispatchDepth_ = 0;
     static constexpr int kDispatchDepthLimit = 16;
     int currentTransientProgramBlock_ = 0;

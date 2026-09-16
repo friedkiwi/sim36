@@ -81,6 +81,7 @@ bool As36ControlStorageProcessor::refuseText(const std::string& reason)
 // implementation has somewhere to put its equivalent.
 void As36ControlStorageProcessor::bringUpControlProcessor()
 {
+    systemPowerOffRequested_ = false;
     heap_.reset();
     // The ACEs live in the pool the line above just rebuilt.
     aces_.reset();
@@ -1160,6 +1161,38 @@ std::string As36ControlStorageProcessor::describeActiveMember(int taskBlock, int
     int off;
     if (!tryActiveMember(taskBlock, iar, m, off)) return std::string();
     return fmt::format("{}+{:04X} (extent {}, pb {:04X})", m.name, off, m.extentSector, activeProgramBlock(taskBlock));
+}
+
+// The physical machine removes power after #CCPW has completed shutdown and
+// entered its final three-byte wait: JC condition-on 87 back by its own
+// length (F1 87 03). On an emulator there is no power-control switch to
+// satisfy that loop, so interpreting it forever is observably a hang.
+//
+// Restrict recognition to the loaded #CCPW member and to the exact self-loop.
+// The panic dump which established this boundary had #CCPW+03E5 at logical
+// 13E5, but the member-relative offset is deliberately not part of the test:
+// it may move between SSP builds while the terminal instruction does not.
+bool As36ControlStorageProcessor::detectSystemPowerOff()
+{
+    if (systemPowerOffRequested_ || msp_ == nullptr || msp_->stopped()) return systemPowerOffRequested_;
+
+    LoadedMember member;
+    int offset = 0;
+    const uint16_t iar = m_.msp.iar;
+    if (!tryActiveMember(currentTaskBlock_, iar, member, offset) || member.name != "#CCPW") return false;
+
+    int physical = 0;
+    if (!m_.resolve(iar, m_.msp.pactIar, machine::MachineState::kAtrTaskGroup0, false, physical)) return false;
+    if (!m_.inRange(physical, 3) || m_.readByte(physical) != InstructionSet::kJumpBackwardOpcode ||
+        m_.readByte(physical + 1) != 0x87 || m_.readByte(physical + 2) != 0x03)
+        return false;
+
+    systemPowerOffRequested_ = true;
+    const std::string reason = fmt::format(
+        "system powered off by SSP at #CCPW+{:04X} (final power-control wait F1 87 03)", offset);
+    trace_.csp("{}", reason);
+    msp_->halt(reason);
+    return true;
 }
 
 // One-line description of the current task and the module running at the

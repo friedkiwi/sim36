@@ -105,6 +105,10 @@ void MonitorCli::startExecution(const std::vector<std::string>& a)
         fmt::print("execution: already running\n");
         return;
     }
+    if (m_.nativeControlStorage().systemPowerOffRequested()) {
+        fmt::print("execution: system is powered off; use 'ipl' to power it on again\n");
+        return;
+    }
     m_.msp().start();
     startExecution(&m_.nativeControlStorage(), "started");
 }
@@ -157,6 +161,9 @@ void MonitorCli::liveBody(As36ControlStorageProcessor* csp)
         runLiveItem(*item);
     }
     liveIdle_.store(false);
+    if (csp != nullptr && csp->systemPowerOffRequested())
+        fmt::print("execution: system powered off by SSP after {} instruction(s)\n",
+                   m_.msp().instructionsExecuted());
 }
 
 std::string MonitorCli::exceptionMessage(const std::exception_ptr& e)
@@ -314,6 +321,10 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
     while (total < cap) {
         while (total < cap && m_.msp().step()) {
             total++;
+            // SSP cannot remove power from the host. Its completed POWER OFF
+            // path enters #CCPW's final hardware wait; the native CSP turns
+            // that boundary into a clean stopped machine.
+            if (csp != nullptr && csp->detectSystemPowerOff()) break;
             // The native-to-SSP scheduler is asynchronous, not an "only after
             // every guest task is idle" service.  Poll socket-side latches
             // only at the MSP's architected preemption points, on this guest
@@ -362,6 +373,7 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
             }
         }
         if (liveStopRequested_.load()) break;
+        if (csp != nullptr && csp->systemPowerOffRequested()) break;
         if (csp == nullptr || !m_.msp().stopped() || !csp->idleEventWait()) break;  // fault, or capped
         recordWorkstationNativeState("driver-idle");
         // The second safe boundary.  A `console send` serviced here is

@@ -241,6 +241,7 @@ bool As36ControlStorageProcessor::restoreCheckpoint(const CheckpointState& s, st
 bool As36ControlStorageProcessor::restoreCheckpointMemory(const std::vector<uint8_t>& main, int currentTask,
                                                           int currentRequest, std::string& failure)
 {
+    systemPowerOffRequested_ = false;
     msp_->reset();
     transients_.reset();
     pendingDeviceAces_.clear();
