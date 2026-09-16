@@ -106,12 +106,6 @@ public:
     static constexpr int kUdtClass = 1;
     static constexpr int kUdtUnit = 4;
 
-    // The work station controller's device count, written to guest 0x08C3 by
-    // the class C0 arm of the unit definition table walk.  64 is the loop
-    // bound the controller's own device enumeration uses; the controller
-    // itself arrives with a later milestone.
-    static constexpr int kWorkStationMaxDevices = 64;
-
     // Header n occupies the 4 bytes at 0xB00 + 4n; the 3-byte value is the
     // last three of them, so it ends at 0xB03 + 4n - the System/36's
     // rightmost-byte field convention.

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Configuration/EmulatorConfig.h"
+#include "Devices/WorkStationController.h"
 #include "Machine/MachineState.h"
 #include "Monitor/Tracer.h"
 #include "Processors/ControlStorage/DirectArea.h"
@@ -139,6 +140,7 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     CHECK(error.empty());
     CHECK(m.readByte(0x0850) == 0x8D);
     CHECK(m.readByte(0x08BD) == 0x8D);
+    CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
 
     // The seed is only a pre-UDT default.  A system entry's first customize
     // byte replaces both copies when an installed volume supplies one.
@@ -151,6 +153,10 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     GuestLowStorage::walkUnitDefinitionTable(m, trace, udt.data(), static_cast<int>(udt.size()));
     CHECK(m.readByte(0x0850) == 0x89);
     CHECK(m.readByte(0x08BD) == 0x89);
+    // A UDT without an id-61/class-C0 entry must not turn the live
+    // controller's capacity into the number of currently defined stations,
+    // or into zero.
+    CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
 }
 
 TEST_CASE("guest low storage accepts the 5363 system customize selector")

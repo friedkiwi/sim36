@@ -2,6 +2,7 @@
 
 #include <fmt/format.h>
 
+#include "Devices/WorkStationController.h"
 #include "Storage/Ebcdic.h"
 
 namespace sim36::processors::controlstorage {
@@ -147,6 +148,18 @@ bool GuestLowStorage::build(machine::MachineState& m, monitor::Tracer& trace, in
     trace.csp("low storage: 0850 and 08BD = {:02X}, model-derived system customize seed; a disk UDT system entry "
               "overrides both",
               systemCustomize1);
+
+    // This is a capability of the live emulator controller, not an inventory
+    // of stations in the machine definition.  Publish it before the UDT walk:
+    // some SSP-generated UDTs contain only the C2 system-console record and
+    // no id-61/class-C0 record, but CNFIGSSP still asks how many devices the
+    // controller can support.  Leaving the byte at zero makes it reject every
+    // configuration as exceeding a fictitious zero-device maximum.
+    m.writeByte(kMaxDevices08C3,
+                static_cast<uint8_t>(devices::WorkStationController::kMaxDevices));
+    trace.csp("low storage: {:04X} = {} - maximum supported by the emulator work-station controller, "
+              "independent of the number of configured stations",
+              kMaxDevices08C3, devices::WorkStationController::kMaxDevices);
 
     // One register holding -1 is stored as a halfword to BOTH guest 0x0904
     // and guest 0x3FFE.  A storage dump of a running Advanced/36 reads FF FF
@@ -424,19 +437,22 @@ void GuestLowStorage::controllerClassArm(machine::MachineState& m, monitor::Trac
                     language, customize1, r.field(r.customize, 2), configure0,
                     rtl ? " | 02 (right-to-left language)" : ""));
 
-    // 0x08C3 IS written: the work station controller's device count.  MSIPL
-    // phase 2 tests 08C3, 08C4, 08C5 and 08C6 in turn to pick the controller
-    // base it subtracts from a unit address; a NON-zero 08C3 leaves the base
-    // at zero, while a zero one falls through to 0x08 and then 0x88, which
-    // makes every station's Configure New Work Stations record fail with
-    // reason 3.  08C4/08C5/08C6 stay unwritten: their arms are classes 90,
-    // A0 and B0, controllers this emulator has no device count for.
-    m.writeByte(kMaxDevices08C3, static_cast<uint8_t>(kWorkStationMaxDevices));
+    // Refresh 0x08C3 with the work-station controller's capacity.  build()
+    // already seeds it so the capacity does not depend on this UDT record
+    // being present.  MSIPL phase 2 tests 08C3, 08C4, 08C5 and 08C6 in turn
+    // to pick the controller base it subtracts from a unit address; a
+    // NON-zero 08C3 leaves the base at zero, while a zero one falls through
+    // to 0x08 and then 0x88, which makes every station's Configure New Work
+    // Stations record fail with reason 3.  08C4/08C5/08C6 stay unwritten:
+    // their arms are classes 90, A0 and B0, controllers this emulator has no
+    // device count for.
+    m.writeByte(kMaxDevices08C3,
+                static_cast<uint8_t>(devices::WorkStationController::kMaxDevices));
     trace.csp("UDT: {:04X} = {} - NuController::getMaxDevices for the work station "
               "controller (c1832318). Phase 2 tests it at logical 1DCB/1DF3 to choose "
               "the controller base it subtracts from a unit address; zero here selects "
               "0x88 and makes every station's Configure record fail cnfws reason 3.",
-              kMaxDevices08C3, kWorkStationMaxDevices);
+              kMaxDevices08C3, devices::WorkStationController::kMaxDevices);
 }
 
 // Six substitutions and a default.
