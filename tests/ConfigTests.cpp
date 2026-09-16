@@ -58,22 +58,22 @@ TEST_CASE("media attach without a mode resets fixed disk and diskette to writabl
 {
     EmptyVolume volume;
     sim36::monitor::SimulatorSession session;
-    const std::string path = volume.path.string();
+    const std::string quotedPath = ConfigurationRenderer::quoteArgument(volume.path.string());
 
-    session.execute("attach disk0 \"" + path + "\" ro");
+    session.execute("attach disk0 " + quotedPath + " ro");
     CHECK(session.definition().volumeReadOnly);
-    session.execute("attach disk0 \"" + path + "\"");
+    session.execute("attach disk0 " + quotedPath);
     CHECK_FALSE(session.definition().volumeReadOnly);
     CHECK_FALSE(session.definition().volumeOverlay);
-    session.execute("attach disk0 \"" + path + "\" overlay");
+    session.execute("attach disk0 " + quotedPath + " overlay");
     CHECK(session.definition().volumeOverlay);
-    session.execute("attach disk0 \"" + path + "\"");
+    session.execute("attach disk0 " + quotedPath);
     CHECK_FALSE(session.definition().volumeReadOnly);
     CHECK_FALSE(session.definition().volumeOverlay);
 
-    session.execute("attach diskette0 \"" + path + "\" ro");
+    session.execute("attach diskette0 " + quotedPath + " ro");
     CHECK(session.definition().disketteReadOnly);
-    session.execute("attach diskette0 \"" + path + "\"");
+    session.execute("attach diskette0 " + quotedPath);
     CHECK_FALSE(session.definition().disketteReadOnly);
 }
 
