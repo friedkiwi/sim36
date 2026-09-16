@@ -87,8 +87,10 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
         std::string transport = s.isConsole() ? "operator"
             : s.listenPort == 0 ? "off"
             : s.listenHost + ":" + std::to_string(s.listenPort);
-        line(fmt::format("  {:<3} role={} device-code={} signon-at-ipl={} listen={}",
-                         s.id(), s.role, s.deviceCode, onOff(s.signOnAtIpl), transport));
+        std::string output = !s.isPrinter() ? "-" : s.printerOutput == "file"
+            ? "file " + s.printerOutputPath : s.printerOutput;
+        line(fmt::format("  {:<3} role={} device-code={} signon-at-ipl={} output={} listen={}",
+                         s.id(), s.role, s.deviceCode, onOff(s.signOnAtIpl), output, transport));
     }
     return w;
 }
@@ -143,6 +145,13 @@ std::string ConfigurationRenderer::renderReplay(const EmulatorConfig& c)
         line(fmt::format("set station {} role {}", s.id(), quoteArgument(s.role)));
         line(fmt::format("set station {} device-code {}", s.id(), quoteArgument(s.deviceCode)));
         line(fmt::format("set station {} signon-at-ipl {}", s.id(), onOff(s.signOnAtIpl)));
+        if (s.isPrinter()) {
+            if (s.printerOutput == "file")
+                line(fmt::format("set station {} output file {}", s.id(),
+                                 quoteArgument(absolutePath(s.printerOutputPath))));
+            else
+                line(fmt::format("set station {} output {}", s.id(), s.printerOutput));
+        }
         if (s.listenPort != 0)
             line(fmt::format("set station {} listen {}", s.id(),
                              quoteArgument(s.listenHost + ":" + std::to_string(s.listenPort))));

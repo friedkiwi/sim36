@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -305,8 +306,10 @@ public:
     static constexpr const char* kResponseSessionStarted = "I902";
 
     PrinterBackend(const std::string& host, int port, const std::string& label, monitor::Tracer* trace,
-                   std::function<void()> signalMachine)
-        : StationBackend(StationKind::Printer, host, port, label, trace, std::move(signalMachine)) {}
+                   std::function<void()> signalMachine, const std::string& output = "tn5250",
+                   const std::string& outputPath = "")
+        : StationBackend(StationKind::Printer, host, port, label, trace, std::move(signalMachine)),
+          output_(output), outputPath_(outputPath) {}
     ~PrinterBackend() override;
 
     // The eight-character system name the startup response carries; nothing
@@ -319,6 +322,13 @@ public:
     long long startupResponsesSent() const { return startupResponsesSent_; }
     long long printCompletesReceived() const { return printCompletesReceived_; }
     long long jobsEnded() const { return jobsEnded_; }
+    const std::string& output() const { return output_; }
+    const std::string& outputPath() const { return outputPath_; }
+    bool networkOutput() const { return output_ == "tn5250"; }
+    bool listening() const override { return networkOutput() && StationBackend::listening(); }
+    bool attached() const override { return networkOutput() ? StationBackend::attached() : true; }
+    bool ready() const override { return networkOutput() ? StationBackend::ready() : true; }
+    void listen() override { if (networkOutput()) StationBackend::listen(); }
 
     // RFC 2877 section 9's startup response record, built from figure 1
     // BYTE FOR BYTE: only the response code at +16, the system name at +20
@@ -342,6 +352,10 @@ private:
     static std::vector<uint8_t> printRecord(const uint8_t* data, int offset, int length, uint8_t flags);
     static void putEbcdic(std::vector<uint8_t>& into, int at, const std::string& s, int width);
     static uint8_t ebcdic(char c);
+
+    std::string output_;
+    std::string outputPath_;
+    std::ofstream outputFile_;
 
     std::atomic<long long> startupResponsesSent_{0}, printCompletesReceived_{0}, jobsEnded_{0};
 };

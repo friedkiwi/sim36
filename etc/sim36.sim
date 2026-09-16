@@ -8,7 +8,7 @@
 # ipl-source disk, host-model 150 / feature 2270 / model 440,
 # task-work-area-sectors 60, listener-auto-signon off, signon-use-router on,
 # signon-statement off, signon-request off, signon-router-key 14,
-# ws-interactive off, station role display, device-code 11, listen host
+# ws-interactive off, station display device-code 11, listen host
 # 127.0.0.1, signon-at-ipl off, and terminal multiplex on. Main storage is
 # always the selected model's maximum and is therefore not configurable.
 
@@ -27,11 +27,14 @@
 # Work-station address 0.0 is the console on every 5250 machine, must be
 # present for the IPL to complete, and binds to this emulator's operator
 # interface rather than to a listener (see `console` in the monitor).
-# The six displays are reached through the station multiplexer on
-# 127.0.0.1:2300 by default; the per-station listeners below are used when
+# Station 0.1 is a 5224 Model 1 printer whose output goes to this console.
+# The other five displays are reached through the station multiplexer on
+# 127.0.0.1:2300 by default; their per-station listeners are used when
 # `set terminal multiplex off` is given.
 set station 0.0 role console
-set station 0.1 listen 127.0.0.1:2301
+set station 0.1 role printer
+set station 0.1 device-code PB
+set station 0.1 output console
 set station 0.2 listen 127.0.0.1:2302
 set station 0.3 listen 127.0.0.1:2303
 set station 0.4 listen 127.0.0.1:2304

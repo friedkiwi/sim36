@@ -8,6 +8,7 @@
 #include "Configuration/ConfigError.h"
 #include "Configuration/EmulatorConfig.h"
 #include "Configuration/IplSourceTable.h"
+#include "Host/StationBackend.h"
 #include "Monitor/CommandRegistry.h"
 #include "Monitor/ConfigurationRenderer.h"
 #include "Monitor/SimulatorSession.h"
@@ -48,6 +49,10 @@ TEST_CASE("config: the default definition validates once a volume and console ex
     CHECK_THROWS_AS(c.validate("t"), ConfigError);   // no console
     c.applyDefaultStationsIfNoneDeclared();
     REQUIRE(c.stations.size() == 7);
+    CHECK(c.stations[1].isPrinter());
+    CHECK(c.stations[1].deviceCode == "PB");
+    CHECK(c.stations[1].printerOutput == "console");
+    CHECK(c.stations[1].listenPort == 0);
     CHECK(c.stations[6].listenPort == 2306);
     CHECK_NOTHROW(c.validate("t"));
     CHECK(c.maxMainStorageKb() == 8192);
@@ -120,6 +125,66 @@ TEST_CASE("config: printers need a printer device code")
     CHECK_THROWS_AS(c.validate("t"), ConfigError);   // a display's code
     c.stations.back().deviceCode = "PB";
     CHECK_NOTHROW(c.validate("t"));
+}
+
+TEST_CASE("config: a printer has exactly one host output attachment")
+{
+    sim36::monitor::SimulatorSession session;
+    session.execute("set station 1.0 role printer");
+    session.execute("set station 1.0 device-code PB");
+    session.execute("set station 1.0 output console");
+    CHECK(session.definition().findStation(1, 0)->listenPort == 0);
+    CHECK_THROWS(session.execute("set station 1.0 listen 127.0.0.1:2399"));
+    session.execute("set station 1.0 output tn5250");
+    CHECK_NOTHROW(session.execute("set station 1.0 listen 127.0.0.1:2399"));
+    session.execute("set station 1.0 output file printer.out");
+    const StationConfig* p = session.definition().findStation(1, 0);
+    REQUIRE(p != nullptr);
+    CHECK(p->printerOutput == "file");
+    CHECK(p->printerOutputPath == "printer.out");
+    CHECK(p->listenPort == 0);
+}
+
+TEST_CASE("the display multiplexer leaves the default printer address as a hole")
+{
+    sim36::monitor::SimulatorSession session;
+    session.execute("set station 0.0 role console");
+    session.execute("set station 0.1 role printer");
+    session.execute("set station 0.1 device-code PB");
+    session.execute("set station 0.1 output console");
+    session.execute("set station 0.2 role display");
+    std::vector<sim36::host::MultiplexStationView> stations = session.multiplexStations();
+    bool sawPrinterAddress = false;
+    bool sawStation02AsW3 = false;
+    for (const auto& station : stations) {
+        if (station.id == "0.1") sawPrinterAddress = true;
+        if (station.id == "0.2" && station.number == 3) sawStation02AsW3 = true;
+    }
+    CHECK_FALSE(sawPrinterAddress);
+    CHECK(sawStation02AsW3);
+}
+
+TEST_CASE("printer file output appends the guest byte stream verbatim")
+{
+    namespace fs = std::filesystem;
+    sim36::monitor::Tracer trace;
+    const fs::path path = fs::temp_directory_path() /
+        ("sim36-printer-output-test-" +
+         std::to_string(reinterpret_cast<std::uintptr_t>(&trace)) + ".bin");
+    fs::remove(path);
+    sim36::host::PrinterBackend printer("127.0.0.1", 0, "printer test", &trace, [] {}, "file", path.string());
+    const uint8_t first[] = {0xC8, 0xC5, 0xD3, 0xD3, 0xD6};
+    const uint8_t second[] = {0xF1, 0xF2};
+    CHECK(printer.attached());
+    CHECK(printer.ready());
+    CHECK(printer.sendDataStream(first, 0, 5));
+    CHECK(printer.endJob());
+    CHECK(printer.sendDataStream(second, 0, 2));
+    CHECK(printer.endJob());
+    std::ifstream in(path, std::ios::binary);
+    std::vector<uint8_t> actual{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    CHECK(actual == std::vector<uint8_t>{0xC8, 0xC5, 0xD3, 0xD3, 0xD6, 0xF1, 0xF2});
+    fs::remove(path);
 }
 
 TEST_CASE("ipl source: disk requests no reload; attended sets bit 0x80")

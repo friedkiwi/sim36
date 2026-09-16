@@ -512,6 +512,8 @@ void MachineSnapshot::writeConfig(Writer& w, const EmulatorConfig& c)
         w.string(s.listenHost);
         w.i32(s.listenPort);
         w.boolean(s.signOnAtIpl);
+        w.string(s.printerOutput);
+        w.string(s.printerOutputPath);
     }
 }
 
@@ -549,6 +551,8 @@ EmulatorConfig MachineSnapshot::readConfig(Reader& r)
         s.listenHost = r.string();
         s.listenPort = r.i32();
         s.signOnAtIpl = r.boolean();
+        s.printerOutput = r.string();
+        s.printerOutputPath = r.string();
         c.stations.push_back(s);
     }
     return c;

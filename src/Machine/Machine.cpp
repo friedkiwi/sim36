@@ -123,7 +123,8 @@ Machine::Machine(const EmulatorConfig& cfg, const SessionBackends* sessionBacken
                     throw std::runtime_error("station " + s.id() + " has no session listener");
                 pb = dynamic_cast<host::PrinterBackend*>(it->second.get());
             } else {
-                pb = new host::PrinterBackend(s.listenHost, s.listenPort, "printer " + s.id(), &trace, signal);
+                pb = new host::PrinterBackend(s.listenHost, s.listenPort, "printer " + s.id(), &trace, signal,
+                                              s.printerOutput, s.printerOutputPath);
             }
             if (pb == nullptr) throw std::runtime_error("station " + s.id() + " listener type does not match printer role");
             pb->bindMachine(&trace, signal);
@@ -210,11 +211,9 @@ std::vector<host::MultiplexStationView> Machine::multiplexStations()
         return x->port() != y->port() ? x->port() < y->port() : x->address() < y->address();
     });
     std::vector<host::MultiplexStationView> view;
-    int n = 0;
     for (auto* s : ordered) {
-        n++;
         host::MultiplexStationView v;
-        v.number = n;
+        v.number = s->port() * 7 + s->address() + 1;
         v.id = s->id();
         v.isConsole = s->isConsole();
         v.available = s->isConsole() ? !s->backend().consoleClientAttached() : !s->backend().attached();

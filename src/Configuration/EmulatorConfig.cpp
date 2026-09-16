@@ -133,6 +133,13 @@ StationConfig* EmulatorConfig::findStation(int port, int address)
     return nullptr;
 }
 
+const StationConfig* EmulatorConfig::findStation(int port, int address) const
+{
+    for (const StationConfig& s : stations)
+        if (s.port == port && s.address == address) return &s;
+    return nullptr;
+}
+
 void EmulatorConfig::applyDefaultStationsIfNoneDeclared()
 {
     if (!stations.empty()) return;
@@ -145,8 +152,15 @@ void EmulatorConfig::applyDefaultStationsIfNoneDeclared()
         StationConfig s;
         s.port = 0;
         s.address = address;
-        s.role = "display";
-        s.listenPort = 2300 + address;
+        if (address == 1) {
+            s.role = "printer";
+            s.deviceCode = "PB";
+            s.deviceCodeGiven = true;
+            s.printerOutput = "console";
+        } else {
+            s.role = "display";
+            s.listenPort = 2300 + address;
+        }
         stations.push_back(s);
     }
 }
@@ -336,6 +350,8 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
             } else if (k == "device_code") { station->deviceCode = v; station->deviceCodeGiven = true; }
             else if (k == "signon_at_ipl") station->signOnAtIpl = parseBool(v);
             else if (k == "listen") parseListen(*station, v, path, lineNo);
+            else if (k == "output") station->printerOutput = monitor::toLower(v);
+            else if (k == "output_file") station->printerOutputPath = v;
             else throw ConfigError(path, lineNo, "unknown station key '" + k + "'");
         }
     }
@@ -391,6 +407,20 @@ void EmulatorConfig::validate(const std::string& path)
     // resolves it in a table of its own and a code that is not in it leaves
     // the station unmatched.
     for (const StationConfig& s : stations) {
+        const bool validOutput = s.printerOutput == "tn5250" || s.printerOutput == "console" ||
+                                 s.printerOutput == "file";
+        if (!validOutput)
+            throw ConfigError(path, 0, "station " + s.id() +
+                " printer output must be tn5250, console, or file");
+        if (!s.isPrinter() && (s.printerOutput != "tn5250" || !s.printerOutputPath.empty()))
+            throw ConfigError(path, 0, "station " + s.id() + " is not a printer but has printer output configured");
+        if (s.isPrinter() && s.printerOutput == "file" && s.printerOutputPath.empty())
+            throw ConfigError(path, 0, "station " + s.id() + " file output needs a path");
+        if (s.isPrinter() && s.printerOutput != "file" && !s.printerOutputPath.empty())
+            throw ConfigError(path, 0, "station " + s.id() + " has an output file path but does not use file output");
+        if (s.isPrinter() && s.printerOutput != "tn5250" && s.listenPort != 0)
+            throw ConfigError(path, 0, "station " + s.id() +
+                " cannot have both a printer console/file output and a TN5250 listener");
         devices::DeviceCodes::Entry e;
         if (!devices::DeviceCodes::tryLookup(s.deviceCode, e))
             throw ConfigError(path, 0, fmt::format(

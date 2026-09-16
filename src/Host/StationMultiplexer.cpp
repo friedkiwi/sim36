@@ -393,6 +393,20 @@ bool StationMultiplexer::isFree(const std::string& stationId)
     return true;
 }
 
+void StationMultiplexer::disconnectStation(const std::string& stationId)
+{
+    std::shared_ptr<Telnet5250Session> session;
+    {
+        std::lock_guard<std::mutex> lock(bindGate_);
+        auto it = bound_.find(stationId);
+        if (it == bound_.end()) return;
+        session = std::move(it->second);
+        bound_.erase(it);
+    }
+    if (session != nullptr) session->dispose();
+    trace_->ws("multiplexer: station {} is no longer a display; its client is disconnected", stationId);
+}
+
 void StationMultiplexer::bind(const std::string& stationId, std::shared_ptr<Telnet5250Session> session)
 {
     std::lock_guard<std::mutex> lock(bindGate_);

@@ -5,6 +5,8 @@
 
 #include <fmt/format.h>
 
+#include "Storage/Ebcdic.h"
+
 namespace sim36::host {
 
 namespace {
@@ -684,6 +686,7 @@ constexpr uint8_t kFlagFirstOfChain = 0x10;
 
 PrinterBackend::~PrinterBackend()
 {
+    outputFile_.close();
     auto s = session();
     dispose();
     if (s != nullptr) s->waitForReader();
@@ -735,12 +738,49 @@ std::vector<uint8_t> PrinterBackend::startupResponse(const std::string& code, co
 
 bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
 {
+    if (output_ == "console") {
+        std::string text = storage::Ebcdic::toAscii(data + offset, static_cast<std::size_t>(length));
+        for (char& c : text)
+            if (static_cast<unsigned char>(c) < 0x20 && c != '\t') c = '.';
+        fmt::print("{}: {}\n", label(), text);
+        recordsSent_++;
+        bytesSent_ += length;
+        return true;
+    }
+    if (output_ == "file") {
+        if (!outputFile_.is_open()) outputFile_.open(outputPath_, std::ios::binary | std::ios::app);
+        if (!outputFile_) {
+            recordsDropped_++;
+            trace_->ws("{}: cannot open printer output file {}", label(), outputPath_);
+            return false;
+        }
+        outputFile_.write(reinterpret_cast<const char*>(data + offset), length);
+        outputFile_.flush();
+        if (!outputFile_) {
+            recordsDropped_++;
+            trace_->ws("{}: write to printer output file {} failed", label(), outputPath_);
+            return false;
+        }
+        recordsSent_++;
+        bytesSent_ += length;
+        return true;
+    }
     std::vector<uint8_t> record = printRecord(data, offset, length, static_cast<uint8_t>(kFlagFirstOfChain | kFlagLastOfChain));
     return sendRecord(record, length, fmt::format("print record, {} byte(s) of data stream", length));
 }
 
 bool PrinterBackend::endJob()
 {
+    if (output_ == "console") {
+        fmt::print("{}: [end of job]\n", label());
+        jobsEnded_++;
+        return true;
+    }
+    if (output_ == "file") {
+        if (outputFile_.is_open()) outputFile_.close();
+        jobsEnded_++;
+        return true;
+    }
     const uint8_t nul[] = {0x00};
     std::vector<uint8_t> record = printRecord(nul, 0, 1, kFlagLastOfChain);
     bool sent = sendRecord(record, 0, "null print record - end of job");

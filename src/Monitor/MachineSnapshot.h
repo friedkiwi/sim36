@@ -20,7 +20,7 @@ namespace sim36::monitor {
 
 class MachineSnapshot {
 public:
-    static constexpr int kVersion = 18;   // 18: main storage is derived from the machine model
+    static constexpr int kVersion = 19;   // 19: printer output attachment is part of station configuration
 
     struct StationState {
         std::string id;

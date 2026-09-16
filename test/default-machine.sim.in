@@ -3,6 +3,8 @@
 # Attached `overlay`: writes are accepted into memory and never reach the file.
 attach disk0 @VOLUME@ overlay
 set station 0.0 role console
+set station 0.1 role display
+set station 0.1 device-code 11
 set station 0.1 listen 127.0.0.1:2301
 set station 0.2 listen 127.0.0.1:2302
 set station 0.3 listen 127.0.0.1:2303

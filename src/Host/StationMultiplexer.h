@@ -31,8 +31,9 @@ namespace sim36::host {
 // the guest-independent side of the seam: nothing here is a System/36
 // concept beyond the station's own id.
 struct MultiplexStationView {
-    // The W number: the 1-based index of this station among the machine's
-    // DISPLAY stations, in the controller's own port/address grid order.
+    // The W number: the 1-based position in the controller's port/address
+    // grid.  Printer positions remain holes; displays are never renumbered
+    // across them.
     int number = 0;
     // port.address, the id the rest of the emulator uses.
     std::string id;
@@ -82,6 +83,7 @@ public:
 
     // Is this station free of a multiplexer-placed client?
     bool isFree(const std::string& stationId);
+    void disconnectStation(const std::string& stationId);
 
     // IPL construction: put every client the multiplexer placed into the
     // newly constructed machine's backends, without reconnecting.

@@ -214,11 +214,15 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
         } else if (at(1, "machine") && pos == 3 && at(2, "csp-type")) {
             words({"advanced36"});
         } else if (at(1, "station") && pos == 3) {
-            words({"role", "device-code", "listen", "signon-at-ipl"});
+            words({"role", "device-code", "listen", "output", "signon-at-ipl"});
         } else if (at(1, "station") && pos == 4 && at(3, "role")) {
             words({"console", "display", "printer"});
         } else if (at(1, "station") && pos == 4 && at(3, "signon-at-ipl")) {
             words({"on", "off"});
+        } else if (at(1, "station") && pos == 4 && at(3, "output")) {
+            words({"console", "file", "tn5250"});
+        } else if (at(1, "station") && pos == 5 && at(3, "output") && at(4, "file")) {
+            out.paths = true;
         } else if (at(1, "terminal") && pos == 2) {
             words({"multiplex"});
         } else if (at(1, "terminal") && pos == 3) {

@@ -45,7 +45,8 @@ sim36 -t disk,ws             # initial trace classes
 ```
 
 `etc/sim36.sim` is an ordinary monitor command file: it declares station
-0.0 as the console and 0.1..0.6 as displays and leaves you at the prompt
+0.0 as the console, 0.1 as a 5224 Model 1 printer writing to the monitor
+console, and 0.2..0.6 as displays, then leaves you at the prompt
 with the listeners open, no volume attached and no machine constructed.
 `attach disk0 var/as36.img overlay` attaches the volume (writes stay in
 memory and never reach the file); the appliance file does that for you.  `show config`
@@ -153,9 +154,23 @@ set terminal multiplex listen 127.0.0.1:2400   # move the multiplexer
 set station 0.3 listen 127.0.0.1:2403          # a per-station listener
 ```
 
-Printers keep their own listeners (`set station 0.4 role printer`,
-`set station 0.4 device-code PB`, `set station 0.4 listen ...`); a 5250
-printer client such as `lp5250d` receives RFC 2877 print records.
+Printers have one output attachment. They can keep their own TN5250 listener,
+write decoded output to the monitor console, or append the exact guest byte
+stream to a file:
+
+```
+set station 0.4 role printer
+set station 0.4 device-code PB
+set station 0.4 output tn5250
+set station 0.4 listen 127.0.0.1:2404
+set station 0.4 output console
+set station 0.4 output file spool/printer-04.bin
+```
+
+Selecting console or file output clears the listener; assigning a listener is
+refused until output is switched back to `tn5250`. Printer slots are never
+offered by the display multiplexer. A 5250 printer client such as `lp5250d`
+receives RFC 2877 print records.
 `prtwrite` and `prtend` drive a printer from the monitor.
 
 `stations` shows which port each station is reached through and what is on

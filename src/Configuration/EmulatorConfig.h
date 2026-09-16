@@ -19,6 +19,11 @@ struct StationConfig {
     bool deviceCodeGiven = false;
     int listenPort = 0;
     std::string listenHost = "127.0.0.1";
+    // A printer has exactly one host attachment.  "tn5250" uses the
+    // listener above, "console" writes decoded output to stdout, and
+    // "file" appends the guest's byte stream verbatim to printerOutputPath.
+    std::string printerOutput = "tn5250";
+    std::string printerOutputPath;
     // Work-station configuration record +0A: host ownership policy, not
     // AUTOSIGNON and not a bit copied into a guest block.
     bool signOnAtIpl = false;
@@ -117,10 +122,11 @@ public:
 
     const StationConfig* console() const;
     StationConfig* findStation(int port, int address);
+    const StationConfig* findStation(int port, int address) const;
 
     // The default machine's work stations, applied only when a configuration
     // declares none of its own: 0.0 the console, 0.1-0.6 displays listening
-    // on 127.0.0.1:2301-2306.
+    // through the multiplexer; 0.1 is a PB printer writing to the console.
     void applyDefaultStationsIfNoneDeclared();
 
     // The legacy INI reader.  Throws ConfigError.
