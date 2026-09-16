@@ -149,17 +149,23 @@ bool GuestLowStorage::build(machine::MachineState& m, monitor::Tracer& trace, in
               "overrides both",
               systemCustomize1);
 
-    // This is a capability of the live emulator controller, not an inventory
-    // of stations in the machine definition.  Publish it before the UDT walk:
-    // some SSP-generated UDTs contain only the C2 system-console record and
-    // no id-61/class-C0 record, but CNFIGSSP still asks how many devices the
-    // controller can support.  Leaving the byte at zero makes it reject every
-    // configuration as exceeding a fictitious zero-device maximum.
+    // These are capabilities of the live emulator controller, not an
+    // inventory of stations in the machine definition.  Publish them before
+    // the UDT walk: some SSP-generated UDTs contain only the C2 system-console
+    // record and no id-61/class-C0 record.
+    //
+    // CNFIGSSP 5.1 first tests 08B2 bit 20 before installing the controller's
+    // limits in its work area (TBN 20,$08B2 at CNFIG +105B).  Without that
+    // bit it leaves the device limit at zero, so merely publishing the numeric
+    // capacity in 08C3 is too late: option 12 reports a maximum of 00 devices.
+    // The bit describes available hardware support and must therefore follow
+    // the emulated controller, not the number of stations in the input config.
+    orByte(m, kDeviceFlags08B2, 0x20);
     m.writeByte(kMaxDevices08C3,
                 static_cast<uint8_t>(devices::WorkStationController::kMaxDevices));
-    trace.csp("low storage: {:04X} = {} - maximum supported by the emulator work-station controller, "
-              "independent of the number of configured stations",
-              kMaxDevices08C3, devices::WorkStationController::kMaxDevices);
+    trace.csp("low storage: {:04X} |= 20 and {:04X} = {} - emulator work-station controller "
+              "configuration support and maximum capacity, independent of the number of configured stations",
+              kDeviceFlags08B2, kMaxDevices08C3, devices::WorkStationController::kMaxDevices);
 
     // One register holding -1 is stored as a halfword to BOTH guest 0x0904
     // and guest 0x3FFE.  A storage dump of a running Advanced/36 reads FF FF

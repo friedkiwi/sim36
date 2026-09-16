@@ -222,6 +222,7 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     CHECK(error.empty());
     CHECK(m.readByte(0x0850) == 0x8D);
     CHECK(m.readByte(0x08BD) == 0x8D);
+    CHECK((m.readByte(0x08B2) & 0x20) != 0);
     CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
 
     // The seed is only a pre-UDT default.  A system entry's first customize
@@ -238,6 +239,7 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     // A UDT without an id-61/class-C0 entry must not turn the live
     // controller's capacity into the number of currently defined stations,
     // or into zero.
+    CHECK((m.readByte(0x08B2) & 0x20) != 0);
     CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
 }
 
