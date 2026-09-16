@@ -25,6 +25,7 @@ def main():
     dw_research = "--dw36-research" in sys.argv[1:]
     cnfig_research = "--cnfigssp-research" in sys.argv[1:]
     cnfig_apply_research = "--cnfigssp-apply-research" in sys.argv[1:]
+    cnfig_create_research = "--cnfigssp-create-research" in sys.argv[1:]
     config = os.environ.get("S36_CONFIG",
                             sim36env.default_config())
     temporary_config = None
@@ -126,12 +127,12 @@ def main():
         wait_monitor("0008ab  %s" % active_08ab, timeout=10,
                      after=state_mark)
         w2.type_into("User ID", "YVANJ")
-        if (cnfig_research or cnfig_apply_research) and station_name == "0.0":
+        if (cnfig_research or cnfig_apply_research or cnfig_create_research) and station_name == "0.0":
             w2.type_into("Date", os.environ.get("S36_IPL_DATE", "090896"))
             w2.type_into("Time", os.environ.get("S36_IPL_TIME", "120000"))
         signon_mark = len(transcript)
         w2.press("Enter")
-        if (cnfig_research or cnfig_apply_research) and station_name == "0.0":
+        if (cnfig_research or cnfig_apply_research or cnfig_create_research) and station_name == "0.0":
             # This configured image uses the operator sign-on panel and asks
             # for acknowledgement when its saved date needs changing.
             w2.settle(quiet=0.5, timeout=5)
@@ -148,7 +149,7 @@ def main():
             raise
         w2.wait_for_text("Main System/36 help menu", timeout=10)
 
-        if cnfig_research or cnfig_apply_research:
+        if cnfig_research or cnfig_apply_research or cnfig_create_research:
             # Private SSP-media regression for CNFIGSSP's device-code pages.
             # The final Cmd5 used to expose a deferred-input/work-space
             # high-water mismatch as a level-5 storage-protection check in
@@ -173,6 +174,81 @@ def main():
 
             command("trace csp")
             submit("CNFIGSSP", "CONFIGURATION")
+            if cnfig_create_research:
+                submit("2", "CONFIGURATION MEMBER DEFINITION")
+                idle_mark = len(transcript)
+                command("wait idle 30")
+                wait_monitor("wait: guest is idle after", timeout=35,
+                             after=idle_mark)
+                w2.type_into("Option", "2")
+                w2.type_into("Member name", os.environ.get(
+                    "S36_CNFIG_CREATE_MEMBER", "SIM36CFG"))
+                w2.type_into("Library name", os.environ.get(
+                    "S36_CNFIG_CREATE_LIBRARY", "#CNFGLIB"))
+                w2.press("Enter")
+                w2.wait_for_text("CONFIGURATION MEMBER DEFINITION - NEW",
+                                 timeout=90)
+                w2.type_into("Option", "1")
+                w2.press("Enter")
+                w2.wait_for_text("CONFIGURATION MEMBER DESCRIPTION",
+                                 timeout=90)
+                w2.type_into("2. Specify main storage size in K-bytes", "7168")
+                generation = w2.generation
+                w2.press("Enter")
+                w2.wait_for_change(timeout=90, since=generation)
+                w2.settle(quiet=0.5, timeout=10)
+                print(w2.screen.render(
+                    "=== CNFIGSSP CREATE AFTER DESCRIPTION ===",
+                    fields=True))
+                submit("1", "DISPLAY STATION")
+                submit("1", "PRINTER DEFINITION")
+                submit(None, "WORK STATION DEFINITION")
+                w2.type_field(6, "PB")
+                for field in list(range(7, 26)):
+                    w2.type_field(field, "11")
+                generation = w2.generation
+                w2.press("Enter")
+                w2.wait_for_change(timeout=90, since=generation)
+                w2.settle(quiet=0.5, timeout=10)
+                print(w2.screen.render(
+                    "=== CNFIGSSP CREATE WORK STATION PAGE 2 ===",
+                    fields=True))
+                generation = w2.generation
+                w2.press("Enter")
+                w2.wait_for_change(timeout=90, since=generation)
+                w2.settle(quiet=0.5, timeout=10)
+                print(w2.screen.render(
+                    "=== CNFIGSSP CREATE AFTER WORK STATIONS ===",
+                    fields=True))
+                submit("11", "CONFIGURATION MEMBER MENU")
+                submit("5", "CNFIGSSP  -  MAIN MENU")
+                submit("12", "CONFIGURATION MEMBER DEFINITION")
+                idle_mark = len(transcript)
+                command("wait idle 30")
+                wait_monitor("wait: guest is idle after", timeout=35,
+                             after=idle_mark)
+                w2.type_into("Member name", os.environ.get(
+                    "S36_CNFIG_CREATE_MEMBER", "SIM36CFG"))
+                w2.type_into("Library name", os.environ.get(
+                    "S36_CNFIG_CREATE_LIBRARY", "#CNFGLIB"))
+                w2.press("Enter")
+                w2.wait_for_text("CHANGE MASTER CONFIGURATION", timeout=90)
+                w2.settle(quiet=0.5, timeout=10)
+                print(w2.screen.render(
+                    "=== CNFIGSSP CREATE/APPLY RESULT ===", fields=True))
+                generation = w2.generation
+                w2.press("Enter")
+                w2.wait_for_change(timeout=90, since=generation)
+                w2.settle(quiet=0.5, timeout=10)
+                print(w2.screen.render(
+                    "=== CNFIGSSP CREATE/APPLY CONFIRM ===", fields=True))
+                if w2.screen.find("System does not support more than"):
+                    raise AssertionError(
+                        "CNFIGSSP rejected the 21-device member against the "
+                        "emulator's 56 addressable work-station positions")
+                print("PASS: CNFIGSSP accepted a 21-device member against "
+                      "8 ports and 56 addressable positions")
+                return 0
             if cnfig_apply_research:
                 submit("12", "CONFIGURATION MEMBER DEFINITION")
                 apply_member = os.environ.get("S36_CNFIG_APPLY_MEMBER", "").strip()

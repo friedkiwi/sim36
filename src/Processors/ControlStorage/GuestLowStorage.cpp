@@ -43,6 +43,8 @@ constexpr int kDeviceFlags080B = 0x080B;    // class 0x40 sets 0x9F here
 constexpr int kCommFlags0820 = 0x0820;      // three bytes the comm arm ORs into
 constexpr int kWsControllerFlags = 0x0849;  // |= the wkstn controller's configure[0]
 constexpr int kDiskStorageSize = 0x084A;    // the system entry's configure[7]
+constexpr int kWsPortCount = 0x084E;        // system-wide work-station port count
+constexpr int kWsAddressableDevices = 0x084F; // usable positions across those ports
 constexpr int kSystemCustomize1 = 0x0850;   // ...and its customize[0]
 constexpr int kDiskUnitCount = 0x0851;      // one per device id A7
 constexpr int kCommUnitTable = 0x086B;      // + 5n, five bytes of configure per unit
@@ -189,9 +191,22 @@ bool GuestLowStorage::build(machine::MachineState& m, monitor::Tracer& trace, in
     m.writeHalf(0x0845, static_cast<uint16_t>(m.readHalf(0x0843) - 32));
     m.writeByte(0x084B, 0x07);
     m.writeByte(0x084C, 0x05);
+    // CNFIGSSP validates a proposed master configuration against these two
+    // hardware capability bytes.  A real machine's native configuration
+    // layer supplies them before the SSP program runs.  Leaving both zero is
+    // not an absence marker: CNFIGSSP treats the zero port count as wrapped
+    // 16 (maximum port 15), but the zero device count literally as none.
+    // Advertise the emulator's complete 8-by-7 address grid.
+    m.writeByte(kWsPortCount,
+                static_cast<uint8_t>(devices::WorkStationController::kPortCount));
+    m.writeByte(kWsAddressableDevices,
+                static_cast<uint8_t>(devices::WorkStationController::kAddressableDevices));
     trace.csp("low storage: main-storage size block 0840..0846, 084B, 084C, 0852 "
-              "(csipl c1831764) - 0841/0843 = {:04X}, 0845 = {:04X}",
-              m.readHalf(0x0841), m.readHalf(0x0845));
+              "(csipl c1831764) - 0841/0843 = {:04X}, 0845 = {:04X}; "
+              "084E/084F = {}/{} work-station ports/addressable devices",
+              m.readHalf(0x0841), m.readHalf(0x0845),
+              devices::WorkStationController::kPortCount,
+              devices::WorkStationController::kAddressableDevices);
 
     // The IPL region's end is a literal 8191; the fixed disk's end is the
     // EXCLUSIVE 1-based end, not the count or last physical sector: a real

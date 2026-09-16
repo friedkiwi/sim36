@@ -91,8 +91,8 @@ void WorkStationController::attach(std::unique_ptr<WorkStationSlot> slot)
 std::vector<WorkStationSlot*> WorkStationController::slots() const
 {
     std::vector<WorkStationSlot*> ordered;
-    for (int port = 0; port < 8; port++)
-        for (int address = 0; address < 7; address++) {
+    for (int port = 0; port < kPortCount; port++)
+        for (int address = 0; address < kAddressesPerPort; address++) {
             WorkStationSlot* slot = find(unitAddress(port, address));
             if (slot != nullptr) ordered.push_back(slot);
         }

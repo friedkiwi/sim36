@@ -87,7 +87,7 @@ TEST_CASE("config: machine identity is independent of the CSP implementation")
     c.volumePath = "x.img";
     c.applyDefaultStationsIfNoneDeclared();
 
-    CHECK(c.systemCustomize1() == 0x89);
+    CHECK(c.systemCustomize1() == 0x8D);
 
     c.model = "5363";
     c.cspType = "advanced36";

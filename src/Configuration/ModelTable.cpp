@@ -27,7 +27,7 @@ struct CspEntry {
 const std::vector<Entry>& models()
 {
     static const std::vector<Entry> table = {
-        {"advanced36", 8192, 0x89,
+        {"advanced36", 8192, 0x8D,
          "the configuration IBM shipped; volume's control storage library is empty"},
         {"5360-s1", 512, -1, "original processor, MIM SY31-9000; not digitised"},
         {"5360-s2", 512, -1, "Stage 2, MIM SY31-9015; not digitised"},

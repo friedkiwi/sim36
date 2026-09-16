@@ -224,6 +224,8 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     CHECK(m.readByte(0x0850) == 0x8D);
     CHECK(m.readByte(0x08BD) == 0x8D);
     CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
+    CHECK(m.readByte(0x084E) == devices::WorkStationController::kPortCount);
+    CHECK(m.readByte(0x084F) == devices::WorkStationController::kAddressableDevices);
 
     // The seed is only a pre-UDT default.  A system entry's first customize
     // byte replaces both copies when an installed volume supplies one.
@@ -236,6 +238,8 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     GuestLowStorage::walkUnitDefinitionTable(m, trace, udt.data(), static_cast<int>(udt.size()));
     CHECK(m.readByte(0x0850) == 0x89);
     CHECK(m.readByte(0x08BD) == 0x89);
+    CHECK(m.readByte(0x084E) == devices::WorkStationController::kPortCount);
+    CHECK(m.readByte(0x084F) == devices::WorkStationController::kAddressableDevices);
     // A UDT without an id-61/class-C0 entry must not turn the live
     // controller's capacity into the number of currently defined stations,
     // or into zero.
@@ -244,10 +248,10 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
 
 TEST_CASE("power-on UDT describes the hardware implemented by the emulator")
 {
-    std::vector<uint8_t> udt = GuestLowStorage::synthesizeUnitDefinitionTable(0x89);
+    std::vector<uint8_t> udt = GuestLowStorage::synthesizeUnitDefinitionTable(0x8D);
     REQUIRE(udt.size() == 4096);
     CHECK(udt[0] == 0x01);
-    CHECK(udt[11] == 0x89);
+    CHECK(udt[11] == 0x8D);
 
     machine::MachineState m(1024 * 1024);
     monitor::Tracer trace;
@@ -285,14 +289,14 @@ TEST_CASE("blank volumes receive the power-on UDT at its primary and mirror sect
     }
 }
 
-TEST_CASE("power-on migrates the obsolete synthetic 5364 personality")
+TEST_CASE("power-on migrates the incompatible synthetic Advanced/36 personality")
 {
     CspEmptyVolume volume(9000);
     configuration::EmulatorConfig config;
     machine::MachineState state(1024 * 1024);
     monitor::Tracer trace;
     storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadWrite);
-    const std::vector<uint8_t> obsolete = GuestLowStorage::synthesizeUnitDefinitionTable(0x8D);
+    const std::vector<uint8_t> obsolete = GuestLowStorage::synthesizeUnitDefinitionTable(0x89);
     for (int base : {As36ControlStorageProcessor::kUdtSector,
                      As36ControlStorageProcessor::kUdtMirrorSector}) {
         for (int i = 0; i < As36ControlStorageProcessor::kUdtPersistedSectors; i++)
@@ -309,9 +313,9 @@ TEST_CASE("power-on migrates the obsolete synthetic 5364 personality")
     std::vector<uint8_t> mirror;
     REQUIRE(disk.readSector(As36ControlStorageProcessor::kUdtSector, primary));
     REQUIRE(disk.readSector(As36ControlStorageProcessor::kUdtMirrorSector, mirror));
-    CHECK(primary[11] == 0x89);
-    CHECK(mirror[11] == 0x89);
-    CHECK(state.readByte(0x0850) == 0x89);
+    CHECK(primary[11] == 0x8D);
+    CHECK(mirror[11] == 0x8D);
+    CHECK(state.readByte(0x0850) == 0x8D);
 }
 
 TEST_CASE("guest low storage accepts the 5363 system customize selector")

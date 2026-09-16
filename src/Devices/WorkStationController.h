@@ -131,10 +131,16 @@ private:
 
 class WorkStationController {
 public:
-    // The configuration reader walks indexes 0..63 and the configurer
-    // refuses a request longer than the controller's device maximum: 64 is
-    // the loop bound the machine's own reader uses, so it is the ceiling
-    // this model reports.
+    // The encoded twinax address space exposed by this emulator.  Address 7
+    // is reserved, so eight ports provide 8 * 7 = 56 usable positions.
+    static constexpr int kPortCount = 8;
+    static constexpr int kAddressesPerPort = 7;
+    static constexpr int kAddressableDevices = kPortCount * kAddressesPerPort;
+
+    // The native configuration reader walks indexes 0..63 and the configurer
+    // refuses a request longer than this controller-command limit.  This is
+    // distinct from the 56 addresses that can actually be encoded and that
+    // CNFIGSSP is told are available.
     static constexpr int kMaxDevices = 64;
 
     // The unit address is one byte: bits 0x70 the port, 0x07 the address,
