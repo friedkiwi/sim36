@@ -175,6 +175,28 @@ def main():
             submit("CNFIGSSP", "CONFIGURATION")
             if cnfig_apply_research:
                 submit("12", "CONFIGURATION MEMBER DEFINITION")
+                apply_member = os.environ.get("S36_CNFIG_APPLY_MEMBER", "").strip()
+                if apply_member:
+                    idle_mark = len(transcript)
+                    command("wait idle 30")
+                    wait_monitor("wait: guest is idle after", timeout=35,
+                                 after=idle_mark)
+                    w2.type_into("Member name", apply_member)
+                    w2.type_into("Library name", os.environ.get(
+                        "S36_CNFIG_APPLY_LIBRARY", "#CNFGLIB"))
+                    w2.press("Enter")
+                    w2.wait_for_text("CHANGE MASTER CONFIGURATION", timeout=90)
+                    w2.settle(quiet=0.5, timeout=10)
+                    print(w2.screen.render(
+                        "=== CNFIGSSP CHANGE MASTER CONFIGURATION ===",
+                        fields=True))
+                    if w2.screen.find("System does not support more than"):
+                        raise AssertionError(
+                            "CNFIGSSP rejected the member against the advertised hardware")
+                    print("PASS: CNFIGSSP accepted %s in %s for master configuration" %
+                          (apply_member, os.environ.get(
+                              "S36_CNFIG_APPLY_LIBRARY", "#CNFGLIB")))
+                    return 0
                 print("PASS: CNFIGSSP option 12 reached member selection without looping in #CIRN")
                 return 0
             submit("3", "CONFIGURATION MEMBER DEFINITION")
