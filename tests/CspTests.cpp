@@ -26,6 +26,25 @@ TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")
     CHECK_FALSE(heap.restoreCheckpoint({0xB000, 0x2000}));
 }
 
+TEST_CASE("translated assign Q bit 2 chooses the placement spanning the fewest pages")
+{
+    WorkSpaceHeap ordinary(2 * machine::MachineState::kPageBytes);
+    WorkSpaceHeap compact(2 * machine::MachineState::kPageBytes);
+
+    // Leave a free run beginning 64 bytes before a page boundary.  First fit
+    // crosses that boundary; the architected Q-bit-2 placement advances to
+    // the boundary and occupies one page only.
+    CHECK(ordinary.allocate(0x7C0) == 0);
+    CHECK(compact.allocate(0x7C0) == 0);
+    CHECK(ordinary.allocate(0x80) == 0x7C0);
+    CHECK(compact.allocate(0x80, true) == 0x800);
+    CHECK(compact.available() == ordinary.available());
+
+    // The skipped 64-byte head remains allocatable.
+    CHECK(compact.allocate(0x40) == 0x7C0);
+    CHECK(compact.allocate(0, true) == -1);
+}
+
 TEST_CASE("ATR pool rebases saved real frames when resident storage moves")
 {
     NuPttPool pool;

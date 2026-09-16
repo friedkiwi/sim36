@@ -555,17 +555,50 @@ void GuestHeap::enqueue(int off, int size)
 
 // ---- WorkSpaceHeap --------------------------------------------------------
 
-int WorkSpaceHeap::allocate(int bytes)
+int WorkSpaceHeap::allocate(int bytes, bool fewestPages)
 {
+    if (bytes <= 0) return -1;
     int size = round(bytes);
+    size_t selected = free_.size();
+    int at = -1;
+    int bestPages = 0;
     for (size_t i = 0; i < free_.size(); i++) {
-        if (free_[i].length < size) continue;
-        int at = free_[i].at;
-        if (free_[i].length == size) free_.erase(free_.begin() + static_cast<std::ptrdiff_t>(i));
-        else free_[i] = {at + size, free_[i].length - size};
-        return at;
+        const Range& range = free_[i];
+        if (range.length < size) continue;
+
+        int candidate = range.at;
+        if (fewestPages) {
+            // The only alignment boundary that can improve the page count
+            // inside one free run is the next page start.  Compare it with
+            // the run's first 64-byte element, then compare runs globally.
+            int pageAligned = (range.at + machine::MachineState::kPageBytes - 1) &
+                              ~(machine::MachineState::kPageBytes - 1);
+            auto pagesSpanned = [size](int start) {
+                return ((start + size - 1) >> machine::MachineState::kPageShift) -
+                       (start >> machine::MachineState::kPageShift) + 1;
+            };
+            if (pageAligned + size <= range.at + range.length &&
+                pagesSpanned(pageAligned) < pagesSpanned(candidate))
+                candidate = pageAligned;
+            int pages = pagesSpanned(candidate);
+            if (selected != free_.size() && pages >= bestPages) continue;
+            bestPages = pages;
+        }
+        selected = i;
+        at = candidate;
+        if (!fewestPages || bestPages == (size + machine::MachineState::kPageBytes - 1) >>
+                                             machine::MachineState::kPageShift)
+            break;
     }
-    return -1;
+    if (selected == free_.size()) return -1;
+
+    Range range = free_[selected];
+    free_.erase(free_.begin() + static_cast<std::ptrdiff_t>(selected));
+    if (range.at < at)
+        free_.insert(free_.begin() + static_cast<std::ptrdiff_t>(selected++), {range.at, at - range.at});
+    int tail = range.at + range.length - (at + size);
+    if (tail > 0) free_.insert(free_.begin() + static_cast<std::ptrdiff_t>(selected), {at + size, tail});
+    return at;
 }
 
 void WorkSpaceHeap::free(int at, int bytes)

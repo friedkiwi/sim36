@@ -216,10 +216,11 @@ private:
 // originally assigned area may be requested if each area to free begins on
 // a 64-byte boundary" (3-121), so free takes an arbitrary sub-range.
 //
-// Which free block a request gets is EMULATOR POLICY: the native machine
-// keeps a bit per 64-byte element inside the storage block, in the part
-// SA21-9436 defers to System Data Areas; this keeps the same information
-// beside the block instead, as first fit over a free list.
+// The native machine keeps a bit per 64-byte element inside the storage
+// block, in the part SA21-9436 defers to System Data Areas; this keeps the
+// same information beside the block in a free list.  Ordinary placement is
+// emulator-policy first fit.  Q bit 2 is architected, so that path instead
+// minimizes the number of 2 KB pages the returned area spans.
 class WorkSpaceHeap {
 public:
     // "64 byte multiples on 64 byte boundaries" (SA21-9436 3-119).
@@ -231,9 +232,11 @@ public:
 
     static int round(int bytes) { return (bytes + kGranularity - 1) & ~(kGranularity - 1); }
 
-    // First fit.  Returns the displacement, or -1 when the work space has no
-    // run that long, which is the PSR Low the manual specifies.
-    int allocate(int bytes);
+    // First fit unless SVC 2C Q bit 2 requests the placement that spans the
+    // fewest 2 KB main-storage pages.  Returns the displacement, or -1 when
+    // the work space has no run that long, which is the PSR Low the manual
+    // specifies.
+    int allocate(int bytes, bool fewestPages = false);
     // Give a range back, coalescing with its neighbours: "merged to one of
     // the current free areas (if adjacent)".
     void free(int at, int bytes);

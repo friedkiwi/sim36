@@ -1062,6 +1062,26 @@ void As36ControlStorageProcessor::deliverDeferredWorkStationInput(int taskBlock,
     const int lastPage = copied == 0 ? firstPage : (disp + copied - 1) >> machine::MachineState::kPageShift;
     const int pageCount = lastPage - firstPage + 1;
 
+    // The native translated heap's placement policy can put the small
+    // staging allocation at a different displacement from our host-side
+    // free-list policy.  The terminal nevertheless returned `copied` bytes
+    // beginning at that displacement, and this deferred replay is the
+    // emulator seam that moves those bytes from the issue-time I/O mapping
+    // onto the work-space's own backing pages.  Publish every page the replay
+    // writes before asking the ordinary pager for them.  This is deliberately
+    // local to a completed device write; MAP itself must continue to obey
+    // SB+18, as nucratr does.
+    int capacity = m_.readHalf(block + StorageBlock::kOffSizePages);
+    int requiredPages = lastPage + 1;
+    int oldHighWater = m_.readHalf(block + StorageBlock::kOffPagesMapped);
+    if (requiredPages > oldHighWater && requiredPages <= capacity) {
+        m_.writeHalf(block + StorageBlock::kOffPagesMapped, static_cast<uint16_t>(requiredPages));
+        m_.writeHalf(block + ControlBlock::kOffPagesMappedCopy, static_cast<uint16_t>(requiredPages));
+        trace_.csp("deferred WS input: storage block {:06X} mapped/high-water pages raised {} -> {} for {} returned "
+                   "field byte(s) at displacement {:04X}",
+                   block, oldHighWater, requiredPages, copied, disp);
+    }
+
     const std::vector<int>* resident = workSpaceResidentPages(block, "deferred WS input", firstPage, pageCount);
     if (resident == nullptr || lastPage >= static_cast<int>(resident->size())) {
         trace_.csp("SVC 2F: deferred Read Input Fields result for task {:04X} not delivered - block {:06X} pages {}..{} "

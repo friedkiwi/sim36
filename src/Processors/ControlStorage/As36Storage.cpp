@@ -28,6 +28,7 @@ namespace sim36::processors::controlstorage {
 bool As36ControlStorageProcessor::translatedAssignOrFree(SvcRequest& req)
 {
     constexpr uint8_t kMappedAddressInWr7 = 0x04;   // Q bit 5, both calls
+    constexpr uint8_t kFewestPages = 0x20;          // Q bit 2, assign only
     constexpr uint8_t kWaitForSpace = 0x01;         // Q bit 7, assign only
 
     int rb = req.requestBlock;
@@ -82,7 +83,8 @@ bool As36ControlStorageProcessor::translatedAssignOrFree(SvcRequest& req)
         return true;
     }
 
-    int at = heap->allocate(length);
+    bool fewestPages = (req.q & kFewestPages) != 0;
+    int at = heap->allocate(length, fewestPages);
     if (at < 0) {
         m_.writeByte(block + StorageBlock::kOffFlags,
                      static_cast<uint8_t>(m_.readByte(block + StorageBlock::kOffFlags) | StorageBlock::kFlagAssignFailed));
@@ -119,10 +121,11 @@ bool As36ControlStorageProcessor::translatedAssignOrFree(SvcRequest& req)
     m_.writeHalf(rb + RequestBlock::kOffXr1Low, static_cast<uint16_t>(answer));
     m_.writeByte(rb + RequestBlock::kOffPsr, static_cast<uint8_t>((psr & ~kPsrClearForEqual) | kPsrEqual));
 
-    trace_.csp("SVC 2C: assigned {} bytes at displacement {:04X} of the work space at {:06X} -> XR1 = {:06X} ({}); {} "
-               "bytes free",
+    trace_.csp("SVC 2C: assigned {} bytes at displacement {:04X} of the work space at {:06X} -> XR1 = {:06X} ({}, "
+               "{}); {} bytes free",
                WorkSpaceHeap::round(length), at, block, answer,
                translated ? fmt::format("translated, mapped at {:04X}", mapped) : std::string("virtual"),
+               fewestPages ? "fewest-page placement" : "first-fit placement",
                heap->available());
     return true;
 }

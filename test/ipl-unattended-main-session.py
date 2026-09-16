@@ -23,6 +23,7 @@ from tn5250drive import Session  # noqa: E402
 
 def main():
     dw_research = "--dw36-research" in sys.argv[1:]
+    cnfig_research = "--cnfigssp-research" in sys.argv[1:]
     config = os.environ.get("S36_CONFIG",
                             sim36env.default_config())
     temporary_config = None
@@ -103,9 +104,10 @@ def main():
             command("trace member " + os.environ.get(
                 "S36_ATTACH_TRACE_MEMBER", "CPTS"))
 
-        w2 = Session(port_base, name="W2").connect(timeout=25)
+        station_name = os.environ.get("S36_STATION", "W2")
+        w2 = Session(port_base, name=station_name).connect(timeout=25)
         w2.wait_for_text("Connect to workstation", timeout=20)
-        w2.type_into("Connect to workstation", "W2")
+        w2.type_into("Connect to workstation", station_name)
         w2.press("Enter")
         progress_aid = os.environ.get("S36_IPL_PROGRESS_AID", "").strip()
         if progress_aid:
@@ -119,10 +121,21 @@ def main():
         command("wait idle 30")
         wait_monitor("wait: guest is idle after", timeout=35, after=state_mark)
         command("dump 08AB 1")
-        wait_monitor("0008ab  55", timeout=10, after=state_mark)
+        active_08ab = os.environ.get("S36_ACTIVE_08AB", "55").lower()
+        wait_monitor("0008ab  %s" % active_08ab, timeout=10,
+                     after=state_mark)
         w2.type_into("User ID", "YVANJ")
+        if cnfig_research and station_name == "W1":
+            w2.type_into("Date", os.environ.get("S36_IPL_DATE", "090896"))
+            w2.type_into("Time", os.environ.get("S36_IPL_TIME", "120000"))
         signon_mark = len(transcript)
         w2.press("Enter")
+        if cnfig_research and station_name == "W1":
+            # This configured image uses the operator sign-on panel and asks
+            # for acknowledgement when its saved date needs changing.
+            w2.settle(quiet=0.5, timeout=5)
+            if w2.screen.find("SYS-5519"):
+                w2.press("Enter")
         try:
             w2.wait_for_text("MAIN", timeout=90)
         except TimeoutError:
@@ -133,6 +146,51 @@ def main():
                 print("\n".join(w2.trace[-40:]), file=sys.stderr)
             raise
         w2.wait_for_text("Main System/36 help menu", timeout=10)
+
+        if cnfig_research:
+            # Private SSP-media regression for CNFIGSSP's device-code pages.
+            # The final Cmd5 used to expose a deferred-input/work-space
+            # high-water mismatch as a level-5 storage-protection check in
+            # #WDDG.
+            def submit(value, expected):
+                idle_mark = len(transcript)
+                command("wait idle 30")
+                wait_monitor("wait: guest is idle after", timeout=35,
+                             after=idle_mark)
+                generation = w2.generation
+                if value is not None:
+                    if w2.screen.find("Main System/36 help menu"):
+                        w2.type_at(22, 3, value)
+                    else:
+                        w2.type_into("Option", value)
+                w2.press("Enter")
+                w2.wait_for_text(expected, timeout=90)
+                w2.wait_for_change(timeout=10, since=generation)
+                w2.settle(quiet=0.5, timeout=10)
+                print(w2.screen.render("=== CNFIGSSP %s ===" % expected,
+                                       fields=True))
+
+            command("trace csp")
+            submit("CNFIGSSP", "CONFIGURATION")
+            submit("3", "CONFIGURATION MEMBER DEFINITION")
+            submit("5", "CONFIGURATION MEMBER DESCRIPTION")
+            submit(None, "CONFIGURATION MEMBER")
+            submit("1", "DISPLAY STATION")
+            submit("1", "PRINTER DEFINITION")
+            submit(None, "WORK STATION DEFINITION")
+            for page in range(16):
+                generation = w2.generation
+                w2.press("Cmd5")
+                w2.wait_for_change(timeout=90, since=generation)
+                w2.settle(quiet=0.3, timeout=5)
+                if any("CHECK [program]" in line for line in transcript):
+                    raise AssertionError(
+                        "CNFIGSSP device-code page %d caused a processor check" %
+                        (page + 1))
+            print(w2.screen.render("=== W2 CNFIGSSP DEVICE CODES ===",
+                                   fields=True))
+            print("PASS: CNFIGSSP cycled all device-code pages without a processor check")
+            return 0
 
         if dw_research:
             # Private research oracle only. DisplayWrite media is not
