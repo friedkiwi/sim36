@@ -244,10 +244,10 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
 
 TEST_CASE("power-on UDT describes the hardware implemented by the emulator")
 {
-    std::vector<uint8_t> udt = GuestLowStorage::synthesizeUnitDefinitionTable(0x8D);
+    std::vector<uint8_t> udt = GuestLowStorage::synthesizeUnitDefinitionTable(0x89);
     REQUIRE(udt.size() == 4096);
     CHECK(udt[0] == 0x01);
-    CHECK(udt[11] == 0x8D);
+    CHECK(udt[11] == 0x89);
 
     machine::MachineState m(1024 * 1024);
     monitor::Tracer trace;
@@ -283,6 +283,35 @@ TEST_CASE("blank volumes receive the power-on UDT at its primary and mirror sect
         CHECK(std::equal(first, last, primary.begin()));
         CHECK(primary == mirror);
     }
+}
+
+TEST_CASE("power-on migrates the obsolete synthetic 5364 personality")
+{
+    CspEmptyVolume volume(9000);
+    configuration::EmulatorConfig config;
+    machine::MachineState state(1024 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadWrite);
+    const std::vector<uint8_t> obsolete = GuestLowStorage::synthesizeUnitDefinitionTable(0x8D);
+    for (int base : {As36ControlStorageProcessor::kUdtSector,
+                     As36ControlStorageProcessor::kUdtMirrorSector}) {
+        for (int i = 0; i < As36ControlStorageProcessor::kUdtPersistedSectors; i++)
+            REQUIRE(disk.writeSector(base + i,
+                obsolete.data() + i * storage::DiskBackend::kSectorBytes));
+    }
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    csp.bringUpControlProcessor();
+    csp.iplMainProcessor();
+
+    std::vector<uint8_t> primary;
+    std::vector<uint8_t> mirror;
+    REQUIRE(disk.readSector(As36ControlStorageProcessor::kUdtSector, primary));
+    REQUIRE(disk.readSector(As36ControlStorageProcessor::kUdtMirrorSector, mirror));
+    CHECK(primary[11] == 0x89);
+    CHECK(mirror[11] == 0x89);
+    CHECK(state.readByte(0x0850) == 0x89);
 }
 
 TEST_CASE("guest low storage accepts the 5363 system customize selector")
