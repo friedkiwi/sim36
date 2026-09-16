@@ -3,6 +3,7 @@
 // SVC 0E drives it.
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -31,11 +32,11 @@ namespace {
 struct CspEmptyVolume {
     std::filesystem::path path;
 
-    CspEmptyVolume()
+    explicit CspEmptyVolume(int sectors = 32)
     {
         path = std::filesystem::temp_directory_path() /
                ("sim36-csp-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".img");
-        std::vector<uint8_t> bytes(32 * storage::DiskBackend::kSectorBytes, 0);
+        std::vector<uint8_t> bytes(static_cast<std::size_t>(sectors) * storage::DiskBackend::kSectorBytes, 0);
         std::ofstream out(path, std::ios::binary);
         out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     }
@@ -222,7 +223,6 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     CHECK(error.empty());
     CHECK(m.readByte(0x0850) == 0x8D);
     CHECK(m.readByte(0x08BD) == 0x8D);
-    CHECK((m.readByte(0x08B2) & 0x20) != 0);
     CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
 
     // The seed is only a pre-UDT default.  A system entry's first customize
@@ -239,8 +239,50 @@ TEST_CASE("guest low storage seeds the blank-disk system customize selector")
     // A UDT without an id-61/class-C0 entry must not turn the live
     // controller's capacity into the number of currently defined stations,
     // or into zero.
-    CHECK((m.readByte(0x08B2) & 0x20) != 0);
     CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
+}
+
+TEST_CASE("power-on UDT describes the hardware implemented by the emulator")
+{
+    std::vector<uint8_t> udt = GuestLowStorage::synthesizeUnitDefinitionTable(0x8D);
+    REQUIRE(udt.size() == 4096);
+    CHECK(udt[0] == 0x01);
+    CHECK(udt[11] == 0x8D);
+
+    machine::MachineState m(1024 * 1024);
+    monitor::Tracer trace;
+    GuestLowStorage::walkUnitDefinitionTable(m, trace, udt.data(), static_cast<int>(udt.size()));
+    CHECK(m.readByte(0x0849) == 0x45);
+    CHECK(m.readByte(0x0851) == 0x01);
+    CHECK(m.readByte(0x08B2) == 0xC0);
+    CHECK(m.readByte(0x08C3) == devices::WorkStationController::kMaxDevices);
+}
+
+TEST_CASE("blank volumes receive the power-on UDT at its primary and mirror sectors")
+{
+    CspEmptyVolume volume(9000);
+    configuration::EmulatorConfig config;
+    machine::MachineState state(1024 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadWrite);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    csp.bringUpControlProcessor();
+    csp.iplMainProcessor();
+
+    const std::vector<uint8_t> expected =
+        GuestLowStorage::synthesizeUnitDefinitionTable(config.systemCustomize1());
+    for (int i = 0; i < As36ControlStorageProcessor::kUdtPersistedSectors; i++) {
+        std::vector<uint8_t> primary;
+        std::vector<uint8_t> mirror;
+        REQUIRE(disk.readSector(As36ControlStorageProcessor::kUdtSector + i, primary));
+        REQUIRE(disk.readSector(As36ControlStorageProcessor::kUdtMirrorSector + i, mirror));
+        const auto first = expected.begin() + i * storage::DiskBackend::kSectorBytes;
+        const auto last = first + storage::DiskBackend::kSectorBytes;
+        CHECK(std::equal(first, last, primary.begin()));
+        CHECK(primary == mirror);
+    }
 }
 
 TEST_CASE("guest low storage accepts the 5363 system customize selector")

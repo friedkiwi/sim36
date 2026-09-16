@@ -68,6 +68,8 @@ public:
     // one record's fields into the next without faulting.
     static constexpr int kUdtSector = 26;
     static constexpr int kUdtSectors = 16;
+    static constexpr int kUdtPersistedSectors = 4;
+    static constexpr int kUdtMirrorSector = 8225;
 
     // The system queue space: guest 0x2000 through 0x10000 is the initial
     // segment, and the native pool grows in 64 KB units up to 0x6F0000.

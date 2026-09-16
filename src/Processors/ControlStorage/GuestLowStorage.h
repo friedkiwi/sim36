@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "Machine/MachineState.h"
 #include "Monitor/Tracer.h"
@@ -128,6 +129,12 @@ public:
     // the reason.
     static bool build(machine::MachineState& m, monitor::Tracer& trace, int volumeSectors,
                       const HostInfo& host, uint8_t systemCustomize1, std::string& error);
+
+    // Build the hardware description which Advanced/36 power-on places in
+    // the disk UDT area before starting the SSP IPL.  The returned buffer has
+    // the same 4 KB shape read by csipl; its meaningful, persisted prefix is
+    // four sectors.
+    static std::vector<uint8_t> synthesizeUnitDefinitionTable(uint8_t systemCustomize1);
 
     // Walk the unit definition table exactly as the IPL does.  `udt` is the
     // 4 KB the IPL disk read fetches (16 sectors from 1-based 27), which the

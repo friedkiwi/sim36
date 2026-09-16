@@ -173,9 +173,28 @@ void As36ControlStorageProcessor::buildFromUnitDefinitionTable()
         diskRead(kUdtSector + i, rec.data() + static_cast<std::ptrdiff_t>(i) * storage::DiskBackend::kSectorBytes, "UDT");
 
     if (rec[GuestLowStorage::kUdtDeviceId] != kUdtSystemEntry) {
-        trace_.csp("UDT: sector {} does not start with a system entry (device id {:02X}) - low storage not populated",
-                   kUdtSector, rec[GuestLowStorage::kUdtDeviceId]);
-        return;
+        uint8_t oldId = rec[GuestLowStorage::kUdtDeviceId];
+        rec = GuestLowStorage::synthesizeUnitDefinitionTable(cfg_.systemCustomize1());
+
+        // The Advanced/36 power-on writes the generated table both to the
+        // IPL UDT area and to its protected-area mirror before emIPL reads
+        // it.  CNFIGSSP consults the on-disk hardware description later, so
+        // populating low storage alone cannot make configuration validation
+        // work.  Overlay attachments retain these writes in their overlay;
+        // a genuinely read-only attachment still gets the synthesized table
+        // for this IPL but cannot, by definition, apply a master-record update.
+        int written = 0;
+        for (int base : {kUdtSector, kUdtMirrorSector}) {
+            if (base + kUdtPersistedSectors > disk_.sectorCount()) continue;
+            for (int i = 0; i < kUdtPersistedSectors; i++) {
+                const uint8_t* sector = rec.data() + static_cast<std::ptrdiff_t>(i) * storage::DiskBackend::kSectorBytes;
+                if (disk_.writeSector(base + i, sector)) written++;
+            }
+        }
+        trace_.csp("UDT: sector {} began with device id {:02X}; power-on synthesized the emulator hardware table "
+                   "and persisted {}/{} sectors at {} and its mirror {}{}",
+                   kUdtSector, oldId, written, 2 * kUdtPersistedSectors, kUdtSector, kUdtMirrorSector,
+                   written == 0 ? " (attachment is read-only)" : "");
     }
 
     GuestLowStorage::walkUnitDefinitionTable(m_, trace_, rec.data(), static_cast<int>(rec.size()));
