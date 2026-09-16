@@ -7,6 +7,8 @@
 
 #include <fmt/format.h>
 
+#include "Monitor/CommandRegistry.h"
+
 namespace sim36::monitor {
 
 using configuration::EmulatorConfig;
@@ -15,7 +17,6 @@ using configuration::StationConfig;
 namespace {
 
 const char* onOff(bool v) { return v ? "on" : "off"; }
-std::string display(const std::string& v) { return v.empty() ? "(empty)" : v; }
 std::string displayPath(const std::string& v) { return v.empty() ? "(none)" : v; }
 
 std::string fixedDiskMode(const EmulatorConfig& c)
@@ -49,33 +50,31 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
     line(fmt::format("configuration {}", latched ? "latched" : "editable"));
     line("machine:");
     line(fmt::format("  model                  {}", c.model));
-    line(fmt::format("  csp type               {} ({})", c.cspType, configuration::cspKindName(c.cspKind())));
+    if (!equalsIgnoreCase(c.cspType, c.model))
+        line(fmt::format("  csp type               {} ({})", c.cspType,
+                         configuration::cspKindName(c.cspKind())));
     line(fmt::format("  memory                 {}K [model maximum]", c.maxMainStorageKb()));
     line(fmt::format("  task work area         {} sectors", c.taskWorkAreaSectors));
-    line(fmt::format("  host model             {}", display(c.hostModel)));
-    line(fmt::format("  host processor feature {:04X}", c.hostProcessorFeature));
-    line(fmt::format("  host processor model   {}", display(c.hostProcessorModel)));
     line(fmt::format("  IPL type               {}", c.iplType));
     line(fmt::format("  IPL source             {}", c.iplSourceName));
 
-    line("session policy:");
-    line(fmt::format("  listener auto-signon   {}", onOff(c.listenerAutoSignOn)));
-    line(fmt::format("  signon use router      {}", onOff(c.consoleSignOnUseRouter)));
-    line(fmt::format("  signon statement       {}", onOff(c.consoleSignOnStatement)));
-    line(fmt::format("  signon request         {}", onOff(c.consoleSignOnRequest)));
-    line(fmt::format("  signon router key      {:X}", c.consoleSignOnRouterKey));
-    line(fmt::format("  workstation interactive {}", onOff(c.wsInteractive)));
-
     line("media:");
     line(fmt::format("  disk0                  {}  {}", displayPath(c.volumePath), fixedDiskMode(c)));
-    line(fmt::format("  diskette0              {}  {}", displayPath(c.diskettePath),
-                     c.disketteReadOnly ? "readonly" : "writable"));
-    line(fmt::format("  tape0                  {}  {}", displayPath(c.tape ? c.tape->folderPath : ""),
-                     !c.tape || !c.tape->readOnly ? "writable" : "readonly"));
+    if (c.diskettePath.empty())
+        line("  diskette0              (none)");
+    else
+        line(fmt::format("  diskette0              {}  {}", c.diskettePath,
+                         c.disketteReadOnly ? "readonly" : "writable"));
+    if (!c.tape || c.tape->folderPath.empty())
+        line("  tape0                  (none)");
+    else
+        line(fmt::format("  tape0                  {}  {}", c.tape->folderPath,
+                         c.tape->readOnly ? "readonly" : "writable"));
 
     line("terminal:");
     line(fmt::format("  multiplex              {}", onOff(c.stationMultiplex)));
     line(fmt::format("  multiplex listen       {}:{}", c.multiplexHost, c.multiplexPort));
+    line(fmt::format("  auto-signon            {}", onOff(c.listenerAutoSignOn)));
 
     line("stations:");
     std::vector<StationConfig> stations = sorted(c);
@@ -84,13 +83,18 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
         return w;
     }
     for (const StationConfig& s : stations) {
-        std::string transport = s.isConsole() ? "operator"
-            : s.listenPort == 0 ? "off"
-            : s.listenHost + ":" + std::to_string(s.listenPort);
-        std::string output = !s.isPrinter() ? "-" : s.printerOutput == "file"
-            ? "file " + s.printerOutputPath : s.printerOutput;
-        line(fmt::format("  {:<3} role={} device-code={} signon-at-ipl={} output={} listen={}",
-                         s.id(), s.role, s.deviceCode, onOff(s.signOnAtIpl), output, transport));
+        std::string description = fmt::format("  {:<3} role={} device-code={}",
+                                              s.id(), s.role, s.deviceCode);
+        if (s.isPrinter()) {
+            description += " output=";
+            description += s.printerOutput == "file"
+                ? "file " + s.printerOutputPath : s.printerOutput;
+        }
+        // The multiplexer replaces only display listeners.  Printer TN5250
+        // endpoints remain active and should still be reported.
+        if (!s.isConsole() && s.listenPort != 0 && (s.isPrinter() || !c.stationMultiplex))
+            description += fmt::format(" listen={}:{}", s.listenHost, s.listenPort);
+        line(description);
     }
     return w;
 }

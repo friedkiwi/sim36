@@ -44,6 +44,7 @@ else
     bad "save config stdout emits commands only"
 fi
 has "saved configuration preserves overlay mode" "attach disk0 $SIM36_VOLUME overlay"
+has "saved configuration preserves CSP type" "set machine csp-type advanced36"
 mux_listen_line=$(printf '%s\n' "$replay" | grep -n '^set terminal multiplex listen ' | cut -d: -f1)
 mux_mode_line=$(printf '%s\n' "$replay" | grep -n '^set terminal multiplex off$' | cut -d: -f1)
 if [ -n "$mux_listen_line" ] && [ -n "$mux_mode_line" ] && [ "$mux_listen_line" -lt "$mux_mode_line" ]; then
@@ -63,7 +64,7 @@ out=$("$SIM36" -c "$TMP/replay.sim" 2>&1) || true
 has "stdout configuration is replayable" "memory                 1024K [model maximum]"
 has "replayed configuration retains overlay" "$SIM36_VOLUME  overlay"
 has "replayed configuration retains machine model" "model                  5363"
-has "replayed configuration retains CSP type" "csp type               advanced36 (virtual)"
+has "replayed distinct CSP implementation remains visible" "csp type               advanced36 (virtual)"
 
 mkdir "$TMP/nested"
 printf 'save config saved.sim\nquit\n' >"$TMP/nested/write.sim"

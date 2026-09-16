@@ -228,6 +228,68 @@ TEST_CASE("renderer: replay is sorted by station and puts the endpoint before en
     CHECK(replay.find("set station 0.0 role console") < replay.find("set station 0.2 role display"));
 }
 
+TEST_CASE("renderer: human output contains only active operator-facing configuration")
+{
+    EmulatorConfig c;
+    c.consoleSignOnUseRouter = false;
+    c.consoleSignOnStatement = true;
+    c.consoleSignOnRequest = true;
+    c.consoleSignOnRouterKey = 0x17;
+    c.wsInteractive = true;
+    c.listenerAutoSignOn = true;
+
+    StationConfig console;
+    console.port = 0;
+    console.address = 0;
+    console.role = "console";
+    console.signOnAtIpl = true;
+    StationConfig printer;
+    printer.port = 0;
+    printer.address = 1;
+    printer.role = "printer";
+    printer.deviceCode = "PB";
+    printer.printerOutput = "console";
+    StationConfig display;
+    display.port = 0;
+    display.address = 2;
+    display.listenPort = 2302;
+    c.stations = {display, printer, console};
+
+    const std::string human = ConfigurationRenderer::renderHuman(c, false);
+    CHECK(human.find("csp type") == std::string::npos);
+    CHECK(human.find("host model") == std::string::npos);
+    CHECK(human.find("host processor") == std::string::npos);
+    CHECK(human.find("session policy") == std::string::npos);
+    CHECK(human.find("signon use router") == std::string::npos);
+    CHECK(human.find("signon statement") == std::string::npos);
+    CHECK(human.find("signon request") == std::string::npos);
+    CHECK(human.find("signon router key") == std::string::npos);
+    CHECK(human.find("workstation interactive") == std::string::npos);
+    CHECK(human.find("  auto-signon            on\n") != std::string::npos);
+    CHECK(human.find("  diskette0              (none)\n") != std::string::npos);
+    CHECK(human.find("  tape0                  (none)\n") != std::string::npos);
+    CHECK(human.find("signon-at-ipl") == std::string::npos);
+    CHECK(human.find("output=-") == std::string::npos);
+    CHECK(human.find("listen=operator") == std::string::npos);
+    CHECK(human.find("listen=off") == std::string::npos);
+    CHECK(human.find("  0.1 role=printer device-code=PB output=console\n") != std::string::npos);
+    CHECK(human.find("listen=127.0.0.1:2302") == std::string::npos);
+
+    c.model = "5363";
+    const std::string distinctCsp = ConfigurationRenderer::renderHuman(c, false);
+    CHECK(distinctCsp.find("  csp type               advanced36 (virtual)\n") != std::string::npos);
+
+    c.stationMultiplex = false;
+    const std::string listeners = ConfigurationRenderer::renderHuman(c, false);
+    CHECK(listeners.find("  0.2 role=display device-code=11 listen=127.0.0.1:2302\n") !=
+          std::string::npos);
+
+    const std::string replay = ConfigurationRenderer::renderReplay(c);
+    CHECK(replay.find("set machine csp-type advanced36\n") != std::string::npos);
+    CHECK(replay.find("set machine signon-request on\n") != std::string::npos);
+    CHECK(replay.find("set station 0.0 signon-at-ipl on\n") != std::string::npos);
+}
+
 TEST_CASE("trace flags: parse and render as the reference's enum did")
 {
     using namespace sim36::monitor;
