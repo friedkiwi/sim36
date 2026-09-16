@@ -15,6 +15,40 @@ namespace sim36::devices {
 using processors::controlstorage::Ecm;
 using processors::controlstorage::RequestBlock;
 
+namespace {
+
+struct SavedScreenRecord {
+    int bodyOffset = 0;
+    int bodyLength = 0;
+    uint8_t readMode = 0;
+};
+
+// SSP normally submits command 12 for this record, but #WDDG also passes the
+// same saved-screen envelope to command 27 while unwinding an overlaid panel.
+// The 22-byte prefix belongs to SSP; only the terminal-returned 0412 body is
+// valid in an RFC 1205 Restore Screen record.
+bool decodeSavedScreenRecord(const uint8_t* data, int offset, int length, SavedScreenRecord& record)
+{
+    constexpr int kPrefixLength = 22;
+    if (length < kPrefixLength + 2 || data[offset] != 0x04 || data[offset + 1] != 0x12) return false;
+
+    int allocation = (data[offset + 2] << 8) | data[offset + 3];
+    int imageLength = (data[offset + 20] << 8) | data[offset + 21];
+    int bodyLength = imageLength + 2;
+    uint8_t mode = data[offset + 18];
+    if (allocation > length || kPrefixLength + bodyLength > allocation || kPrefixLength + bodyLength > length ||
+        (mode != 0 && mode != 1 && mode != 0x20 && mode != 0x21) || data[offset + kPrefixLength] != 0x04 ||
+        data[offset + kPrefixLength + 1] != 0x12)
+        return false;
+
+    record.bodyOffset = offset + kPrefixLength;
+    record.bodyLength = bodyLength;
+    record.readMode = mode;
+    return true;
+}
+
+}  // namespace
+
 DeviceSet::DeviceSet(machine::MachineState& m, storage::DiskBackend& volume, monitor::Tracer& trace)
     : disk(m, volume, trace), diskette(m, trace), tape(m, trace), m_(m), trace_(trace), workStations_(trace)
 {
@@ -1150,29 +1184,28 @@ bool DeviceSet::restoreScreen(int iob, WorkStationSlot& slot)
         IoBlock::complete(m_, iob, 4);
         return false;
     }
-    int allocation = readCapturedHalf(source, 2);
-    int screenImageLength = readCapturedHalf(source, 20);
-    int bodyLength = screenImageLength + 2;
-    uint8_t mode = m_.readByte(source[18]);
-    if (readCapturedHalf(source, 0) != 0x0412 || allocation > supplied || bodyLength + 22 > allocation ||
-        22 + bodyLength > static_cast<int>(source.size()) || (mode != 0 && mode != 1 && mode != 0x20 && mode != 0x21)) {
-        trace_.ws("  Restore Screen IOB {:06X}: malformed SSP save record (allocation {}, image {}, mode {:02X})", iob, allocation,
-                  screenImageLength, mode);
+    std::vector<uint8_t> saved(static_cast<std::size_t>(supplied));
+    readCaptured(source, 0, saved.data(), 0, supplied);
+    SavedScreenRecord record;
+    if (!decodeSavedScreenRecord(saved.data(), 0, supplied, record)) {
+        int allocation = supplied >= 4 ? (saved[2] << 8) | saved[3] : 0;
+        int imageLength = supplied >= 22 ? (saved[20] << 8) | saved[21] : 0;
+        uint8_t mode = supplied >= 19 ? saved[18] : 0;
+        trace_.ws("  Restore Screen IOB {:06X}: malformed SSP save record (allocation {}, image {}, mode {:02X})", iob,
+                  allocation, imageLength, mode);
         IoBlock::complete(m_, iob, 4);
         return false;
     }
 
-    std::vector<uint8_t> body(static_cast<std::size_t>(bodyLength));
-    readCaptured(source, 22, body.data(), 0, bodyLength);
-    if (body[0] != 0x04 || body[1] != 0x12 || !slot.backend()->restoreScreen(body.data(), 0, bodyLength) ||
-        (mode != 0 && !slot.backend()->resumeSavedReadMode(mode))) {
+    if (!slot.backend()->restoreScreen(saved.data(), record.bodyOffset, record.bodyLength) ||
+        (record.readMode != 0 && !slot.backend()->resumeSavedReadMode(record.readMode))) {
         trace_.ws("  Restore Screen IOB {:06X}: terminal restore/read-mode request failed", iob);
         IoBlock::complete(m_, iob, 4);
         return false;
     }
     IoBlock::complete(m_, iob, 0);
     trace_.ws("  Restore Screen COMPLETE: IOB {:06X}, sent terminal-returned 0412 image ({} byte(s)), restored mode {:02X}", iob,
-              screenImageLength, mode);
+              record.bodyLength - 2, record.readMode);
     return true;
 }
 
@@ -1272,8 +1305,20 @@ bool DeviceSet::outputData(int iob, WorkStationSlot& slot, bool withInvite)
     // The one place the two seams part: a display gets an RFC 1205 display
     // record and a printer an RFC 2877 section 10 print record.
     bool sent;
-    if (slot.isPrinter) sent = slot.printer()->sendDataStream(data.data(), 0, length);
-    else sent = withInvite ? slot.backend()->putWithInvite(data.data(), 0, length) : slot.backend()->put(data.data(), 0, length);
+    SavedScreenRecord saved;
+    bool putCarriesSavedScreen = !slot.isPrinter && !withInvite &&
+                                  decodeSavedScreenRecord(data.data(), 0, length, saved);
+    if (slot.isPrinter) {
+        sent = slot.printer()->sendDataStream(data.data(), 0, length);
+    } else if (putCarriesSavedScreen) {
+        sent = slot.backend()->restoreScreen(data.data(), saved.bodyOffset, saved.bodyLength) &&
+               (saved.readMode == 0 || slot.backend()->resumeSavedReadMode(saved.readMode));
+        trace_.ws("  put carried an SSP saved-screen envelope: sent embedded {}-byte 0412 body as RFC 1205 Restore Screen, "
+                  "restored mode {:02X}",
+                  saved.bodyLength, saved.readMode);
+    } else {
+        sent = withInvite ? slot.backend()->putWithInvite(data.data(), 0, length) : slot.backend()->put(data.data(), 0, length);
+    }
 
     trace_.ws("  {}: {} bytes from guest {:06X} to {} {}", withInvite ? "put with invite" : "put", length, src,
               slot.isPrinter ? "printer" : "station", slot.backendName());

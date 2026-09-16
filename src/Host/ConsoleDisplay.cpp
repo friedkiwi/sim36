@@ -24,6 +24,32 @@ ConsoleDisplay::ConsoleDisplay(int limit, bool writeLog)
     clearScreen();
 }
 
+ConsoleDisplay::RetainedState ConsoleDisplay::captureState() const
+{
+    RetainedState state;
+    state.screen = screen_;
+    state.fields = fields_;
+    state.operatorError = operatorError_;
+    state.row = row_;
+    state.col = col_;
+    state.cursorRow = cursorRow_;
+    state.cursorCol = cursorCol_;
+    state.firstInputField = firstInputField_;
+    return state;
+}
+
+void ConsoleDisplay::restoreState(const RetainedState& state)
+{
+    screen_ = state.screen;
+    fields_ = state.fields;
+    operatorError_ = state.operatorError;
+    row_ = state.row;
+    col_ = state.col;
+    cursorRow_ = state.cursorRow;
+    cursorCol_ = state.cursorCol;
+    firstInputField_ = state.firstInputField;
+}
+
 std::string ConsoleDisplay::renderText() const
 {
     std::string text;

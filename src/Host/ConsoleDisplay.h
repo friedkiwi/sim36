@@ -66,6 +66,15 @@ class ConsoleDisplay {
 public:
     static constexpr int kRows = 24, kCols = 80;
 
+    struct RetainedState {
+        std::vector<uint8_t> screen;
+        std::vector<ConsoleField> fields;
+        std::vector<uint8_t> operatorError;
+        int row = 1, col = 1;
+        int cursorRow = 1, cursorCol = 1;
+        int firstInputField = 0;
+    };
+
     explicit ConsoleDisplay(int limit = 500, bool writeLog = true);
 
     int cursorRow() const { return cursorRow_; }
@@ -87,6 +96,10 @@ public:
     // Render the retained 24x80 image without interpreting any additional
     // 5250 orders.  Diagnostic presentation only.
     std::string renderText() const;
+    // Save/Restore Screen images belong to the terminal and may be opaque.
+    // Keep a decoded counterpart without rolling diagnostic logs backward.
+    RetainedState captureState() const;
+    void restoreState(const RetainedState& state);
 
     // Decode one outbound 5250 record into operation lines, and keep the
     // screen image and format table it builds.  Recognised: Clear Unit,

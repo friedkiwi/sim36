@@ -77,6 +77,8 @@ void VirtualWorkstation::powerOff()
     hasRetainedInput_ = false;
     retainedDeviceInput_.clear();
     retainedReadMode_ = 0;
+    pendingScreenSaveStates_.clear();
+    savedDisplayStates_.clear();
     backend_->clearForPowerOff();
     trace_.ws("station {}: powered off (client gone); invite, read mode and retained input discarded", id());
 }
@@ -347,16 +349,42 @@ int VirtualWorkstation::pendingInput() const { return backend_->pendingInput() +
 bool VirtualWorkstation::beginSaveScreen()
 {
     trace_.ws("station {}: RFC-1205 Save Screen request 04/0402", id());
-    return backend_->sendSaveScreen();
+    pendingScreenSaveStates_.push_back(deviceDisplay_.captureState());
+    if (backend_->sendSaveScreen()) return true;
+    pendingScreenSaveStates_.pop_back();
+    return false;
 }
 
-bool VirtualWorkstation::tryTakeSaveScreen(std::vector<uint8_t>& body) { return backend_->tryTakeSaveScreen(body); }
+bool VirtualWorkstation::tryTakeSaveScreen(std::vector<uint8_t>& body)
+{
+    if (!backend_->tryTakeSaveScreen(body)) return false;
+    if (!pendingScreenSaveStates_.empty()) {
+        while (static_cast<int>(savedDisplayStates_.size()) >= kSavedDisplayStateLimit) savedDisplayStates_.pop_front();
+        savedDisplayStates_.push_back(SavedDisplayState{body, std::move(pendingScreenSaveStates_.front())});
+        pendingScreenSaveStates_.pop_front();
+    }
+    return true;
+}
 int VirtualWorkstation::pendingSaveScreens() const { return backend_->pendingSaveScreens(); }
 
 bool VirtualWorkstation::restoreScreen(const uint8_t* data, int offset, int length)
 {
     trace_.ws("station {}: RFC-1205 Restore Screen, {} terminal-returned byte(s)", id(), length);
-    return backend_->sendRestoreScreen(data, offset, length);
+    if (!backend_->sendRestoreScreen(data, offset, length)) return false;
+
+    auto sameBody = [&](const SavedDisplayState& saved) {
+        return static_cast<int>(saved.terminalBody.size()) == length &&
+               std::equal(saved.terminalBody.begin(), saved.terminalBody.end(), data + offset);
+    };
+    auto found = std::find_if(savedDisplayStates_.rbegin(), savedDisplayStates_.rend(), sameBody);
+    if (found != savedDisplayStates_.rend()) {
+        deviceDisplay_.restoreState(found->display);
+        if (backend_->console() != nullptr) backend_->console()->restoreState(found->display);
+        trace_.ws("station {}: restored decoded screen state paired with the opaque terminal image", id());
+    } else {
+        trace_.ws("station {}: no decoded state retained for this opaque terminal image", id());
+    }
+    return true;
 }
 
 bool VirtualWorkstation::resumeSavedReadMode(uint8_t mode)
@@ -378,6 +406,8 @@ void VirtualWorkstation::detach()
     hasRetainedInput_ = false;
     retainedDeviceInput_.clear();
     retainedReadMode_ = 0;
+    pendingScreenSaveStates_.clear();
+    savedDisplayStates_.clear();
 }
 
 bool VirtualWorkstation::restoreCheckpoint(int tub, WorkstationOutputMode mode, PutWithInviteReadMode readMode,
@@ -399,6 +429,8 @@ bool VirtualWorkstation::restoreCheckpoint(int tub, WorkstationOutputMode mode, 
     hasRetainedInput_ = false;
     retainedDeviceInput_.clear();
     retainedReadMode_ = 0;
+    pendingScreenSaveStates_.clear();
+    savedDisplayStates_.clear();
     if (inviteOutstanding && activeReadMode_ == 0x21)
         backend_->sendSavedReadMode(0x21);
     else

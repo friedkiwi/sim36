@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -177,6 +178,13 @@ private:
     // The read operation which produced retainedDeviceInput_. D932 replies
     // are structured fields and must not go through DP-mode field compaction.
     uint8_t retainedReadMode_ = 0;
+    struct SavedDisplayState {
+        std::vector<uint8_t> terminalBody;
+        host::ConsoleDisplay::RetainedState display;
+    };
+    std::deque<host::ConsoleDisplay::RetainedState> pendingScreenSaveStates_;
+    std::deque<SavedDisplayState> savedDisplayStates_;
+    static constexpr int kSavedDisplayStateLimit = 16;
     long long outputDataStreams_ = 0;
     long long outputDataBytes_ = 0;
     long long inputRecords_ = 0;
