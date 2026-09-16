@@ -7,6 +7,19 @@ include(cmake/VcpkgBootstrap.cmake)
 
 project(sim36 VERSION 0.1.0 LANGUAGES CXX)
 
+# Single-config generators leave CMAKE_BUILD_TYPE empty, which compiles without
+# any -O flag and makes vcpkg resolve its imported targets to the debug
+# libraries.  Default to Release so a plain `cmake ..` produces an optimised
+# build; multi-config generators pick their configuration at build time and are
+# left alone.  This must stay ahead of the find_package() calls below, which is
+# where the debug/release variant of each dependency is chosen.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build configuration (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+                 Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
