@@ -122,7 +122,7 @@ refused while execution is in progress (`stop` first).
 
 ## 4. Connecting a 5250 client
 
-The console (`W1`, station 0.0) is available through the station multiplexer
+The console (station `0.0`) is available through the station multiplexer
 and through the monitor's `console`, `console put`, and `console send`
 commands. On an attended IPL it receives the `IPL SIGN ON` panel; on an
 unattended IPL SSP completes without writing to it, and you sign on through
@@ -135,18 +135,18 @@ serves every display station.  Connect anything that speaks 5250:
 tn5250 telnet://127.0.0.1:2300
 ```
 
-You get a panel asking which station to connect to. Type `W1` (or the
-`port.address` form, `0.0`) and press Enter; the field is pre-filled with
-the lowest free station and the hint beside it is the range this machine
-offers.  A client that sends an RFC 2877 device name that is a station
-(`tn5250 env.DEVNAME=W3 telnet://127.0.0.1:2300`) goes straight there.
-Selecting `W1` immediately shares the console device with the monitor's
+You get a panel asking which station to connect to. Type its `port.address`
+identifier, such as `0.0`, and press Enter; the field is pre-filled with
+the lowest free station and the hint states the required notation. A client
+that sends an RFC 2877 device name that is a station
+(`tn5250 env.DEVNAME=0.2 telnet://127.0.0.1:2300`) goes straight there.
+Selecting `0.0` immediately shares the console device with the monitor's
 `console` commands.
 
 The multiplexer is not part of the machine: it comes up when configured,
 with or without a constructed machine, and survives `reset` and the next
-`ipl`.  A client that picked W3 while the machine was stopped is on W3 when
-the guest IPLs, on the same socket.
+`ipl`. A client that picked `0.2` while the machine was stopped is on that
+station when the guest IPLs, on the same socket.
 
 ```
 set terminal multiplex off                     # one listener per station instead
@@ -182,7 +182,7 @@ next client on that station is a new power-on with its own sign-on.
 
 `test/ipl-unattended-main-session.py` is the executable form of this
 guide: it starts the emulator on private ports, IPLs unattended, connects
-a headless 5250 client (`test/tn5250drive.py`), picks W2, signs on, walks
+a headless 5250 client (`test/tn5250drive.py`), picks `0.1`, signs on, walks
 MAIN to MENU COMMAND and PROGRAM and starts SEU.  `test/ipl-main-session.py`
 does the attended form through the console.  Both need `SIM36_VOLUME`.
 

@@ -95,7 +95,7 @@ def main():
 
         w2 = Session(port_base, name="W2").connect(timeout=25)
         w2.wait_for_text("Connect to workstation", timeout=20)
-        w2.type_into("Connect to workstation", "W2")
+        w2.type_into("Connect to workstation", "0.1")
         w2.press("Enter")
         w2.wait_for_text("SIGN ON", timeout=60)
         w2.type_into("User ID", "YVANJ")

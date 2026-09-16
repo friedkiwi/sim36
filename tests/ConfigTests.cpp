@@ -145,7 +145,7 @@ TEST_CASE("config: a printer has exactly one host output attachment")
     CHECK(p->listenPort == 0);
 }
 
-TEST_CASE("the display multiplexer leaves the default printer address as a hole")
+TEST_CASE("the display multiplexer uses only port.address station ids")
 {
     sim36::monitor::SimulatorSession session;
     session.execute("set station 0.0 role console");
@@ -155,13 +155,18 @@ TEST_CASE("the display multiplexer leaves the default printer address as a hole"
     session.execute("set station 0.2 role display");
     std::vector<sim36::host::MultiplexStationView> stations = session.multiplexStations();
     bool sawPrinterAddress = false;
-    bool sawStation02AsW3 = false;
+    bool sawStation02 = false;
     for (const auto& station : stations) {
         if (station.id == "0.1") sawPrinterAddress = true;
-        if (station.id == "0.2" && station.number == 3) sawStation02AsW3 = true;
+        if (station.id == "0.2") sawStation02 = true;
     }
     CHECK_FALSE(sawPrinterAddress);
-    CHECK(sawStation02AsW3);
+    CHECK(sawStation02);
+    std::string id;
+    CHECK(sim36::host::StationMultiplexer::tryParseSelection("0.2", id));
+    CHECK(id == "0.2");
+    CHECK_FALSE(sim36::host::StationMultiplexer::tryParseSelection("W3", id));
+    CHECK_FALSE(sim36::host::StationMultiplexer::tryParseSelection("0.7", id));
 }
 
 TEST_CASE("printer file output appends the guest byte stream verbatim")

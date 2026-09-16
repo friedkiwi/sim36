@@ -82,7 +82,7 @@ def main():
             session = Session(port_base, name=workstation).connect(timeout=25)
             sessions.append(session)
             session.wait_for_text("Connect to workstation", timeout=20)
-            session.type_into("Connect to workstation", workstation)
+            session.type_into("Connect to workstation", "0.%d" % (number - 1))
             session.press("Enter")
             session.wait_for_text("SIGN ON", timeout=60)
             session.type_into("User ID", user)

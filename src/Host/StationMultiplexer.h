@@ -31,10 +31,6 @@ namespace sim36::host {
 // the guest-independent side of the seam: nothing here is a System/36
 // concept beyond the station's own id.
 struct MultiplexStationView {
-    // The W number: the 1-based position in the controller's port/address
-    // grid.  Printer positions remain holes; displays are never renumbered
-    // across them.
-    int number = 0;
     // port.address, the id the rest of the emulator uses.
     std::string id;
     bool isConsole = false;
@@ -51,9 +47,8 @@ struct MultiplexStationView {
 class IStationMultiplexerHost {
 public:
     virtual ~IStationMultiplexerHost() = default;
-    // Every display station this machine has, in W order.  Enumerated fresh
-    // on each call: the count, the selectable range and the "next
-    // available" default are all derived from the configured machine.
+    // Every display station this machine has, in port/address order.
+    // Enumerated fresh on each call so availability stays current.
     virtual std::vector<MultiplexStationView> multiplexStations() = 0;
     // "running" when a guest thread owns the machine, "stopped" otherwise.
     virtual std::string machineStatusText() = 0;
@@ -99,10 +94,9 @@ public:
     // stations are CLOSED, with a trace line each.
     void dispose();
 
-    // Resolve what a client typed, or what its DEVNAME said: "W<n>" (the W
-    // number) or "port.address".  A leading letter other than W parses but
-    // is not acted on.
-    static bool tryParseSelection(const std::string& text, char& kind, int& number, std::string& stationId);
+    // Resolve what a client typed, or what its DEVNAME said.  Only the
+    // controller's unambiguous port.address notation is accepted.
+    static bool tryParseSelection(const std::string& text, std::string& stationId);
 
 private:
     class Conversation;
@@ -113,7 +107,7 @@ private:
     void stopListening();
     void bind(const std::string& stationId, std::shared_ptr<Telnet5250Session> session);
     void forget(Conversation* conversation);
-    static const MultiplexStationView* lookup(const std::vector<MultiplexStationView>& stations, char kind, int number,
+    static const MultiplexStationView* lookup(const std::vector<MultiplexStationView>& stations,
                                               const std::string& stationId);
 
     std::string host_;

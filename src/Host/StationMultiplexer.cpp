@@ -136,15 +136,10 @@ private:
     {
         std::string devname = session_->deviceName();
         if (!devname.empty()) {
-            char kind;
-            int number;
             std::string id;
-            if (!tryParseSelection(devname, kind, number, id)) {
-                message_ = "device name '" + devname + "' is not a station name";
-            } else if (kind != 'W' && kind != '.') {
-                message_ = "device name '" + devname + "': only W stations are attachable; " + std::string(1, kind) +
-                           " devices are not implemented";
-            } else if (tryHandOver(kind, number, id)) {
+            if (!tryParseSelection(devname, id)) {
+                message_ = "device name '" + devname + "' is not a port.address station id";
+            } else if (tryHandOver(id)) {
                 return;
             }
         }
@@ -166,12 +161,12 @@ private:
 
     // Resolve, check availability, and hand the session over.  Sets the
     // message and returns false when it cannot.
-    bool tryHandOver(char kind, int number, const std::string& id)
+    bool tryHandOver(const std::string& id)
     {
         std::vector<MultiplexStationView> all = stations();
-        const MultiplexStationView* v = lookup(all, kind, number, id);
+        const MultiplexStationView* v = lookup(all, id);
         if (v == nullptr) {
-            message_ = "no station " + (kind == '.' ? id : "W" + std::to_string(number)) + " on this machine";
+            message_ = "no station " + id + " on this machine";
             return false;
         }
         return handOver(*v);
@@ -210,32 +205,25 @@ private:
         // displayed selection".  An explicitly cleared field is still
         // transmitted as blanks and remains invalid.
         if (d.size() == 3) typed = defaultSelection_;
-        char kind;
-        int number;
         std::string id;
-        if (!tryParseSelection(typed, kind, number, id)) {
-            message_ = trim(typed).empty() ? std::string("type a station: W<number>, or its port.address id")
-                                           : "'" + trim(typed) + "' is not a station name";
+        if (!tryParseSelection(typed, id)) {
+            message_ = trim(typed).empty() ? std::string("type a station as port.address, for example 0.2")
+                                           : "'" + trim(typed) + "' is not a port.address station id";
             paint();
             return;
         }
-        if (kind != 'W' && kind != '.') {
-            message_ = "only W stations are attachable; " + std::string(1, kind) + " devices are not implemented";
-            paint();
-            return;
-        }
-        if (!tryHandOver(kind, number, id)) paint();
+        if (!tryHandOver(id)) paint();
     }
 
     bool handOver(const MultiplexStationView& v)
     {
         if (!v.available || !mux_.isFree(v.id)) {
-            message_ = "W" + std::to_string(v.number) + " (" + v.id + ") already has a client attached";
+            message_ = v.id + " already has a client attached";
             return false;
         }
         if (v.backend != nullptr) {
             if (!v.backend->adoptSession(session_)) {
-                message_ = "W" + std::to_string(v.number) + " (" + v.id + ") could not be attached";
+                message_ = v.id + " could not be attached";
                 return false;
             }
         } else {
@@ -245,7 +233,7 @@ private:
         mux_.bind(v.id, session_);
         handedOver_ = true;
         mux_.sessionsHandedOver_++;
-        mux_.trace_->ws("{}: placed on station {} (W{}){}", label(), v.id, v.number,
+        mux_.trace_->ws("{}: placed on station {}{}", label(), v.id,
                         v.backend == nullptr ? " - parked until IPL" : "");
         if (v.backend == nullptr) paintParked(v);
         return true;
@@ -272,7 +260,7 @@ private:
             if (row > 12) break;
             b.text(row++, 3, line);
         }
-        b.text(16, 3, fmt::format("Attached to W{} ({}). Waiting for IPL to construct the machine.", v.number, v.id));
+        b.text(16, 3, fmt::format("Attached to {}. Waiting for IPL to construct the machine.", v.id));
         std::string status = "Machine status: " + machineStatusText();
         b.text(ScreenBuilder::kRows, ScreenBuilder::kCols - static_cast<int>(status.size()), status);
         session_->send(WorkstationOpcode::OutputOnly, WorkstationRecordFlags::None, b.bytes().data(), 0, b.length());
@@ -319,7 +307,7 @@ private:
         fieldCol_ = 33;
         defaultSelection_ = defaultSelection(all);
         b.field(promptRow, 32, kFieldLength, defaultSelection_);
-        b.text(promptRow, 33 + kFieldLength + 3, selectableHint(all));
+        b.text(promptRow, 33 + kFieldLength + 3, "(port.address)");
 
         if (!message_.empty()) b.text(ScreenBuilder::kRows - 1, 3, clip(message_, ScreenBuilder::kCols - 4));
 
@@ -332,28 +320,12 @@ private:
         session_->send(WorkstationOpcode::PutGet, WorkstationRecordFlags::None, b.bytes().data(), 0, b.length());
     }
 
-    // The lowest-numbered available station, or empty when the machine has
-    // none free.
+    // The first available station in controller port/address order.
     static std::string defaultSelection(const std::vector<MultiplexStationView>& stations)
     {
         for (const MultiplexStationView& v : stations)
-            if (v.available) return "W" + std::to_string(v.number);
+            if (v.available) return v.id;
         return std::string();
-    }
-
-    // "(W1-W7)": the range that can actually be picked, derived from the
-    // configured machine rather than a constant.
-    static std::string selectableHint(const std::vector<MultiplexStationView>& stations)
-    {
-        int low = 0, high = 0, count = 0;
-        for (const MultiplexStationView& v : stations) {
-            if (count == 0 || v.number < low) low = v.number;
-            if (count == 0 || v.number > high) high = v.number;
-            count++;
-        }
-        if (count == 0) return "(no attachable station)";
-        if (low == high) return "(W" + std::to_string(low) + ")";
-        return "(W" + std::to_string(low) + "-W" + std::to_string(high) + ")";
     }
 
     static int centre(int width) { return std::max(1, (ScreenBuilder::kCols - width) / 2 + 1); }
@@ -531,10 +503,8 @@ void StationMultiplexer::acceptLoop()
     }
 }
 
-bool StationMultiplexer::tryParseSelection(const std::string& text, char& kind, int& number, std::string& stationId)
+bool StationMultiplexer::tryParseSelection(const std::string& text, std::string& stationId)
 {
-    kind = '\0';
-    number = 0;
     stationId.clear();
     if (text.empty()) return false;
     std::string s;
@@ -543,37 +513,16 @@ bool StationMultiplexer::tryParseSelection(const std::string& text, char& kind, 
     while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
     if (s.empty()) return false;
 
-    auto digits = [](const std::string& t) {
-        if (t.empty()) return false;
-        for (char c : t)
-            if (!std::isdigit(static_cast<unsigned char>(c))) return false;
-        return t.size() <= 9;
-    };
-
-    std::size_t dot = s.find('.');
-    if (dot != std::string::npos && dot > 0) {
-        std::string p = s.substr(0, dot), a = s.substr(dot + 1);
-        if (a.find('.') == std::string::npos && digits(p) && digits(a)) {
-            kind = '.';
-            stationId = std::to_string(std::stoi(p)) + "." + std::to_string(std::stoi(a));
-            return true;
-        }
-        return false;
-    }
-
-    if (!std::isalpha(static_cast<unsigned char>(s[0]))) return false;
-    kind = s[0];
-    std::string rest = s.substr(1);
-    if (!digits(rest)) return false;
-    number = std::stoi(rest);
-    return number > 0;
+    if (s.size() != 3 || s[1] != '.' || s[0] < '0' || s[0] > '7' || s[2] < '0' || s[2] > '6') return false;
+    stationId = s;
+    return true;
 }
 
-const MultiplexStationView* StationMultiplexer::lookup(const std::vector<MultiplexStationView>& stations, char kind,
-                                                       int number, const std::string& stationId)
+const MultiplexStationView* StationMultiplexer::lookup(const std::vector<MultiplexStationView>& stations,
+                                                       const std::string& stationId)
 {
     for (const MultiplexStationView& v : stations)
-        if (kind == '.' ? v.id == stationId : (kind == 'W' && v.number == number)) return &v;
+        if (v.id == stationId) return &v;
     return nullptr;
 }
 

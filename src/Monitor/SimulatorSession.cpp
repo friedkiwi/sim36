@@ -813,7 +813,6 @@ std::vector<host::MultiplexStationView> SimulatorSession::multiplexStations()
     for (const StationConfig* s : ordered) {
         if (s->isPrinter()) continue;
         host::MultiplexStationView v;
-        v.number = s->port * 7 + s->address + 1;
         v.id = s->id();
         v.isConsole = s->port == 0 && s->address == 0;
         // No machine, so no backend and nothing attached.  Whether a

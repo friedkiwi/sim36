@@ -43,26 +43,26 @@ check "the title is centred on row 1" \
       "                                     SIM/36"
 check "the volume is shown by basename, with its size and its mode" \
       "Drive 1: as36.img  200M overlay"
-check "the prompt defaults to the next available station and hints the range" \
-      "Connect to workstation . . .  W1       (W1-W7)"
+check "the prompt defaults to the next available station and names the required notation" \
+      "Connect to workstation . . .  0.0      (port.address)"
 check "the client finds the prompt as a real 5250 input field" \
-      "Connect to workstation   'W1    '"
+      "Connect to workstation   '0.0   '"
 check "a running machine says so, at the bottom right" \
       "Machine status: running"
 
 # --- selection and handover ------------------------------------------------
-check "typing W2 lands the client on station 0.1" \
+check "typing 0.1 lands the client on station 0.1" \
       "0.1  device 11  mux 127.0.0.1:3900   attached"
 check "and the console is untouched by any of it" \
       "0.0  device 11  127.0.0.1:0          attached  (console)"
 
 # --- the direct-drop path --------------------------------------------------
-check "a DEVNAME of W3 never sees a menu" \
+check "a DEVNAME of 0.2 never sees a menu" \
       "phase 1 direct-drop client saw a menu: no"
 check "and lands straight on station 0.2" \
       "0.2  device 11  mux 127.0.0.1:3900   attached"
 check "the station records the device name the client arrived with" \
-      "devname W3"
+      "devname 0.2"
 
 # --- console selection and refusals ---------------------------------------
 check_absent "W1 attaches without a confirmation prompt" \
@@ -76,23 +76,23 @@ check "an attached W1 is not also echoed through the stdio console" \
 check "stdio console output resumes after the W1 client disconnects" \
       "phase 1 released W1 stdio echo: resumed"
 check "a station that already has a client is refused by name" \
-      "W2 (0.1) already has a client attached"
+      "0.1 already has a client attached"
 check "and the default moves on to the next station that is actually free" \
-      "Connect to workstation . . .  W1       (W1-W7)"
+      "Connect to workstation . . .  0.0      (port.address)"
 
 # --- it scales past the seven-station default ------------------------------
 check "a ten-station, two-controller machine is served by one listener" \
       "terminal multiplex listening on 127.0.0.1:3910; 9 display stations available"
-check "the hint widens to the configured machine rather than a constant" \
-      "(W1-W10)"
-check "the port.address form resolves through the same resolver as W<n>" \
+check "the hint states the only accepted notation" \
+      "(port.address)"
+check "a second controller is selected by its explicit address" \
       "1.0  device 11  mux 127.0.0.1:3910   attached"
 
 # --- the lifetime is the setting's, not the machine's ----------------------
 check "the menu paints with no machine constructed at all" \
       "Machine status: stopped"
 check "a client can take a station before there is a machine to take it from" \
-      "Attached to W2 (0.1). Waiting for IPL to construct the machine."
+      "Attached to 0.1. Waiting for IPL to construct the machine."
 check "the prefilled station is marked modified for ordinary 5250 clients" \
       "phase 3 prefilled selection MDT: on"
 check "an IBM data-stream error does not start a selector repaint loop" \

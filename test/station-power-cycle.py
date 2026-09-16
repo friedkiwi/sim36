@@ -82,7 +82,7 @@ def connect(name, mux_port, station_port):
     if mux_port:
         s = tn.Session(mux_port, name=name).connect(timeout=25)
         s.wait_for_invite(20)
-        s.type_into("Connect to workstation", "W2")
+        s.type_into("Connect to workstation", "0.1")
         s.press("Enter")
     else:
         s = tn.Session(station_port + 1, name=name).connect(timeout=25)   # W2 = 0.1

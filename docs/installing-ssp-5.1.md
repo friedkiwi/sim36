@@ -128,5 +128,5 @@ set machine load-source disk
 ipl
 ```
 
-The multiplexer connection survives the reset. W1 should display the SSP 5.1
-IPL sign-on screen.
+The multiplexer connection survives the reset. Select `0.0`; W1 should display
+the SSP 5.1 IPL sign-on screen.

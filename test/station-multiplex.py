@@ -7,16 +7,16 @@ shows from the machine it is attached to rather than from a constant:
   phase 1  the reference seven-station controller (0.0-0.6), IPLed in the
            background, so `Machine status: running` and the media overview are
            the live machine's.  A client connects, is painted the menu, types
-           W2 and lands on station 0.1; a second client supplies the RFC 2877
-           DEVNAME `W3` and never sees a menu at all.
+           0.1 and lands there; a second client supplies the RFC 2877
+           DEVNAME `0.2` and never sees a menu at all.
   phase 2  TWO controllers, ten stations (0.0-0.6 and 1.0-1.2), NOT IPLed, so
            `Machine status: stopped`.  The hint text has to widen to the
-           configured machine, and the `port.address` form has to resolve the
-           same way `W<n>` does.
+           configured machine, and a second controller's `port.address` has
+           to resolve through the same path.
   phase 3  the lifecycle case, and the one that motivates the whole design:
            the multiplexer is turned on with NO machine constructed, a client
            connects, sees `Machine status: stopped`, accepts the prefilled
-           W2 with Enter - and is still on W2, on the same socket, after IPL
+           0.1 with Enter - and is still on 0.1, on the same socket, after IPL
            constructs the machine.
 
 Every byte the client sends here is a real terminal response to a real
@@ -108,13 +108,13 @@ show("phase 1 menu, seven-station machine, running", menu)
 
 # The operator's choice, typed into the field the guest's own SF defined and
 # sent as a real Read Input Fields answer.
-menu.type_into("Connect to workstation", "W2")
+menu.type_into("Connect to workstation", "0.1")
 menu.press("Enter")
 time.sleep(1.0)
 send(proc, "stations")
 
 # Direct drop: RFC 2877 section 4 DEVNAME, no menu ever painted.
-direct = tn.Session(MUX1, name="direct", device_name="W3").connect()
+direct = tn.Session(MUX1, name="direct", device_name="0.2").connect()
 time.sleep(1.5)
 out.append("=== phase 1 direct-drop client: %d record(s) received ===" % len(direct.records))
 out.append("phase 1 direct-drop client saw a menu: %s"
@@ -125,7 +125,7 @@ send(proc, "stations")
 # A third client is refused on an already-taken W2.
 refused = tn.Session(MUX1, name="refused").connect()
 refused.wait_for_invite(20)
-refused.type_into("Connect to workstation", "W2")
+refused.type_into("Connect to workstation", "0.1")
 refused.press("Enter")
 refused.wait_for_change(timeout=15)
 show("phase 1 after selecting the taken W2", refused)
@@ -134,7 +134,7 @@ show("phase 1 after selecting the taken W2", refused)
 # uses immediately; the retained guest output is replayed over its socket.
 console = tn.Session(MUX1, name="console").connect()
 console.wait_for_invite(20)
-console.type_into("Connect to workstation", "W1")
+console.type_into("Connect to workstation", "0.0")
 console.press("Enter")
 console.wait_for_change(timeout=15)
 show("phase 1 attached system console", console)
@@ -175,8 +175,8 @@ scaled = tn.Session(MUX2, name="scaled").connect()
 scaled.wait_for_invite(20)
 show("phase 2 menu, ten stations across two controllers, stopped", scaled)
 
-# The port.address form resolves through the SAME resolver as W<n>: station
-# 1.0 is W8 on this machine.
+# A station on the second controller resolves through the same explicit-ID
+# path as one on the first controller.
 scaled.type_into("Connect to workstation", "1.0")
 scaled.press("Enter")
 time.sleep(1.0)
@@ -216,10 +216,9 @@ early.send_record(record, wire)
 time.sleep(0.5)
 out.append("phase 3 output-error response caused selector repaint: %s" %
            ("yes" if early.generation != generation else "no"))
-# Select W2 explicitly so this phase continues to exercise the ordinary
-# workstation rebind path while the menu itself verifies that W1 is now the
-# first offered station.
-early.type_into("Connect to workstation", "W2")
+# Select 0.1 explicitly so this phase continues to exercise the ordinary
+# workstation rebind path while the menu verifies that 0.0 is first.
+early.type_into("Connect to workstation", "0.1")
 early.press("Enter")
 early.wait_for_change(timeout=15)
 out.append("=== phase 3 after selecting W2 with no machine ===")
@@ -264,7 +263,7 @@ send(proc, "set machine ipl-type attended")
 
 preipl_console = tn.Session(MUX4, name="preipl-console").connect()
 preipl_console.wait_for_invite(20)
-preipl_console.type_into("Connect to workstation", "W1")
+preipl_console.type_into("Connect to workstation", "0.0")
 preipl_console.press("Enter")
 preipl_console.wait_for_change(timeout=15)
 out.append("phase 4 W1 parked before IPL: %s" %
@@ -323,7 +322,7 @@ send(proc, "set machine ipl-type unattended")
 
 unattended_console = tn.Session(MUX5, name="unattended-console").connect()
 unattended_console.wait_for_invite(20)
-unattended_console.type_into("Connect to workstation", "W1")
+unattended_console.type_into("Connect to workstation", "0.0")
 unattended_console.press("Enter")
 unattended_console.wait_for_change(timeout=15)
 send(proc, "ipl")

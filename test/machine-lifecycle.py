@@ -50,10 +50,10 @@ def wait_for(value, mark=0, timeout=120):
 w2 = None
 try:
     # The default command file has completed, but no Machine exists. The
-    # multiplexed W2 can already be selected and parked before IPL.
+    # Station 0.1 can already be selected and parked before IPL.
     w2 = Session(2300, name="pre-IPL W2").connect(timeout=20)
     w2.wait_for_text("Connect to workstation", timeout=20)
-    w2.type_into("Connect to workstation", "W2")
+    w2.type_into("Connect to workstation", "0.1")
     w2.press("Enter")
     w2.wait_for_text("Waiting for IPL", timeout=20)
     print("multiplexer accepted W2 before IPL")

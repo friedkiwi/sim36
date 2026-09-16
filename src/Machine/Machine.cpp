@@ -213,7 +213,6 @@ std::vector<host::MultiplexStationView> Machine::multiplexStations()
     std::vector<host::MultiplexStationView> view;
     for (auto* s : ordered) {
         host::MultiplexStationView v;
-        v.number = s->port() * 7 + s->address() + 1;
         v.id = s->id();
         v.isConsole = s->isConsole();
         v.available = s->isConsole() ? !s->backend().consoleClientAttached() : !s->backend().attached();

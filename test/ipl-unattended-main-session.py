@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Boot unattended SSP and prove multiplexed W2 reaches a usable program.
 
-The client selects W2 through the default station multiplexer on port 2300. It
+The client selects station 0.1 through the default multiplexer on port 2300. It
 never stimulates the unattended CLI console: the SSP/native workstation
 lifecycle must complete IPL and arm sign-on by itself.
 """
@@ -104,7 +104,7 @@ def main():
             command("trace member " + os.environ.get(
                 "S36_ATTACH_TRACE_MEMBER", "CPTS"))
 
-        station_name = os.environ.get("S36_STATION", "W2")
+        station_name = os.environ.get("S36_STATION", "0.1")
         w2 = Session(port_base, name=station_name).connect(timeout=25)
         w2.wait_for_text("Connect to workstation", timeout=20)
         w2.type_into("Connect to workstation", station_name)
@@ -125,12 +125,12 @@ def main():
         wait_monitor("0008ab  %s" % active_08ab, timeout=10,
                      after=state_mark)
         w2.type_into("User ID", "YVANJ")
-        if cnfig_research and station_name == "W1":
+        if cnfig_research and station_name == "0.0":
             w2.type_into("Date", os.environ.get("S36_IPL_DATE", "090896"))
             w2.type_into("Time", os.environ.get("S36_IPL_TIME", "120000"))
         signon_mark = len(transcript)
         w2.press("Enter")
-        if cnfig_research and station_name == "W1":
+        if cnfig_research and station_name == "0.0":
             # This configured image uses the operator sign-on panel and asks
             # for acknowledgement when its saved date needs changing.
             w2.settle(quiet=0.5, timeout=5)
