@@ -988,7 +988,7 @@ bool As36ControlStorageProcessor::terminateTaskRoot(SvcRequest& req)
     // invokes termination again; the machine observes the outstanding
     // native state and unwinds to its native caller.  No host call stack
     // survives across guest execution, so that frame is per-task state.
-    auto frames = cleanupTaskEnvironment ? nativeTransferContinuations_.find(tb) : nativeTransferContinuations_.end();
+    auto frames = nativeTransferContinuations_.find(tb);
     if (frames != nativeTransferContinuations_.end() && !frames->second.empty()) {
         int nativeDepth = static_cast<int>(frames->second.size());
         NativeTransferContinuation innermost = frames->second.back();

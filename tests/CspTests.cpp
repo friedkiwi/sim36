@@ -21,6 +21,7 @@
 #include "Processors/ControlStorage/GuestHeap.h"
 #include "Processors/ControlStorage/GuestLowStorage.h"
 #include "Processors/ControlStorage/NuPtt.h"
+#include "Processors/ControlStorage/TaskBlock.h"
 #include "Processors/ControlStorage/TaskWorkArea.h"
 #include "Storage/DiskBackend.h"
 
@@ -100,6 +101,41 @@ TEST_CASE("SSP's final #CCPW power-control wait stops the emulated machine")
     REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), 0, 0, failure));
     CHECK_FALSE(csp.systemPowerOffRequested());
     CHECK_FALSE(csp.mainStorage().stopped());
+}
+
+TEST_CASE("retained termination context unwinds its native slot-4 continuation")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int request = 0x1100;
+    std::vector<uint8_t> memory(static_cast<std::size_t>(state.backingBytes()), 0);
+    memory[task] = 0xE3;
+    memory[task + 1] = 0xC2;
+    memory[task + TaskBlock::kOffRequestBlock] = static_cast<uint8_t>(request >> 16);
+    memory[task + TaskBlock::kOffRequestBlock + 1] = static_cast<uint8_t>(request >> 8);
+    memory[task + TaskBlock::kOffRequestBlock + 2] = static_cast<uint8_t>(request);
+
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(memory, task, request, failure));
+    As36ControlStorageProcessor::CheckpointState checkpoint;
+    REQUIRE(csp.captureCheckpoint(checkpoint, failure));
+    checkpoint.nativeTransferContinuations = {
+        task, 1, static_cast<int>(As36ControlStorageProcessor::NativeTransferContinuation::NuptermSlot4)};
+    REQUIRE(csp.restoreCheckpoint(checkpoint, failure));
+
+    SvcRequest exit;
+    exit.r = 0x11;
+    CHECK(csp.svc(exit));
+
+    REQUIRE(csp.captureCheckpoint(checkpoint, failure));
+    CHECK(checkpoint.nativeTransferContinuations.empty());
 }
 
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")
