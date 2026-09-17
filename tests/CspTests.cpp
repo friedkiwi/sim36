@@ -12,6 +12,7 @@
 
 #include "Configuration/EmulatorConfig.h"
 #include "Devices/DeviceSet.h"
+#include "Devices/WorkStationIob.h"
 #include "Devices/WorkStationController.h"
 #include "Machine/MachineState.h"
 #include "Monitor/Tracer.h"
@@ -140,6 +141,77 @@ TEST_CASE("retained termination context keeps its native slot-4 continuation")
     REQUIRE(csp.captureCheckpoint(checkpoint, failure));
     CHECK(checkpoint.nativeTransferContinuations ==
           std::vector<int>{task, 1, static_cast<int>(As36ControlStorageProcessor::NativeTransferContinuation::NuptermSlot4)});
+}
+
+TEST_CASE("a synchronous printer completion remains queued for SPWRT's following multiple wait")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    const std::filesystem::path output = std::filesystem::temp_directory_path() /
+        ("sim36-spwrt-event-" + std::to_string(reinterpret_cast<std::uintptr_t>(&state)) + ".bin");
+    std::filesystem::remove(output);
+    host::PrinterBackend printerBackend("127.0.0.1", 0, "SPWRT test printer", &trace, [] {}, "file", output.string());
+    configuration::StationConfig printerConfig;
+    printerConfig.address = 1;
+    printerConfig.role = "printer";
+    printerConfig.deviceCode = "PB";
+    printerConfig.printerOutput = "file";
+    printerConfig.printerOutputPath = output.string();
+    devices::VirtualPrinter printer(printerConfig, printerBackend, trace, false);
+    devices.addPrinter(printer);
+
+    constexpr int task = 0x1000;
+    constexpr int requestBlock = 0x1100;
+    constexpr int iob = 0x1200;
+    constexpr int data = 0x1300;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
+    state.writeHalf(task, TaskBlock::kEyecatcher);
+    state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
+    csp.bringUpControlProcessor();
+
+    // This is the shape captured from SSP 7.5 SPWRT: a multiple-wait ECM,
+    // printer command 27, and the initial three-byte vertical-position record.
+    state.writeByte(iob + Ecm::kOffMultiWait, 0x80);
+    state.writeByte(iob + devices::WorkStationIob::kOffClass, 0xC2);
+    state.writeByte(iob + devices::WorkStationIob::kOffCommand, devices::WorkStationIob::kCmdPut);
+    state.writeByte(iob + devices::WorkStationIob::kOffUnitAddress, 0x01);
+    state.writeAddr24(iob + devices::WorkStationIob::kOffDataBuffer, data);
+    state.writeHalf(iob + devices::WorkStationIob::kOffLength, 3);
+    state.writeByte(data, 0x34);
+    state.writeByte(data + 1, 0xC4);
+    state.writeByte(data + 2, 0x01);
+    state.msp.pactXr1 = 0;
+    state.msp.xr1 = iob;
+
+    SvcRequest print;
+    print.r = 0x42;
+    print.q = 0x08;  // multiple-wait action element
+    REQUIRE(csp.svc(print));
+    CHECK(state.readByte(iob + Ecm::kOffCompletion) == 0x40);
+    const int ace = state.readAddr24(task + TaskBlock::kOffCompleteQueue);
+    REQUIRE(ace != 0);
+    CHECK(state.readHalf(ace) == ActionControlElement::kEyecatcher);
+    CHECK(state.readHalf(ace + ActionControlElement::kOffEventType) == 0x2000);
+
+    // SPWRT enters this wait after SVC 42 returns.  It must consume the
+    // queued completion immediately instead of putting the only task to sleep.
+    state.msp.wr[6] = 0x2000;
+    SvcRequest wait;
+    wait.r = 0x02;
+    wait.q = 0x0C;  // multiple wait, event type supplied, without blocking
+    REQUIRE(csp.svc(wait));
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
+    CHECK(state.msp.wr[6] == 0x2000);
+
+    REQUIRE(printer.endJob());
+    std::filesystem::remove(output);
 }
 
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")

@@ -1040,14 +1040,16 @@ bool As36ControlStorageProcessor::deviceSvc(SvcRequest& req, int ace)
         aces_.post(ace, ecm != 0 && Ecm::isComplete(m_, ecm) ? m_.readByte(ecm + Ecm::kOffCompletion) & 0x0F
                                                              : (ok ? 0 : 4));
 
-        // SVC 03 Event Post has two branches.  When the requester IS in an
-        // event wait the completed element is delivered to the task (parked
-        // on tb+45..47 and the task readied); a running requester keeps the
-        // ECM-poll and release path.  Device I/O completes synchronously
-        // here, so during phase 1 the requester is always running.
+        // A delayed device request completes through its ACE even when the
+        // requester is still running.  completeToTask always puts the element
+        // on tb+45..47; postTaskCheck then either wakes an existing event wait
+        // or deliberately leaves it there for the task's next SVC 02.  The
+        // latter is load-bearing for SSP's spool writer: it issues SVC 42 and
+        // only then enters a multiple-event wait, which cannot poll the IOB's
+        // completed ECM directly.
         int target = m_.readAddr24(ace + ActionControlElement::kOffTaskBlock);
         if ((m_.readByte(ace + ActionControlElement::kOffFlags) & ActionControlElement::kFlagsBase) != 0 &&
-            TaskBlock::isTaskBlock(m_, target) && (m_.readByte(target + TaskBlock::kOffStat2) & 0x80) != 0)
+            TaskBlock::isTaskBlock(m_, target))
             completeToTask(ace, 0, "device event post");
         else
             aces_.release(ace);

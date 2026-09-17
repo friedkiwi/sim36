@@ -2,6 +2,7 @@
 """Drive a MAIN command to a screen or trace milestone and reject failures."""
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -161,6 +162,32 @@ def main():
                 tail = "".join(transcript[-160:])
             raise TimeoutError("command did not reach expected output %r\n%s\n%s" %
                                (expected_screen, session.screen.render(fields=True), tail))
+
+        # Printer regressions must prove the whole spool-writer lifecycle,
+        # not merely the first control record.  The original HISTORY gate
+        # passed as soon as it saw `34 C4 01` (vertical position to line 1),
+        # even though SPWRT then lost its SVC-42 completion and slept forever.
+        printer_drain = os.environ.get("S36_LIST_EXPECT_PRINTER_DRAIN", "")
+        if printer_drain:
+            inventory_mark = len(transcript)
+            command("stations")
+            wait_monitor("print record(s)", timeout=10, after=inventory_mark)
+            with changed:
+                inventory = "".join(transcript[inventory_mark:])
+            match = re.search(
+                r"^  " + re.escape(printer_drain) +
+                r"\s+device[^\n]*\n(?:[^\n]*\n)*?\s+out (\d+) print record\(s\) "
+                r"(\d+) byte\(s\), \d+ dropped; \d+ startup response\(s\), "
+                r"(\d+) job\(s\) ended,",
+                inventory, re.MULTILINE)
+            if match is None:
+                raise AssertionError("printer %s was absent from station inventory\n%s" %
+                                     (printer_drain, inventory))
+            records, output_bytes, jobs = map(int, match.groups())
+            if records <= 1 or output_bytes <= 3 or jobs == 0:
+                raise AssertionError(
+                    "printer %s did not drain its spool file: %d record(s), %d byte(s), %d job(s) ended\n%s" %
+                    (printer_drain, records, output_bytes, jobs, inventory))
 
         # CATALOG's help panel is split across two input pages. This drives
         # the reported form shape: the first Enter returns ALL/F1 as modified
