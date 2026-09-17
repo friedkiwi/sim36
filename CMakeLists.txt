@@ -185,7 +185,7 @@ set(SIM36_VOLUME_GATES program_block_svcs work_area_svcs task_creation task_disp
     station_power_cycle machine_lifecycle multi_session_signon ipl_main_session ipl_unattended_main_session
     ipl_printer_rebuild
     snapshot panic_command tape tape_svc tape_operator ipl_source atr_ownership list_all_regression)
-list(APPEND SIM36_VOLUME_GATES no_return_transfer history_regression catalog_regression)
+list(APPEND SIM36_VOLUME_GATES no_return_transfer history_regression catalog_regression cnfigssp_print_regression)
 foreach(gate IN LISTS SIM36_VOLUME_GATES)
     string(REPLACE "_" "-" script ${gate})
     add_test(NAME ${gate} COMMAND sh ${CMAKE_SOURCE_DIR}/test/${script}.sh)
@@ -198,7 +198,8 @@ set_tests_properties(config_parity config_volume disk_layer decode_differential 
 # may run alongside the non-network gates, but never alongside one another.
 set(SIM36_STATION_PORT_GATES workstation_actions wsc_config workstation_seam printer_seam live_monitor
     station_multiplex station_power_cycle machine_lifecycle multi_session_signon ipl_main_session
-    ipl_unattended_main_session ipl_printer_rebuild list_all_regression history_regression catalog_regression)
+    ipl_unattended_main_session ipl_printer_rebuild list_all_regression history_regression catalog_regression
+    cnfigssp_print_regression)
 set_tests_properties(${SIM36_STATION_PORT_GATES} PROPERTIES RESOURCE_LOCK sim36_station_ports)
 
 # ---------------------------------------------------------------------------

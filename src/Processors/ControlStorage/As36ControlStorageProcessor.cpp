@@ -521,6 +521,14 @@ void As36ControlStorageProcessor::saveRegisters(int rb)
     m_.writeHalf(rb + RequestBlock::kOffIar, m_.msp.iar);
     m_.writeHalf(rb + RequestBlock::kOffArr, m_.msp.arr);
     for (int n = 4; n <= 7; n++) RequestBlock::writeWr(m_, rb, n, m_.msp.wr[n]);
+    // rb+19 bit 0 is the task's privilege byte, the one nusvc tests against
+    // its per-R-byte table and nudyprv (SVC 0A) clears.  It is the saved
+    // image of PMR bit 7: an SSP program drops privilege with LPMR, asks
+    // for it back with SVC 0A and then issues a privileged LPMR, so the bit
+    // has to travel through the request block in both directions.
+    m_.writeByte(rb + RequestBlock::kOffPrivilege,
+                 static_cast<uint8_t>((m_.readByte(rb + RequestBlock::kOffPrivilege) & ~machine::MspRegisters::kPmrNotPrivileged) |
+                                      (m_.msp.pmr() & machine::MspRegisters::kPmrNotPrivileged)));
 }
 
 void As36ControlStorageProcessor::restoreRegisters(int rb)
@@ -536,6 +544,8 @@ void As36ControlStorageProcessor::restoreRegisters(int rb)
     m_.msp.iar = m_.readHalf(rb + RequestBlock::kOffIar);
     m_.msp.arr = m_.readHalf(rb + RequestBlock::kOffArr);
     for (int n = 4; n <= 7; n++) m_.msp.wr[n] = RequestBlock::readWr(m_, rb, n);
+    m_.msp.setPmr(static_cast<uint8_t>((m_.msp.pmr() & ~machine::MspRegisters::kPmrNotPrivileged) |
+                                       (m_.readByte(rb + RequestBlock::kOffPrivilege) & machine::MspRegisters::kPmrNotPrivileged)));
 }
 
 // NuEmul::nudspchA c180def0..c180df30 distinguishes a genuine invalid-opcode

@@ -17,6 +17,9 @@ public:
     bool deliverWorkStationInputStatus(int unitBlock);
     // Complete a retained work-station action through its own SVC-43 element.
     bool completePendingWorkStationInput();
+    // Retained printer output completes when the guest gives the processor
+    // away: every wait SVC passes through the wait-and-dispatch tail.
+    bool completePendingPrinterOutput(const std::string& call);
     // The display behind a unit was switched off: fail one retained operation
     // against it and post the owner's element.
     bool failPendingWorkStationOperation(int unit, const std::string& call);

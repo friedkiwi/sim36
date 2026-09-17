@@ -85,7 +85,8 @@ std::vector<VirtualPrinter*> DeviceSet::printers()
 bool DeviceSet::isPending(int iob) const
 {
     return pendingInputReads_.contains(iob) || pendingC1Completions_.contains(iob) || pendingPutWithInvites_.contains(iob) ||
-           pendingScreenSaves_.contains(iob) || pendingControllerInvites_.count(iob) != 0;
+           pendingScreenSaves_.contains(iob) || pendingControllerInvites_.count(iob) != 0 ||
+           std::find(pendingPrinterOutputs_.begin(), pendingPrinterOutputs_.end(), iob) != pendingPrinterOutputs_.end();
 }
 
 void DeviceSet::resetPendingIo()
@@ -98,6 +99,7 @@ void DeviceSet::resetPendingIo()
     pendingPutWithInvites_.clear();
     pendingScreenSaves_.clear();
     pendingControllerInvites_.clear();
+    pendingPrinterOutputs_.clear();
     pendingAction0ActivationUnits_.clear();
     action0ActivatedUnits_.clear();
 }
@@ -145,6 +147,7 @@ DeviceSet::PendingCheckpoint DeviceSet::capturePendingCheckpoint() const
         if (slot->transferRendererBound()) s.transferRendererUnits.push_back(slot->unitAddress());
     }
     s.controllerInvites.assign(pendingControllerInvites_.begin(), pendingControllerInvites_.end());
+    s.printerOutputs = pendingPrinterOutputs_;
     s.pendingActivationUnits.assign(pendingAction0ActivationUnits_.begin(), pendingAction0ActivationUnits_.end());
     s.activatedUnits.assign(action0ActivatedUnits_.begin(), action0ActivatedUnits_.end());
     return s;
@@ -205,6 +208,7 @@ bool DeviceSet::restorePendingCheckpoint(const PendingCheckpoint& s, std::string
     for (std::size_t i = 0; i < s.pendingC1Pairs.size(); i += 2)
         pendingC1Completions_.set(s.pendingC1Pairs[i], s.pendingC1Pairs[i + 1]);
     for (int x : s.controllerInvites) pendingControllerInvites_.insert(x);
+    pendingPrinterOutputs_ = s.printerOutputs;
     for (int x : s.pendingActivationUnits) pendingAction0ActivationUnits_.insert(x);
     for (int x : s.activatedUnits) action0ActivatedUnits_.insert(x);
     std::set<int> nativeActive(s.nativeActiveUnits.begin(), s.nativeActiveUnits.end());
@@ -1359,7 +1363,35 @@ bool DeviceSet::outputData(int iob, WorkStationSlot& slot, bool withInvite)
         return true;
     }
 
+    if (slot.isPrinter && sent) {
+        // The printer has the record; the operation is not over.  A real
+        // 5250 printer answers after transmission, long after the writer's
+        // next few instructions, and SSP's spool writer relies on that: it
+        // polls its disk reads first and only then waits for the printer.
+        // Completing here would let that poll consume the printer's event
+        // (its type mask admits any even type) and leave the writer's real
+        // wait unsatisfiable.
+        uint8_t oldCompletion = m_.readByte(iob + Ecm::kOffCompletion);
+        m_.writeByte(iob + Ecm::kOffCompletion, Ecm::arm(oldCompletion));
+        pendingPrinterOutputs_.push_back(iob);
+        trace_.ws("  printer put PENDING: ECM+6 {:02X}->{:02X}, retained IOB {:06X}/SVC-42 ACE until the guest yields the "
+                  "processor",
+                  oldCompletion, m_.readByte(iob + Ecm::kOffCompletion), iob);
+        return true;
+    }
+
     IoBlock::complete(m_, iob, 0);
+    return true;
+}
+
+bool DeviceSet::tryCompletePendingPrinterOutput(int& completedIob)
+{
+    completedIob = 0;
+    if (pendingPrinterOutputs_.empty()) return false;
+    completedIob = pendingPrinterOutputs_.front();
+    pendingPrinterOutputs_.erase(pendingPrinterOutputs_.begin());
+    IoBlock::complete(m_, completedIob, 0);
+    trace_.ws("  printer put COMPLETE: IOB {:06X} (the guest yielded the processor)", completedIob);
     return true;
 }
 

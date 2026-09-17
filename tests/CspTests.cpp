@@ -143,7 +143,7 @@ TEST_CASE("retained termination context keeps its native slot-4 continuation")
           std::vector<int>{task, 1, static_cast<int>(As36ControlStorageProcessor::NativeTransferContinuation::NuptermSlot4)});
 }
 
-TEST_CASE("a synchronous printer completion remains queued for SPWRT's following multiple wait")
+TEST_CASE("a printer put completes when the issuing task waits, not inside its SVC")
 {
     CspEmptyVolume volume;
     configuration::EmulatorConfig config;
@@ -194,19 +194,27 @@ TEST_CASE("a synchronous printer completion remains queued for SPWRT's following
     print.r = 0x42;
     print.q = 0x08;  // multiple-wait action element
     REQUIRE(csp.svc(print));
-    CHECK(state.readByte(iob + Ecm::kOffCompletion) == 0x40);
-    const int ace = state.readAddr24(task + TaskBlock::kOffCompleteQueue);
-    REQUIRE(ace != 0);
-    CHECK(state.readHalf(ace) == ActionControlElement::kEyecatcher);
-    CHECK(state.readHalf(ace + ActionControlElement::kOffEventType) == 0x2000);
+    // The record has left the machine but the operation is not over: the
+    // mask stays armed and nothing is queued, so SPWRT's no-wait poll of its
+    // disk reads (Q=0C, type 0020) cannot consume the printer's event.
+    CHECK((state.readByte(iob + Ecm::kOffCompletion) & 0x40) == 0);
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
+    state.msp.wr[6] = 0x0020;
+    SvcRequest poll;
+    poll.r = 0x02;
+    poll.q = 0x0C;  // multiple wait, event type supplied, without blocking
+    REQUIRE(csp.svc(poll));
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
 
-    // SPWRT enters this wait after SVC 42 returns.  It must consume the
-    // queued completion immediately instead of putting the only task to sleep.
-    state.msp.wr[6] = 0x2000;
+    // SPWRT then waits for the printer.  Giving the processor away is what
+    // ends the operation: the element is posted with type 2000 and the
+    // wait it enters is satisfied by it.
+    state.msp.wr[6] = 0x2020;
     SvcRequest wait;
     wait.r = 0x02;
-    wait.q = 0x0C;  // multiple wait, event type supplied, without blocking
+    wait.q = 0x4D;  // multiple wait, event type supplied, blocking
     REQUIRE(csp.svc(wait));
+    CHECK(state.readByte(iob + Ecm::kOffCompletion) == 0x40);
     CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
     CHECK(state.msp.wr[6] == 0x2000);
 

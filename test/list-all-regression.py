@@ -154,6 +154,10 @@ def main():
                     saw_rejected = any(session.screen.contains(value) for value in rejected)
                 if ("CHECK [" in text or "storage protection" in text or saw_rejected or
                         any(value in text for value in rejected)):
+                    print(session.screen.render("=== LIST ALL ===", fields=True), file=sys.stderr)
+                    with changed:
+                        lines = transcript[:] if os.environ.get("S36_LIST_TRACE_FULL") == "1" else transcript[-160:]
+                    print("".join(lines), file=sys.stderr)
                     raise AssertionError("LIST ALL stopped after displaying source")
                 break
             time.sleep(0.05)
@@ -163,31 +167,163 @@ def main():
             raise TimeoutError("command did not reach expected output %r\n%s\n%s" %
                                (expected_screen, session.screen.render(fields=True), tail))
 
+        # CNFIGSSP's master-configuration print is deliberately driven from
+        # W1 while W3 is also signed on.  This is a controller-correlation
+        # regression: an accepted W1 AID must not complete (or be routed
+        # through) W3's retained PUT-with-invite.  Reaching PRINT MENU alone
+        # is insufficient; the second Enter must start and drain the printer
+        # job.
+        if os.environ.get("S36_LIST_CNFIG_PRINT") == "1":
+            session.type_into("Option", "4")
+            generation = session.generation
+            session.press("Enter")
+            try:
+                session.wait_for_text("PRINT MENU", timeout=30)
+            except TimeoutError as exc:
+                with changed:
+                    tail = "".join(transcript[-240:])
+                raise TimeoutError(
+                    "CNFIGSSP did not reach PRINT MENU\n%s\n%s" %
+                    (session.screen.render(fields=True), tail)) from exc
+            session.wait_for_change(timeout=10, since=generation)
+            session.settle(quiet=0.3, timeout=5)
+            if os.environ.get("S36_LIST_CNFIG_TRACE") == "1":
+                command(os.environ.get("S36_LIST_CNFIG_TRACE_COMMAND", "trace isn flow csp"))
+                trace_member = os.environ.get("S36_LIST_CNFIG_TRACE_MEMBER", "#CPTC")
+                if trace_member:
+                    command("trace member " + trace_member)
+            # Debug aid: monitor commands to run before the print is
+            # started (for example a watchpoint or a trace member).
+            for debug_command in os.environ.get("S36_LIST_CNFIG_BEFORE_PRINT_COMMANDS", "").split("|"):
+                if debug_command.strip():
+                    command(debug_command.strip())
+            check_mark = len(transcript)
+            session.press("Enter")
+            expected_monitor = "printer 0.1:"
+            deadline = time.monotonic() + float(
+                os.environ.get("S36_LIST_TIMEOUT", "120"))
+            while time.monotonic() < deadline:
+                with changed:
+                    text = "".join(transcript[check_mark:])
+                if "CHECK [" in text or "storage protection" in text:
+                    # Debug aid: dump the checked task's frame, region
+                    # program block and job control block.
+                    if os.environ.get("S36_LIST_CHECK_DUMPS") == "1":
+                        dump_mark = len(transcript)
+                        command("tasklist current")
+                        wait_monitor("request-block chain", timeout=10, after=dump_mark)
+                        time.sleep(0.5)
+                        with changed:
+                            listing = "".join(transcript[dump_mark:])
+                        for label, pattern in (("pb", r"pb ([0-9A-F]{6})"),
+                                               ("jcb", r"JCB pointer ([0-9A-F]{6})"),
+                                               ("rb", r"request blk ([0-9A-F]{6})")):
+                            found = re.search(pattern, listing)
+                            if found:
+                                command("dump %s 160" % found.group(1))
+                        for debug_command in os.environ.get("S36_LIST_CHECK_COMMANDS", "").split("|"):
+                            if debug_command.strip():
+                                command(debug_command.strip())
+                        time.sleep(1)
+                        with changed:
+                            text = "".join(transcript[check_mark:])
+                    if os.environ.get("S36_LIST_TRACE_FULL") == "1":
+                        print(text, file=sys.stderr)
+                    raise AssertionError(
+                        "CNFIGSSP print stopped on a processor check\n%s\n%s" %
+                        (session.screen.render(fields=True), text[-12000:]))
+                if expected_monitor in text:
+                    break
+                time.sleep(0.05)
+            else:
+                command("stations")
+                command("tasklist")
+                command("tasklist current")
+                command("whereis")
+                command("ace queue 30")
+                command("wsscan")
+                for debug_command in os.environ.get("S36_LIST_FAILURE_COMMANDS", "").split("|"):
+                    if debug_command.strip():
+                        command(debug_command.strip())
+                time.sleep(1)
+                with changed:
+                    tail = "".join(transcript[-200:])
+                    workstation_trace = "".join(transcript[check_mark:])
+                    if os.environ.get("S36_LIST_TRACE_FULL") == "1":
+                        print("".join(transcript), file=sys.stderr)
+                raise TimeoutError(
+                    "CNFIGSSP print did not reach printer 0.1\n%s\n%s\n%s" %
+                    (session.screen.render(fields=True),
+                     workstation_trace[-200000:], tail))
+
+            after_printer_trace = os.environ.get("S36_LIST_AFTER_PRINTER_TRACE_COMMAND", "")
+            if after_printer_trace:
+                command(after_printer_trace)
+                after_printer_member = os.environ.get("S36_LIST_AFTER_PRINTER_TRACE_MEMBER", "")
+                if after_printer_member:
+                    command("trace member " + after_printer_member)
+
         # Printer regressions must prove the whole spool-writer lifecycle,
         # not merely the first control record.  The original HISTORY gate
         # passed as soon as it saw `34 C4 01` (vertical position to line 1),
         # even though SPWRT then lost its SVC-42 completion and slept forever.
         printer_drain = os.environ.get("S36_LIST_EXPECT_PRINTER_DRAIN", "")
         if printer_drain:
-            inventory_mark = len(transcript)
-            command("stations")
-            wait_monitor("print record(s)", timeout=10, after=inventory_mark)
-            with changed:
-                inventory = "".join(transcript[inventory_mark:])
-            match = re.search(
-                r"^  " + re.escape(printer_drain) +
-                r"\s+device[^\n]*\n(?:[^\n]*\n)*?\s+out (\d+) print record\(s\) "
-                r"(\d+) byte\(s\), \d+ dropped; \d+ startup response\(s\), "
-                r"(\d+) job\(s\) ended,",
-                inventory, re.MULTILINE)
+            drain_deadline = time.monotonic() + float(
+                os.environ.get("S36_LIST_DRAIN_TIMEOUT", os.environ.get("S36_LIST_TIMEOUT", "120")))
+            inventory = ""
+            match = None
+            while time.monotonic() < drain_deadline:
+                inventory_mark = len(transcript)
+                command("stations")
+                wait_monitor("print record(s)", timeout=10, after=inventory_mark)
+                with changed:
+                    inventory = "".join(transcript[inventory_mark:])
+                match = re.search(
+                    r"^  " + re.escape(printer_drain) +
+                    r"\s+device[^\n]*\n(?:[^\n]*\n)*?\s+out (\d+) print record\(s\) "
+                    r"(\d+) byte\(s\), \d+ dropped; \d+ startup response\(s\), "
+                    r"(\d+) job\(s\) ended,",
+                    inventory, re.MULTILINE)
+                # A specific report can be required on the printer, followed
+                # by its own end of job: the first small spool job to drain
+                # must not satisfy the gate on behalf of the real report.
+                expected_text = os.environ.get("S36_LIST_EXPECT_PRINTER_TEXT", "")
+                text_ended = True
+                if expected_text:
+                    with changed:
+                        printed = "".join(transcript[check_mark:])
+                    at = printed.find("printer " + printer_drain + ": " + expected_text)
+                    if at < 0:
+                        at = printed.find(expected_text)
+                    # SSP closes an entry with a form feed; the writer then
+                    # ends or waits for more work without a printer Clear, so
+                    # the emulator's end-of-job (a Clear) is optional here.
+                    text_ended = at >= 0 and ("printer " + printer_drain + ": [end of job]" in printed[at:] or
+                                              "printer " + printer_drain + ": [form feed]" in printed[at:])
+                if match is not None:
+                    records, output_bytes, jobs = map(int, match.groups())
+                    if records > 1 and output_bytes > 3 and jobs > 0 and text_ended:
+                        break
+                time.sleep(0.25)
             if match is None:
                 raise AssertionError("printer %s was absent from station inventory\n%s" %
                                      (printer_drain, inventory))
             records, output_bytes, jobs = map(int, match.groups())
-            if records <= 1 or output_bytes <= 3 or jobs == 0:
+            if records <= 1 or output_bytes <= 3 or jobs == 0 or not text_ended:
+                for debug_command in os.environ.get("S36_LIST_DRAIN_FAILURE_COMMANDS", "").split("|"):
+                    if debug_command.strip():
+                        command(debug_command.strip())
+                if os.environ.get("S36_LIST_DRAIN_FAILURE_COMMANDS", ""):
+                    time.sleep(1)
+                if os.environ.get("S36_LIST_TRACE_FULL") == "1":
+                    with changed:
+                        print("".join(transcript), file=sys.stderr)
                 raise AssertionError(
-                    "printer %s did not drain its spool file: %d record(s), %d byte(s), %d job(s) ended\n%s" %
-                    (printer_drain, records, output_bytes, jobs, inventory))
+                    "printer %s did not drain its spool file: %d record(s), %d byte(s), %d job(s) ended, expected "
+                    "text %r ended=%s\n%s" %
+                    (printer_drain, records, output_bytes, jobs,
+                     os.environ.get("S36_LIST_EXPECT_PRINTER_TEXT", ""), text_ended, inventory))
 
         # CATALOG's help panel is split across two input pages. This drives
         # the reported form shape: the first Enter returns ALL/F1 as modified
@@ -278,6 +414,9 @@ def main():
             print("PASS: %s reached its expected output without a processor check" % statement)
         else:
             print("PASS: LIST ALL displayed source without a processor check")
+        if os.environ.get("S36_LIST_TRACE_FULL") == "1":
+            with changed:
+                print("".join(transcript))
     finally:
         for session in sessions.values():
             session.close()

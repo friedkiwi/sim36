@@ -86,6 +86,15 @@ bool As36ControlStorageProcessor::completePendingWorkStationInput()
     return postRetainedWorkStationCompletion(iob, deferred ? &*deferred : nullptr, "work-station device response");
 }
 
+bool As36ControlStorageProcessor::completePendingPrinterOutput(const std::string& call)
+{
+    bool any = false;
+    int iob;
+    while (devices_.tryCompletePendingPrinterOutput(iob))
+        any = postRetainedWorkStationCompletion(iob, nullptr, call + " printer output complete") || any;
+    return any;
+}
+
 bool As36ControlStorageProcessor::failPendingWorkStationOperation(int unit, const std::string& call)
 {
     int iob;

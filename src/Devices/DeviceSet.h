@@ -144,6 +144,7 @@ public:
         std::vector<int> inputResponseStatus;
         std::vector<int> pendingC1Pairs;
         std::vector<int> controllerInvites;
+        std::vector<int> printerOutputs;
         std::vector<int> pendingActivationUnits;
         std::vector<int> activatedUnits;
         std::vector<int> nativeActiveUnits;
@@ -229,6 +230,11 @@ public:
     bool tryFailPendingOperationForUnit(int unitAddress, int& failedIob, std::string& what);
     // Complete one retained operation whose real response has arrived.
     bool tryCompletePendingInput(int& completedIob);
+    // A printer Put is accepted at once but its operation ends only after
+    // the record has left the machine.  The retained IOB completes when the
+    // guest next gives the processor away (see the wait path), never inside
+    // the issuing SVC.
+    bool tryCompletePendingPrinterOutput(int& completedIob);
     // Hand off the parsed command-42 result held for delivery onto the
     // work-space block's resident frame, if any.
     std::optional<DeferredWorkStationInput> takeDeferredWorkStationInput();
@@ -310,6 +316,7 @@ private:
     // A7 is one atomic write/read operation that retains its action until
     // the terminal response arrives; it is not a PUT completed at send time.
     SlotMap<int, WorkStationSlot*> pendingPutWithInvites_;
+    std::vector<int> pendingPrinterOutputs_;   // IOBs, in order of issue
     SlotMap<int, PendingScreenSave> pendingScreenSaves_;
     // Guest unit-FF requests remain pending while their all-stations invite
     // has no completion.

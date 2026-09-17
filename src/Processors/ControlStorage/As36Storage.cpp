@@ -95,6 +95,65 @@ bool As36ControlStorageProcessor::translatedAssignOrFree(SvcRequest& req)
         return true;
     }
 
+    // A program block's work space is its region.  When the mapped area a
+    // caller hands in (WR7) plus the assigned displacement ends past the
+    // block's published pages, getHeap does not answer Low: it raises the
+    // JCB ceiling through mspag000 function 04 and retries, and the larger
+    // region is then published exactly as SVC 12 publishes a grown one, so
+    // nucratr maps the new task-work-area-backed page before the caller
+    // touches it.  The heap's own capacity (+16) is unchanged.
+    if (translated && m_.readHalf(block + StorageBlock::kOffEyecatcher) == GuestLowStorage::kEyeProgramBlock) {
+        const int loadPage = ProgramBlock::loadPage(m_, block);
+        const int endLogical = mapped + at + WorkSpaceHeap::round(length);
+        const int neededPages =
+            ((endLogical + machine::MachineState::kPageBytes - 1) >> machine::MachineState::kPageShift) - loadPage;
+        const int published = ProgramBlock::pageCount(m_, block);
+        if (neededPages > published && neededPages + loadPage <= kAtrCount) {
+            if (!ensureModuleStoragePages(block, neededPages, "SVC 2C region growth")) {
+                trace_.csp("SVC 2C: cannot grow program block {:06X} backing to {} page(s) for the area ending at {:04X}",
+                           block, neededPages, endLogical);
+                return false;
+            }
+            m_.writeHalf(block + ProgramBlock::kOffPageCount, static_cast<uint16_t>(neededPages));
+            m_.writeHalf(block + ProgramBlock::kOffPagesReady, static_cast<uint16_t>(neededPages));
+            // getHeap's JCB traffic (c18cb104..c18cb178): the ceiling at +137
+            // is what mspag000 function 04 rewrites, +89 latches the old
+            // ceiling while the growth counter at +90..91 is still zero, and
+            // the counter is then incremented.  +92 is NOT touched: SSP
+            // keeps the region's used size there (in 256-byte units) and
+            // both the assign and the later free derive their mapped base
+            // from it, so the two must agree.
+            int jcb = m_.readAddr24(req.taskBlock + JobControlBlock::kTaskBlockPointer);
+            if (jcb != 0) {
+                if (m_.readHalf(jcb + JobControlBlock::kOffGrowthCounter) == 0)
+                    m_.writeByte(jcb + JobControlBlock::kOffRegionCeiling, m_.readByte(jcb + JobControlBlock::kOffRegionPages));
+                if (JobControlBlock::regionPages(m_, jcb) < neededPages)
+                    m_.writeByte(jcb + JobControlBlock::kOffRegionPages, static_cast<uint8_t>(neededPages));
+                m_.writeHalf(jcb + JobControlBlock::kOffGrowthCounter,
+                             static_cast<uint16_t>(m_.readHalf(jcb + JobControlBlock::kOffGrowthCounter) + 1));
+            }
+            // The current frame's file is rebuilt now.  Every frame beneath
+            // it on this task keeps its own ATR file, repointed rather than
+            // rebuilt when the callee exits, so the new page would stay
+            // protected there: rb+44 bit 0x40 is exactly the "rebuild on
+            // resume" request nupexit honours (c18a4184).
+            int outer = m_.readAddr24(rb + RequestBlock::kOffPrevious);
+            int marked = 0;
+            for (int guard = 0; outer != 0 && guard < 64; ++guard) {
+                m_.writeByte(outer + RequestBlock::kOffAtrStale,
+                             static_cast<uint8_t>(m_.readByte(outer + RequestBlock::kOffAtrStale) | kAtrStaleFlag));
+                ++marked;
+                outer = m_.readAddr24(outer + RequestBlock::kOffPrevious);
+            }
+            buildTranslationRegisters(req.taskBlock);
+            trace_.csp("SVC 2C: {} outer request block(s) marked for an ATR rebuild on resume (rb+44 bit 40)", marked);
+            trace_.csp("SVC 2C: the area ending at logical {:04X} lies past program block {:06X}'s {} published page(s); "
+                       "getHeap grows the region to {} page(s) (mspag000 function 04 and retry, c18cb124..c18cb178) and "
+                       "publishes it as SVC 12 would; JCB {:06X} ceiling raised and growth counted",
+                       endLogical, block, published, neededPages, jcb);
+        }
+    }
+
     // The page high-water mark is published in SB+18 and its copy at +42;
     // the translation register builder bounds its mappings by this value,
     // and SB+16 remains capacity.  When the mark grows the task's registers

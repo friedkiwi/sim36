@@ -107,6 +107,15 @@ int ActionControlElementQueue::buildAndQueue(int rb, int tb, uint8_t qByte, uint
     // Q bit 3: put a different task block address in the ACE, from XR2.
     ActionControlElement::applyTaskAssociation(m_, ace, qByte);
 
+    // Q bit 5: the event type the waiter will match arrives in WR6 and is
+    // stored at +22 (nuidpost; nubldacn itself zeroes the halfword).  The
+    // spool writer builds its general-post element this way with type 0010.
+    if ((qByte & 0x04) != 0) {
+        uint16_t type = RequestBlock::readWr(m_, rb, 6);
+        m_.writeHalf(ace + ActionControlElement::kOffEventType, type);
+        trace_.ace("  event type {:04X} from WR6 stored at +22 (Q bit 5)", type);
+    }
+
     // Q bit 2: hand the address back through the event control mask and XR2.
     if ((qByte & 0x20) != 0) {
         int ecm = RequestBlock::readXr1Field(m_, rb);

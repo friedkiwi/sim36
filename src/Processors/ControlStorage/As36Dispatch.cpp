@@ -262,6 +262,11 @@ bool As36ControlStorageProcessor::dispatch(const std::string& call)
 
     int next = selectNextTask(call);
     if (next == 0) return false;
+    // A task is about to run, so the machine is no longer at nudspchA's
+    // no-task exit.  Every dispatch path resets this, not only the wait
+    // tails: a later stop of the MSP for another reason must be reported
+    // as that reason rather than mistaken for the external-event idle.
+    idleEventWait_ = false;
 
     if (next == phase2SvatJobTask_) phase2SvatDispatched_ = true;
 
@@ -379,6 +384,11 @@ void As36ControlStorageProcessor::readyPendingAsyncChildren(const std::string& c
 // the MSP is stopped with that said in as many words.
 bool As36ControlStorageProcessor::waitAndDispatch(int tb, const std::string& call)
 {
+    // The waiter has given the processor away: any printer record accepted
+    // earlier has had its time on the wire, so its operation ends now and
+    // its element reaches the owner's complete queue before the dispatcher
+    // looks for work.
+    completePendingPrinterOutput(call);
     readyPendingAsyncChildren(call);
     if (dispatch(call)) {
         idleEventWait_ = false;
@@ -1082,16 +1092,22 @@ bool As36ControlStorageProcessor::eventWait(SvcRequest& req)
     return true;
 }
 
-// The event-type selector: WR6 zero matches any; a high-byte overlap
-// matches; with WR6 bit 0 on the low bytes must be equal; otherwise the
-// type must be even and WR6's low byte non-zero.
+// The event-type selector (nuevt c18b5e54..c18b5eb8): WR6 zero matches
+// any; a high-byte overlap matches; with WR6 bit 0 on the low bytes must be
+// equal; otherwise the type must be even and the two LOW BYTES must share a
+// bit (c18b5e98 computes that AND and c18b5eac branches on it).  The
+// reference transcribed the last arm as "WR6's low byte non-zero" and
+// called the AND dead; the later verified reading in
+// docs/s36/console-acquire-and-wake-2026-09-08.md is the one SSP's spool
+// writer depends on: its type-0020 polls must not consume the type-0010
+// general-post element it later waits for by key.
 bool As36ControlStorageProcessor::waitEventTypeMatches(uint16_t wr6, uint16_t type)
 {
     if (wr6 == 0) return true;
     if (((wr6 >> 8) & (type >> 8)) != 0) return true;
     if ((wr6 & 0x01) != 0) return (type & 0xFF) == (wr6 & 0xFF);
     if ((type & 0x01) != 0) return false;
-    return (wr6 & 0xFF) != 0;
+    return ((wr6 & type) & 0xFF) != 0;
 }
 
 bool As36ControlStorageProcessor::completedEventForTask(SvcRequest& req)
@@ -1134,7 +1150,14 @@ bool As36ControlStorageProcessor::completedEvent(int tb, int rb, uint8_t q, bool
                                    asyncMatch ? "True" : "False");
         } else {
             bool flagsCandidate = (flags & ActionControlElement::kFlagsMultipleWait) != 0;
-            bool ecmCandidate = ecm != 0 && (m_.readByte(ecm + Ecm::kOffMultiWait) & 0x80) != 0;
+            // The element carries the caller's XR1 as it was issued.  A
+            // spool writer's disk IOB lives in its translated work space, so
+            // the mask byte is read through the waiting task's registers,
+            // which are live: a raw read of a 80nnnn field lands in
+            // unrelated storage and made this arm answer by accident.
+            int ecmReal = 0;
+            bool ecmCandidate = ecm != 0 && m_.resolveGuest24(ecm, false, ecmReal) &&
+                                (m_.readByte(ecmReal + Ecm::kOffMultiWait) & 0x80) != 0;
             match = flagsCandidate || ecmCandidate;
             bool typeMatch = true;
             if (match && (q & kEventTypeGiven) != 0) {

@@ -32,16 +32,18 @@ check "stop leaves execution at a safe point" \
 check "the running guest processes the answer and repaints" \
       "SYS-5519 Date or Time changed"
 
-# Determinism yardsticks.  A clean attended IPL is 51458 instructions and
-# answering the panel reaches 58444.  The older totals included #CTEI and
-# FETDP runs caused by treating every successful return-ACE task as an error
-# termination; those runs also left SYS-1887 entries in HISTORY.  Both new
-# numbers are deterministic for this guest input and are preserved by bare
-# `ipl` plus explicit `wait idle` synchronization.
+# Determinism yardsticks.  A clean attended IPL is 71796 instructions and
+# answering the panel reaches 78784.  Earlier totals (51458/58444) predate
+# the printer IPL rebuild path, which runs more of SSP's file rebuild before
+# the console idles; the totals before those included #CTEI and FETDP runs
+# caused by treating every successful return-ACE task as an error
+# termination, which also left SYS-1887 entries in HISTORY.  Both numbers
+# are deterministic for this guest input and are preserved by bare `ipl`
+# plus explicit `wait idle` synchronization.
 check "asynchronous IPL follows the clean deterministic stream" \
-      "wait: guest is idle after 51458 instruction(s)"
+      "wait: guest is idle after 71796 instruction(s)"
 check "answering the panel follows the clean deterministic stream" \
-      "wait: guest is idle after 58444 instruction(s)"
+      "wait: guest is idle after 78784 instruction(s)"
 check "and stops for the reference reason" \
       "nudspchA's no-task exit (c180e04c)"
 

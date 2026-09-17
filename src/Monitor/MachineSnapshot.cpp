@@ -643,6 +643,7 @@ void MachineSnapshot::writeRuntime(Writer& w, machine::Machine& m)
     w.ints(d.inputResponseStatus);
     w.ints(d.pendingC1Pairs);
     w.ints(d.controllerInvites);
+    w.ints(d.printerOutputs);
     w.ints(d.pendingActivationUnits);
     w.ints(d.activatedUnits);
     w.ints(d.nativeActiveUnits);
@@ -765,6 +766,7 @@ MachineSnapshot::RuntimeState MachineSnapshot::readRuntime(Reader& r)
     d.inputResponseStatus = r.ints("workstation response status");
     d.pendingC1Pairs = r.ints("pending workstation C1 responses");
     d.controllerInvites = r.ints("controller invites");
+    d.printerOutputs = r.ints("retained printer outputs");
     d.pendingActivationUnits = r.ints("pending activation units");
     d.activatedUnits = r.ints("activated units");
     d.nativeActiveUnits = r.ints("native-active workstation units");
