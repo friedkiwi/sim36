@@ -188,8 +188,11 @@ TEST_CASE("printer file output appends the guest byte stream verbatim")
     CHECK(printer.endJob());
     CHECK(printer.sendDataStream(second, 0, 2));
     CHECK(printer.endJob());
-    std::ifstream in(path, std::ios::binary);
-    std::vector<uint8_t> actual{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    std::vector<uint8_t> actual;
+    {
+        std::ifstream in(path, std::ios::binary);
+        actual.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
     CHECK(actual == std::vector<uint8_t>{0xC8, 0xC5, 0xD3, 0xD3, 0xD6, 0xF1, 0xF2});
     fs::remove(path);
 }
