@@ -103,7 +103,7 @@ TEST_CASE("SSP's final #CCPW power-control wait stops the emulated machine")
     CHECK_FALSE(csp.mainStorage().stopped());
 }
 
-TEST_CASE("retained termination context unwinds its native slot-4 continuation")
+TEST_CASE("retained termination context keeps its native slot-4 continuation")
 {
     CspEmptyVolume volume;
     configuration::EmulatorConfig config;
@@ -132,10 +132,14 @@ TEST_CASE("retained termination context unwinds its native slot-4 continuation")
 
     SvcRequest exit;
     exit.r = 0x11;
-    CHECK(csp.svc(exit));
+    // This minimal fixture has no transfer table, so the root exit itself
+    // cannot complete.  The assertion here is that merely encountering the
+    // retained root exit does not consume its suspended native frame.
+    CHECK_FALSE(csp.svc(exit));
 
     REQUIRE(csp.captureCheckpoint(checkpoint, failure));
-    CHECK(checkpoint.nativeTransferContinuations.empty());
+    CHECK(checkpoint.nativeTransferContinuations ==
+          std::vector<int>{task, 1, static_cast<int>(As36ControlStorageProcessor::NativeTransferContinuation::NuptermSlot4)});
 }
 
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")

@@ -1,0 +1,14 @@
+# The shipped station topology, with a test-supplied volume and overlay writes.
+# Keep this separate from default-machine.sim.in: the ordinary W2 driver uses
+# display 0.1, while this gate must exercise SSP's printer configuration and
+# file-rebuild path exactly as etc/sim36.sim does.
+attach disk0 @VOLUME@ @ATTACH_MODE@
+set station 0.0 role console
+set station 0.1 role printer
+set station 0.1 device-code PB
+set station 0.1 output console
+set station 0.2 listen 127.0.0.1:2302
+set station 0.3 listen 127.0.0.1:2303
+set station 0.4 listen 127.0.0.1:2304
+set station 0.5 listen 127.0.0.1:2305
+set station 0.6 listen 127.0.0.1:2306

@@ -183,6 +183,7 @@ set(SIM36_VOLUME_GATES program_block_svcs work_area_svcs task_creation task_disp
     nupterm_probes timer_transient timer_op20 timer_op38 disk_write_wrap command_files ipl_command
     workstation_actions wsc_config workstation_seam printer_seam live_monitor station_multiplex
     station_power_cycle machine_lifecycle multi_session_signon ipl_main_session ipl_unattended_main_session
+    ipl_printer_rebuild
     snapshot panic_command tape tape_svc tape_operator ipl_source atr_ownership list_all_regression)
 list(APPEND SIM36_VOLUME_GATES no_return_transfer history_regression catalog_regression)
 foreach(gate IN LISTS SIM36_VOLUME_GATES)
@@ -193,6 +194,12 @@ set_tests_properties(storage_svcs udt_walk ${SIM36_VOLUME_GATES} PROPERTIES SKIP
 set_tests_properties(config_parity config_volume disk_layer decode_differential msp_parity
     storage_svcs udt_walk csp_scaffolding csp_families ${SIM36_VOLUME_GATES} PROPERTIES
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>")
+# These gates bind the same default 2300/2302..2306 station endpoints.  They
+# may run alongside the non-network gates, but never alongside one another.
+set(SIM36_STATION_PORT_GATES workstation_actions wsc_config workstation_seam printer_seam live_monitor
+    station_multiplex station_power_cycle machine_lifecycle multi_session_signon ipl_main_session
+    ipl_unattended_main_session ipl_printer_rebuild list_all_regression)
+set_tests_properties(${SIM36_STATION_PORT_GATES} PROPERTIES RESOURCE_LOCK sim36_station_ports)
 
 # ---------------------------------------------------------------------------
 # THIRD_PARTY_NOTICES, generated from the vcpkg copyright files of the

@@ -988,7 +988,14 @@ bool As36ControlStorageProcessor::terminateTaskRoot(SvcRequest& req)
     // invokes termination again; the machine observes the outstanding
     // native state and unwinds to its native caller.  No host call stack
     // survives across guest execution, so that frame is per-task state.
-    auto frames = nativeTransferContinuations_.find(tb);
+    // The native-state escape at c18a4f00 is reached only through the
+    // cleanup arm.  A retained job step branches from c18a4cf4 straight to
+    // c18a4fa0, balances its counters, and enters slot 4 again; its older
+    // synchronous nup1000 frames remain suspended until the guest marks the
+    // actual end of job with TB_STAT bit 0x40.  Unwinding one here resumes
+    // the supposedly terminated MSP frame after its root SVC 11 (on SSP
+    // 7.5, $FREX's fatal ID-0011 path).
+    auto frames = cleanupTaskEnvironment ? nativeTransferContinuations_.find(tb) : nativeTransferContinuations_.end();
     if (frames != nativeTransferContinuations_.end() && !frames->second.empty()) {
         int nativeDepth = static_cast<int>(frames->second.size());
         NativeTransferContinuation innermost = frames->second.back();
@@ -1314,20 +1321,18 @@ std::vector<As36ControlStorageProcessor::LoadedProgramBlock> As36ControlStorageP
     return result;
 }
 
-// The transfer-time addressability copier: unless the new program is
-// A0-class it copies the incoming request block's complete MAP table to the
-// new block.  An untranslated callee can additionally get a leading entry
-// for the caller program itself.  Each copied block receives the same
-// domain and use-count references the frame release later balances.
+// The transfer-time addressability copier copies the incoming request block's
+// MAP table to the new block.  An untranslated callee can additionally get a
+// leading entry for the caller program itself.  An A0-class translated
+// program keeps the caller's mappings only outside its own module: nucmclr's
+// collision clearing leaves the callee resident at its load pages while
+// retaining the caller's surrounding work-space addressability.  Each copied
+// block receives the same domain and use-count references the frame release
+// later balances.
 bool As36ControlStorageProcessor::copyCallerAddressability(int callerRb, int calleeRb, int calleePb, const std::string& call)
 {
     uint8_t mode = ProgramBlock::mode(m_, calleePb);
-    if ((mode & 0xA0) == 0xA0) {
-        // The reference's copy-map-on-transfer probe for A0-class programs
-        // (SignonCopyMapOnTransfer) is an experiment that is off by default
-        // and is not ported.
-        return false;
-    }
+    bool a0Class = (mode & 0xA0) == 0xA0;
     if (callerRb == 0 || callerRb == calleeRb) return false;
 
     int callerPb = m_.readAddr24(callerRb + RequestBlock::kOffProgramBlock);
@@ -1341,7 +1346,10 @@ bool As36ControlStorageProcessor::copyCallerAddressability(int callerRb, int cal
     // also skip it when the predecessor program has attribute bit 0x02 or
     // 0x10.
     bool skipCallerProgram = (mode & 0x80) != 0 || (ProgramBlock::attribute(m_, callerPb) & 0x12) != 0;
-    int required = sourceCount + (skipCallerProgram ? 0 : 1);
+    // One source entry can straddle the module and become two entries.  MAP
+    // tables are non-overlapping, so a contiguous module can split at most
+    // one of them.
+    int required = sourceCount + (skipCallerProgram ? 0 : 1) + (a0Class ? 1 : 0);
     if (destinationTable + required * MapTable::kEntryBytes > MapTable::blockEnd(m_, calleeRb)) {
         trace_.csp("{}: nucmclr needs {} map entries copied from rb {:06X}, past the end of destination rb {:06X} - nuersvc "
                    "code 83",
@@ -1360,20 +1368,43 @@ bool As36ControlStorageProcessor::copyCallerAddressability(int callerRb, int cal
         destinationCount++;
     }
 
-    for (int i = 0; i < sourceCount; i++) {
-        int source = sourceTable + i * MapTable::kEntryBytes;
+    const int moduleFirst = ProgramBlock::loadPage(m_, calleePb);
+    const int moduleEnd = moduleFirst + ProgramBlock::pageCount(m_, calleePb);
+    auto append = [&](int start, int pages, int displacement, int block) {
+        if (pages <= 0) return;
         int destination = destinationTable + destinationCount * MapTable::kEntryBytes;
-        for (int b = 0; b < MapTable::kEntryBytes; b++) m_.writeByte(destination + b, m_.readByte(source + b));
-
-        int block = m_.readAddr24(destination + MapTable::kOffBlock);
+        MapTable::write(m_, destination, start, pages, displacement, block);
         referenceInheritedMapObject(block, call + " nucmclr map");
         destinationCount++;
+    };
+
+    for (int i = 0; i < sourceCount; i++) {
+        int source = sourceTable + i * MapTable::kEntryBytes;
+        int start = m_.readByte(source + MapTable::kOffStartPage);
+        int pages = m_.readByte(source + MapTable::kOffPages);
+        int displacement = m_.readHalf(source + MapTable::kOffDisplacement);
+        int block = m_.readAddr24(source + MapTable::kOffBlock);
+        if (!a0Class || pages == 0 || start + pages <= moduleFirst || start >= moduleEnd) {
+            append(start, pages, displacement, block);
+            continue;
+        }
+
+        int before = std::max(0, moduleFirst - start);
+        append(start, before, displacement, block);
+        int afterStart = std::max(start, moduleEnd);
+        int after = std::max(0, start + pages - afterStart);
+        append(afterStart, after, displacement + (afterStart - start), block);
+        trace_.csp("{}: A0 nucmclr clipped caller map entry {} around callee module pages {}..{}; retained {} page(s) "
+                   "before and {} after",
+                   call, i, moduleFirst, moduleEnd - 1, before, after);
     }
 
     MapTable::setCount(m_, calleeRb, destinationCount);
-    trace_.csp("{}: nucmclr copied {} caller map entr{} from rb {:06X} to rb {:06X}{} (callee mode {:02X}; "
+    trace_.csp("{}: nucmclr copied {} caller map entr{} into {} collision-cleared entr{} from rb {:06X} to rb {:06X}{} "
+               "(callee mode {:02X}; "
                "c1891178..c189123C)",
-               call, sourceCount, sourceCount == 1 ? "y" : "ies", callerRb, calleeRb,
+               call, sourceCount, sourceCount == 1 ? "y" : "ies", destinationCount,
+               destinationCount == 1 ? "y" : "ies", callerRb, calleeRb,
                skipCallerProgram ? "" : " and prepended the caller program", mode);
     return destinationCount != 0;
 }
@@ -1546,14 +1577,13 @@ bool As36ControlStorageProcessor::alreadyResident(int at, const std::vector<uint
 }
 
 // pb+63 is a FLOOR, not the length: the block is pb+63 + 4 + (pb+57 & 0x0F)
-// units of 16 bytes, plus (rb+40 + 2) / 2 unless pb+56 & 0xA0 == 0xA0.  The
+// units of 16 bytes, plus (rb+40 + 2) / 2.  The
 // last term is precisely the space the callee needs for the caller's map
 // table plus one unit of slack.
 int As36ControlStorageProcessor::requestBlockUnits(int pb, int callerRb)
 {
-    uint8_t mode = ProgramBlock::mode(m_, pb);
     int units = m_.readByte(pb + ProgramBlock::kOffRequestBlockUnits) + 4 + (m_.readByte(pb + ProgramBlock::kOffFlags57) & 0x0F);
-    if ((mode & 0xA0) != 0xA0) units += (m_.readByte(callerRb + RequestBlock::kOffMapEntryCount) + 2) / 2;
+    units += (m_.readByte(callerRb + RequestBlock::kOffMapEntryCount) + 2) / 2;
     return units;
 }
 

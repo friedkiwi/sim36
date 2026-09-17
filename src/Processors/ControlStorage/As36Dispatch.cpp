@@ -1007,7 +1007,10 @@ bool As36ControlStorageProcessor::postTaskByTaskId(SvcRequest& req)
     int id = RequestBlock::readWr(m_, req.requestBlock, 5);
     int tb = findTaskById(id, req.taskBlock);
     if (tb == 0) {
-        trace_.csp("SVC 2B: no task block on queue 39 has task ID {:04X}", id);
+        trace_.csp("SVC 2B: no task block on queue 39 has task ID {:04X}; caller task {:04X} currently has ID {:04X}; "
+                   "return IAR {:04X} from request block {:04X}",
+                   id, req.taskBlock, m_.readHalf(req.taskBlock + TaskBlock::kOffTaskId),
+                   m_.readHalf(req.requestBlock + RequestBlock::kOffIar), req.requestBlock);
         setCondition(req, kPsrHigh);
         return true;
     }

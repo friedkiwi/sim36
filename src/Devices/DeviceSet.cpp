@@ -104,7 +104,10 @@ void DeviceSet::resetPendingIo()
 
 void DeviceSet::activateIplWorkStations()
 {
-    for (WorkStationSlot* slot : workStations_.slots()) slot->activateAtIpl(slot->signOnAtIpl);
+    for (WorkStationSlot* slot : workStations_.slots()) {
+        const bool acquiredPhysicalPrinter = slot->isPrinter && slot->backendAttached();
+        slot->activateAtIpl(acquiredPhysicalPrinter);
+    }
 }
 
 DeviceSet::PendingCheckpoint DeviceSet::capturePendingCheckpoint() const

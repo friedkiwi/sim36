@@ -58,9 +58,14 @@ void WorkStationSlot::bindTransferRenderer()
     if (!isPrinter) transferRendererBound_ = true;
 }
 
-void WorkStationSlot::activateAtIpl(bool)
+void WorkStationSlot::activateAtIpl(bool acquiredHri)
 {
-    nativeActive_ = false;
+    // rdcnf (command 82) enumerates native NuWs objects which already own an
+    // HRI, not the persistent command-81 station map.  A console/file printer
+    // backend is an always-present physical endpoint and therefore has that
+    // object at IPL; ordinary displays and an unattached TN5250 printer do
+    // not.  `configured_` remains false until SSP accepts/configures it.
+    nativeActive_ = acquiredHri;
     configured_ = false;
     internalRendererBound_ = false;
     transferRendererBound_ = false;
