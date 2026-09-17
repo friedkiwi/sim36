@@ -739,10 +739,8 @@ std::vector<uint8_t> PrinterBackend::startupResponse(const std::string& code, co
 bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
 {
     if (output_ == "console") {
-        std::string text = storage::Ebcdic::toAscii(data + offset, static_cast<std::size_t>(length));
-        for (char& c : text)
-            if (static_cast<unsigned char>(c) < 0x20 && c != '\t') c = '.';
-        fmt::print("{}: {}\n", label(), text);
+        for (const std::string& line : renderConsoleDataStream(data, offset, length))
+            fmt::print("{}: {}\n", label(), line);
         recordsSent_++;
         bytesSent_ += length;
         return true;
@@ -767,6 +765,68 @@ bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
     }
     std::vector<uint8_t> record = printRecord(data, offset, length, static_cast<uint8_t>(kFlagFirstOfChain | kFlagLastOfChain));
     return sendRecord(record, length, fmt::format("print record, {} byte(s) of data stream", length));
+}
+
+std::vector<std::string> PrinterBackend::renderConsoleDataStream(const uint8_t* data, int offset, int length)
+{
+    std::vector<std::string> lines;
+    std::string line;
+    bool ideographic = false;
+
+    auto finishLine = [&] {
+        lines.push_back(line);
+        line.clear();
+    };
+
+    const int end = offset + length;
+    for (int at = offset; at < end; ++at) {
+        const uint8_t byte = data[at];
+        switch (byte) {
+            case 0x0C: // form feed
+                if (!line.empty()) finishLine();
+                lines.emplace_back("[form feed]");
+                break;
+            case 0x0D: // carriage return: SVC 26's end-of-print-line marker
+                finishLine();
+                break;
+            case 0x0E: // shift out: ideographic two-byte characters follow
+                ideographic = true;
+                break;
+            case 0x0F: // shift in
+                ideographic = false;
+                break;
+            case 0x34: { // SCS control introducer
+                if (at + 2 >= end) {
+                    line.push_back('?');
+                    break;
+                }
+                const uint8_t operation = data[++at];
+                const uint8_t argument = data[++at];
+                if (operation == 0xC8) // relative horizontal position
+                    line.append(argument, ' ');
+                // 0xC4 positions vertically.  A terminal has no physical
+                // forms, so the following CR/FF supplies its useful break.
+                break;
+            }
+            case 0xFF: // SVC 26's replacement for an invalid print byte
+                line.push_back('?');
+                break;
+            default:
+                if (ideographic) {
+                    // The console has no System/36 ideographic font.  Consume
+                    // one ward/point pair and show one explicit replacement.
+                    if (at + 1 < end) ++at;
+                    line.push_back('?');
+                } else if (byte < 0x40) {
+                    line.push_back('?');
+                } else {
+                    line += storage::Ebcdic::toAscii(&byte, 1);
+                }
+                break;
+        }
+    }
+    if (!line.empty()) finishLine();
+    return lines;
 }
 
 bool PrinterBackend::endJob()

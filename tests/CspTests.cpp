@@ -214,6 +214,47 @@ TEST_CASE("a synchronous printer completion remains queued for SPWRT's following
     std::filesystem::remove(output);
 }
 
+TEST_CASE("general post completes a queued ACE when ECM address return was not requested")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int requestBlock = 0x1100;
+    constexpr int ecm = 0x1200;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
+    state.writeHalf(task, TaskBlock::kEyecatcher);
+    state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
+    csp.bringUpControlProcessor();
+    state.msp.pactXr1 = 0;
+    state.msp.xr1 = ecm;
+    state.writeHalf(ecm + Ecm::kOffGeneralPostMask, 0x2200);
+
+    SvcRequest build;
+    build.r = 0x4C;
+    build.q = 0x00; // specifically do not return the ACE through ECM+2
+    build.inline1 = 30;
+    REQUIRE(csp.svc(build));
+    CHECK(state.readAddr24(ecm + Ecm::kOffAceAddress) == 0);
+    const int ace = state.readAddr24(GuestLowStorage::queueHeader(30));
+    REQUIRE(ace != 0);
+
+    SvcRequest post;
+    post.r = 0x01;
+    post.inline1 = 0x22;
+    post.inline2 = 0x00;
+    REQUIRE(csp.svc(post));
+    CHECK(state.readByte(ecm + Ecm::kOffCompletion) == Ecm::kComplete);
+    CHECK(state.readAddr24(GuestLowStorage::queueHeader(30)) == 0);
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == ace);
+}
+
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")
 {
     WorkSpaceHeap heap(2 * machine::MachineState::kPageBytes);

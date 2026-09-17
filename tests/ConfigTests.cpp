@@ -197,6 +197,21 @@ TEST_CASE("printer file output appends the guest byte stream verbatim")
     fs::remove(path);
 }
 
+TEST_CASE("printer console output interprets SVC 26 SCS controls")
+{
+    const uint8_t stream[] = {
+        0x34, 0xC4, 0x01,                         // position to line 1
+        0xC8, 0xC9,                               // HI
+        0x34, 0xC8, 0x03,                         // three spaces
+        0xE3, 0xC8, 0xC5, 0xD9, 0xC5, 0x0D,     // THERE, end line
+        0x0C,                                     // new form
+        0xC2, 0xC1, 0xC4, 0xFF, 0x0D             // BAD?, end line
+    };
+    CHECK(sim36::host::PrinterBackend::renderConsoleDataStream(
+              stream, 0, static_cast<int>(sizeof stream)) ==
+          std::vector<std::string>{"HI   THERE", "[form feed]", "BAD?"});
+}
+
 TEST_CASE("ipl source: disk requests no reload; attended sets bit 0x80")
 {
     CHECK_FALSE(IplSourceTable::requestsReload("disk"));

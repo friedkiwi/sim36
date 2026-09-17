@@ -1310,7 +1310,7 @@ bool As36ControlStorageProcessor::generalPost(SvcRequest& req)
         }
 
         // nugpstcs saves the next link before nupostac dequeues the current
-        // ACE.  Preserve that order: postEvent clears the current link.
+        // ACE.  Preserve that order: the dequeue clears the current link.
         int next = m_.readAddr24(at + ActionControlElement::kOffChainLink);
         int ecm = m_.readAddr24(at + ActionControlElement::kOffXr1);
         if (ecm == 0 || ecm > m_.backingBytes() - Ecm::kOffGeneralPostMask - 2) {
@@ -1323,7 +1323,16 @@ bool As36ControlStorageProcessor::generalPost(SvcRequest& req)
             trace_.csp("SVC 01: condition {:04X} matches queue {} element {:06X}, ECM {:06X} mask {:04X}; "
                        "nugpstcs posts it with completion 0",
                        condition, kGeneralPostElementQueue, at, ecm, mask);
-            if (!postEvent(ecm, kGeneralPostElementQueue, 0, "SVC 01 nugpstcs")) return false;
+            // We already have the ACE which nugpstcs matched.  Do not go
+            // back through ECM+2 to find it: nubldace only fills that field
+            // when Q bit 2 asks for the element address to be returned, and
+            // CNFIGSSP deliberately builds its printer wait without that
+            // option.  nupostac is passed the known ACE directly.
+            Ecm::post(m_, ecm, 0);
+            queueOperation(queue30Header, at, ActionControlElement::kChainLastByte, 0x60);
+            if ((m_.readByte(at + ActionControlElement::kOffFlags) & ActionControlElement::kFlagsBase) != 0 &&
+                !completeToTask(at, 0, "SVC 01 nugpstcs"))
+                return false;
             elementsPosted++;
         }
         at = next;

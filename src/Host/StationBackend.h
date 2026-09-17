@@ -335,6 +335,10 @@ public:
     // and the object name at +28 are substituted.
     static std::vector<uint8_t> startupResponse(const std::string& code, const std::string& systemName,
                                                 const std::string& objectName);
+    // Render the SCS subset emitted by SVC 26 for the human-readable console
+    // lister.  Network and file printers continue to receive the byte stream
+    // verbatim.
+    static std::vector<std::string> renderConsoleDataStream(const uint8_t* data, int offset, int length);
     // One print record (RFC 2877 section 10 figure 4), first and last of
     // chain because one Output Data command is one complete data stream.
     bool sendDataStream(const uint8_t* data, int offset, int length);
