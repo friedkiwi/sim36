@@ -198,7 +198,7 @@ set_tests_properties(config_parity config_volume disk_layer decode_differential 
 # may run alongside the non-network gates, but never alongside one another.
 set(SIM36_STATION_PORT_GATES workstation_actions wsc_config workstation_seam printer_seam live_monitor
     station_multiplex station_power_cycle machine_lifecycle multi_session_signon ipl_main_session
-    ipl_unattended_main_session ipl_printer_rebuild list_all_regression)
+    ipl_unattended_main_session ipl_printer_rebuild list_all_regression history_regression catalog_regression)
 set_tests_properties(${SIM36_STATION_PORT_GATES} PROPERTIES RESOURCE_LOCK sim36_station_ports)
 
 # ---------------------------------------------------------------------------

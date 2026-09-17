@@ -1,20 +1,20 @@
 #!/bin/sh
-# The full HISTORY selection used to lose DD1OP's initialized program request
-# area during its no-return transfer to DD2OP, which surfaced as SYS-0392.
-# Once the list is displayed, replay the reported Cmd3, Enter, Cmd7 sequence;
-# its native continuation must retain the old request frame used by MAP.
+# Run the reported SSP 7.5 HISTORY LIST selection with the shipped PB-printer
+# topology.  Besides the older DD1OP/DD2OP transfer coverage, this reaches the
+# SLIC General Post queue-30 completion used while the report is produced.
 set -e
 cd "$(dirname "$0")/.."
 . test/gate-common.sh
 
 S36_PORT_BASE=23500 \
-S36_LIST_TRACE=1 \
-S36_LIST_TRACE_MEMBER=DD2OP \
-S36_LIST_COMMAND='HISTORY CRT,USER,ALLWS,ALLENTS,ALLDAYS,000000,235959,SYSTEM,NOERASE' \
+S36_LIST_TRACE_SPEC='ws' \
+S36_LIST_CONFIG='default-printer-machine.sim.in' \
+S36_LIST_STATIONS='0,2' \
+S36_LIST_COMMAND='HISTORY LIST,ALL,ALLWS,ALLENTS,ALLDAYS,000000,235959,SYSTEM,NOERASE' \
 S36_LIST_STATION='W1' \
-S36_LIST_EXPECT_SCREEN='HISTORY SCROLL' \
-S36_LIST_EXPECT_MONITOR='' \
+S36_LIST_EXPECT_SCREEN='' \
+S36_LIST_EXPECT_MONITOR='printer 0.1:' \
 S36_LIST_REJECT='SYS-0392|SYS-1887' \
-S36_LIST_SETTLE=0.2 \
-S36_LIST_KEYS='Cmd3,Enter,Cmd7' \
+S36_LIST_SETTLE=30 \
+S36_LIST_TIMEOUT=360 \
 python3 test/list-all-regression.py

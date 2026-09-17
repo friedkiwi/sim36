@@ -1251,8 +1251,9 @@ bool As36ControlStorageProcessor::postTaskConditionsFromTransient(int tb, uint8_
 // halfword at tb+8..9 of every task block on queue 39; a match zeroes the
 // halfword, clears tb+4 bit 5 when bit 4 is on, and posts condition 0x20.
 // The machine-action arm (inline 1 bit 2) is a no-op with queue 4 empty
-// and refused otherwise; elements on queue 30 are refused, their mask+7
-// field being unplaced.
+// and refused otherwise.  Queue 30 holds ACEs whose ECM+7 condition mask is
+// tested against the same 16-bit condition; matching elements take SLIC's
+// nupostac(ace, 0, 30) path.
 bool As36ControlStorageProcessor::generalPost(SvcRequest& req)
 {
     constexpr uint8_t kClearLockIndicator = 0x20;   // Q bit 2
@@ -1295,15 +1296,41 @@ bool As36ControlStorageProcessor::generalPost(SvcRequest& req)
         at = next;
     }
 
-    int queue30 = m_.readAddr24(GuestLowStorage::queueHeader(kGeneralPostElementQueue));
-    if (queue30 != 0) {
-        trace_.csp("SVC 01: system queue {} is not empty ({:06X}); nugpstcs posts the elements on it whose mask+7 halfword "
-                   "matches, and that field is not established (docs/s36/ace-format.md)",
-                   kGeneralPostElementQueue, queue30);
-        return false;
+    const uint16_t condition = static_cast<uint16_t>((req.inline1 << 8) | req.inline2);
+    int queue30Header = GuestLowStorage::queueHeader(kGeneralPostElementQueue);
+    at = m_.readAddr24(queue30Header);
+    int elementsPosted = 0;
+    for (int steps = 0; at != 0; steps++) {
+        if (!chainStepValid(at, steps, queue30Header)) return false;
+        if (at + ActionControlElement::kSize > m_.backingBytes() ||
+            m_.readHalf(at + ActionControlElement::kOffEyecatcher) != ActionControlElement::kEyecatcher) {
+            trace_.csp("SVC 01: queue {} element {:06X} is not an addressable action control element",
+                       kGeneralPostElementQueue, at);
+            return false;
+        }
+
+        // nugpstcs saves the next link before nupostac dequeues the current
+        // ACE.  Preserve that order: postEvent clears the current link.
+        int next = m_.readAddr24(at + ActionControlElement::kOffChainLink);
+        int ecm = m_.readAddr24(at + ActionControlElement::kOffXr1);
+        if (ecm == 0 || ecm > m_.backingBytes() - Ecm::kOffGeneralPostMask - 2) {
+            trace_.csp("SVC 01: queue {} element {:06X} names an unaddressable ECM {:06X}",
+                       kGeneralPostElementQueue, at, ecm);
+            return false;
+        }
+        uint16_t mask = m_.readHalf(ecm + Ecm::kOffGeneralPostMask);
+        if ((mask & condition) != 0) {
+            trace_.csp("SVC 01: condition {:04X} matches queue {} element {:06X}, ECM {:06X} mask {:04X}; "
+                       "nugpstcs posts it with completion 0",
+                       condition, kGeneralPostElementQueue, at, ecm, mask);
+            if (!postEvent(ecm, kGeneralPostElementQueue, 0, "SVC 01 nugpstcs")) return false;
+            elementsPosted++;
+        }
+        at = next;
     }
 
-    trace_.csp("SVC 01: condition {:02X}{:02X} posted {} task(s) on queue 39", req.inline1, req.inline2, posted);
+    trace_.csp("SVC 01: condition {:02X}{:02X} posted {} task(s) on queue 39 and {} element(s) on queue {}",
+               req.inline1, req.inline2, posted, elementsPosted, kGeneralPostElementQueue);
     return true;
 }
 

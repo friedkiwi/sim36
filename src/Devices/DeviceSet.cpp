@@ -881,7 +881,13 @@ bool DeviceSet::request(int iob, uint8_t r, int cmd, int unitBlock)
     bool phaseResult = false;
     switch (arm.action) {
         case WsAction::Put:
-            if (!beginOutputRequest(iob, false, phaseResult)) return phaseResult;
+            // Displays reach NuActiveCtl::wsopend before NuDsp5250::put, and
+            // its C0/C1 byte is controller phase.  Printers do not: command
+            // 27 dispatches to the independent NuPrt5250::put override.  A
+            // printer IOB legitimately carries C2 here (the HISTORY LIST
+            // path does), so applying the display phase gate rejects real
+            // printer output before the printer method can see it.
+            if (!slot->isPrinter && !beginOutputRequest(iob, false, phaseResult)) return phaseResult;
             return outputData(iob, *slot, false);
 
         case WsAction::PutWithInvite:

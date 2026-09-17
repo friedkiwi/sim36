@@ -15,7 +15,9 @@ from tn5250drive import Session  # noqa: E402
 
 
 def main():
-    proc = subprocess.Popen(sim36env.command(sim36env.default_config()), cwd=ROOT,
+    template = os.environ.get("S36_LIST_CONFIG", "default-machine.sim.in")
+    config = sim36env.default_config(template, attach_mode="overlay")
+    proc = subprocess.Popen(sim36env.command(config), cwd=ROOT,
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
     transcript = []
@@ -43,10 +45,13 @@ def main():
                                        (text, "".join(transcript[-120:])))
                 changed.wait(min(left, 0.25))
 
-    sessions = []
+    sessions = {}
     try:
         command("set machine ipl-type unattend")
-        if os.environ.get("S36_LIST_TRACE") == "1":
+        trace_spec = os.environ.get("S36_LIST_TRACE_SPEC", "")
+        if trace_spec:
+            command("trace " + trace_spec)
+        elif os.environ.get("S36_LIST_TRACE") == "1":
             command("trace csp")
         port_base = int(os.environ.get("S36_PORT_BASE", "2300"))
         if port_base != 2300:
@@ -62,12 +67,14 @@ def main():
         # Bring up the system console first.  On unattended IPL it is W1's
         # connection that completes workstation initialization; attaching
         # W2 first can legitimately leave it on "IPL is in progress".
-        for number, user in ((1, "YVANJ"), (2, "YVANJ2")):
-            workstation = "W%d" % number
+        station_numbers = [int(value) for value in
+                           os.environ.get("S36_LIST_STATIONS", "0,1").split(",")]
+        for station, user in zip(station_numbers, ("YVANJ", "YVANJ2")):
+            workstation = "W%d" % (station + 1)
             session = Session(port_base, name=workstation).connect(timeout=25)
-            sessions.append(session)
+            sessions[workstation] = session
             session.wait_for_text("Connect to workstation", timeout=20)
-            session.type_into("Connect to workstation", "0.%d" % (number - 1))
+            session.type_into("Connect to workstation", "0.%d" % station)
             session.press("Enter")
             session.wait_for_text("SIGN ON", timeout=60)
             session.type_into("User ID", user)
@@ -78,7 +85,7 @@ def main():
             session.wait_for_text("Main System/36 help menu", timeout=90)
 
         target = os.environ.get("S36_LIST_STATION", "W2").upper()
-        session = sessions[int(target[1:]) - 1]
+        session = sessions[target]
 
         mark = len(transcript)
         command("wait idle 30")
@@ -114,7 +121,7 @@ def main():
             check_mark = len(transcript)
             session.press("Enter")
 
-        deadline = time.monotonic() + 120
+        deadline = time.monotonic() + float(os.environ.get("S36_LIST_TIMEOUT", "120"))
         saw_listing = False
         while time.monotonic() < deadline:
             with session.lock:
@@ -123,7 +130,7 @@ def main():
             with changed:
                 text = "".join(transcript[check_mark:])
             saw_listing |= bool(expected_monitor) and expected_monitor in text
-            if ("CHECK [program]" in text or "storage protection" in text or saw_rejected or
+            if ("CHECK [" in text or "storage protection" in text or saw_rejected or
                     any(value in text for value in rejected)):
                 print(session.screen.render("=== LIST ALL ===", fields=True), file=sys.stderr)
                 with changed:
@@ -144,14 +151,16 @@ def main():
                     text = "".join(transcript[check_mark:])
                 with session.lock:
                     saw_rejected = any(session.screen.contains(value) for value in rejected)
-                if ("CHECK [program]" in text or "storage protection" in text or saw_rejected or
+                if ("CHECK [" in text or "storage protection" in text or saw_rejected or
                         any(value in text for value in rejected)):
                     raise AssertionError("LIST ALL stopped after displaying source")
                 break
             time.sleep(0.05)
         if not saw_listing:
-            raise TimeoutError("LIST ALL did not display BASICSMP\n%s" %
-                               session.screen.render(fields=True))
+            with changed:
+                tail = "".join(transcript[-160:])
+            raise TimeoutError("command did not reach expected output %r\n%s\n%s" %
+                               (expected_screen, session.screen.render(fields=True), tail))
 
         # CATALOG's help panel is split across two input pages. This drives
         # the reported form shape: the first Enter returns ALL/F1 as modified
@@ -243,7 +252,7 @@ def main():
         else:
             print("PASS: LIST ALL displayed source without a processor check")
     finally:
-        for session in sessions:
+        for session in sessions.values():
             session.close()
         if proc.poll() is None:
             command("quit")
@@ -251,6 +260,10 @@ def main():
                 proc.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        try:
+            os.unlink(config)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

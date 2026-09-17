@@ -59,6 +59,9 @@ public:
     static constexpr int kOffAceAddress = 2;   // 3 bytes; zero means "do not post"
     static constexpr int kOffMultiWait = 5;    // bit 0x80
     static constexpr int kOffCompletion = 6;   // bit 0x40 = complete, low nibble = code
+    // General Post treats the two bytes immediately after the ordinary ECM
+    // as its 16-bit condition mask (NuEmul::nugpstcs reads ECM+7).
+    static constexpr int kOffGeneralPostMask = 7;
     static constexpr uint8_t kComplete = 0x40;
 
     static bool isComplete(machine::MachineState& m, int ecm)
