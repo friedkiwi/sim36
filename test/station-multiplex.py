@@ -83,6 +83,7 @@ def define(proc, port, stations, multiplex_port):
     for p, a in stations:
         send(proc, "set station %d.%d role %s"
              % (p, a, "console" if (p, a) == (0, 0) else "display"))
+        send(proc, "set station %d.%d device-code 11" % (p, a))
         if (p, a) != (0, 0):
             send(proc, "set station %d.%d listen 127.0.0.1:%d" % (p, a, port))
             port += 1
@@ -339,6 +340,38 @@ send(proc, "stop")
 send(proc, "quit")
 proc.wait(timeout=20)
 out.append("=== phase 5 monitor ===")
+out.append("".join(lines).rstrip())
+
+
+# ---------------------------------------------------------------- phase 6 ---
+# The shipped topology has W1 at 0.0, a printer at 0.1, and the next display
+# at 0.2.  Once one selector accepts the prefilled W1, the next selector must
+# use the multiplexer's live binding and skip the non-display printer address.
+MUX6 = int(os.environ.get("S36_MUX_PORT6", "3990"))
+proc, lines = emulator()
+send(proc, "set station 0.1 role printer")
+send(proc, "set station 0.1 device-code PB")
+send(proc, "set station 0.1 output console")
+send(proc, "set terminal multiplex listen 127.0.0.1:%d" % MUX6)
+send(proc, "set terminal multiplex on")
+
+first = tn.Session(MUX6, name="printer-topology-first").connect()
+first.wait_for_invite(20)
+out.append("phase 6 first prefilled station: %s" %
+           first.screen.field_value(first.screen.input_fields()[0]).strip())
+first.press("Enter")
+first.wait_for_text("Waiting for IPL", timeout=15)
+
+second = tn.Session(MUX6, name="printer-topology-second").connect()
+second.wait_for_invite(20)
+out.append("phase 6 second prefilled station after W1 and printer: %s" %
+           second.screen.field_value(second.screen.input_fields()[0]).strip())
+
+first.close()
+second.close()
+send(proc, "quit")
+proc.wait(timeout=20)
+out.append("=== phase 6 monitor ===")
 out.append("".join(lines).rstrip())
 
 print("\n".join(out))

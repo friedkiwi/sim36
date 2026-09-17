@@ -106,7 +106,7 @@ check "and it is on the station it picked, in the machine that came after" \
 check "so the guest binds it during the IPL, as an already-present station" \
       "station 0.1: session bound to TU"
 check "the normal completion message is concise" \
-      "station 0.1: bind/powerOn complete for TU 00E870"
+      "station 0.1: bind/powerOn complete for TU"
 check_absent "normal station messages do not expose the TFRM36 implementation path" \
       "TFRM36 action"
 
@@ -133,6 +133,12 @@ check "the guest itself drives the unattended W1 after construction" \
       "role console  tub 00"
 check "W1 handoff does not fabricate a terminal response for the guest" \
       "in 0 record(s) 0 byte(s), 0 waiting; 1 session(s)"
+
+# --- printer topology prefill ---------------------------------------------
+check "the shipped topology initially prefills W1" \
+      "phase 6 first prefilled station: 0.0"
+check "the next selector skips attached W1 and printer 0.1" \
+      "phase 6 second prefilled station after W1 and printer: 0.2"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

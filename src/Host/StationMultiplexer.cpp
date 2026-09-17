@@ -320,11 +320,14 @@ private:
         session_->send(WorkstationOpcode::PutGet, WorkstationRecordFlags::None, b.bytes().data(), 0, b.length());
     }
 
-    // The first available station in controller port/address order.
-    static std::string defaultSelection(const std::vector<MultiplexStationView>& stations)
+    // The first available station in controller port/address order.  The
+    // host view covers backend ownership; the multiplexer's bound map covers
+    // sessions it handed over or parked itself.  Both must be free.  The
+    // station view contains displays only, so printer addresses are skipped.
+    std::string defaultSelection(const std::vector<MultiplexStationView>& stations)
     {
         for (const MultiplexStationView& v : stations)
-            if (v.available) return v.id;
+            if (v.available && mux_.isFree(v.id)) return v.id;
         return std::string();
     }
 

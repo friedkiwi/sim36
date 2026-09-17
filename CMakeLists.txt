@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.21)
 # was supplied by the caller.
 include(cmake/VcpkgBootstrap.cmake)
 
-project(sim36 VERSION 0.1.0 LANGUAGES CXX)
+project(sim36 VERSION 0.2.0 LANGUAGES CXX)
 
 # Single-config generators leave CMAKE_BUILD_TYPE empty, which compiles without
 # any -O flag and makes vcpkg resolve its imported targets to the debug
