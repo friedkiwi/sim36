@@ -496,6 +496,7 @@ bool As36ControlStorageProcessor::svc(SvcRequest& req)
 void As36ControlStorageProcessor::stampRequest(int rb, const SvcRequest& req)
 {
     if (rb == 0) return;
+    m_.writeByte(rb + RequestBlock::kOffOpcode, 0xF4);
     m_.writeByte(rb + RequestBlock::kOffRByte, req.r);
     m_.writeByte(rb + RequestBlock::kOffQByte, req.q);
     m_.writeByte(rb + RequestBlock::kOffInline1, req.inline1);
@@ -565,6 +566,30 @@ bool As36ControlStorageProcessor::consumeInvalidOpcodeCheck(uint16_t resumeIar)
     if ((flags & 0x01) == 0) return false;
     m_.writeByte(at, static_cast<uint8_t>(flags & ~0x01));
     return true;
+}
+
+// F5 leaves the MSP interpreter through the same state-save path as F4/FC.
+// Advanced/36 SLIC's NuEmul::nuecs accepts Q=01 for NuFortran and Q=02,R=00
+// for NuBasic.  Keep that boundary explicit: an XFER is a synchronous CSP
+// call, never a permanent machine halt or a scheduler event.  The native
+// language assists are deliberately not faked here; resuming without running
+// one leaves its private stack and instruction pointer stale and corrupts the
+// application a few instructions later.
+bool As36ControlStorageProcessor::extendedControlStore(uint8_t q, uint8_t r, uint16_t sourceIar)
+{
+    lastRefusal_.clear();
+    saveRegisters(currentRequestBlock_);
+    if (currentRequestBlock_ != 0) {
+        m_.writeByte(currentRequestBlock_ + RequestBlock::kOffOpcode, 0xF5);
+        m_.writeByte(currentRequestBlock_ + RequestBlock::kOffQByte, q);
+        m_.writeByte(currentRequestBlock_ + RequestBlock::kOffRByte, r);
+    }
+
+    if (q == 0x02 && r == 0x00)
+        return refuse("XFER 02,00 at {:04X}: the NuBasic extended-control-storage assist is not implemented", sourceIar);
+    if (q == 0x01)
+        return refuse("XFER 01,{:02X} at {:04X}: the NuFortran extended-control-storage assist is not implemented", r, sourceIar);
+    return refuse("XFER {:02X},{:02X} at {:04X}: invalid extended-control-storage function", q, r, sourceIar);
 }
 
 bool As36ControlStorageProcessor::service(SvcRequest& req)

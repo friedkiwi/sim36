@@ -774,17 +774,27 @@ void MainStorageProcessor::insertAndTestCharacters(uint8_t q)
     m_.msp.arr = static_cast<uint16_t>(op1Logical_ + len);
 }
 
-// Transfer control to the extended control store supervisor: the MSP is
-// halted until it is again started by the control storage processor.  Does
-// not affect the PSR (SA21-9436 3-63).
+// Transfer control to the extended control store supervisor.  The physical
+// MSP is halted while the CSP owns it, but from the native interpreter's
+// point of view this is a synchronous language-assist call: save the state,
+// dispatch the assist and resume only if the CSP completed it.  XFER does not
+// affect the PSR (SA21-9436 3-63).
 bool MainStorageProcessor::transfer(const Instruction& insn)
 {
     const uint8_t r = insn.operand2 ? static_cast<uint8_t>(*insn.operand2) : 0;
-    trace_.msp(insn.address, "XFER q={:02X} r={:02X} - MSP halted for the control processor", insn.q, r);
+    trace_.msp(insn.address, "XFER q={:02X} r={:02X} - transfer to emulated control storage", insn.q, r);
     m_.msp.iar = static_cast<uint16_t>((insn.address + insn.length) & 0xFFFF);
     ++instructions_;
     atPreemptionPoint_ = true;
-    stop("XFER - halted until restarted by the control storage processor");
+    if (csp_.extendedControlStore(insn.q, r, static_cast<uint16_t>(insn.address))) return true;
+    const std::string why = csp_.lastRefusal();
+    const std::string tail = why.empty() ? std::string(" - the control storage processor gave no reason")
+                                         : ":\n  " + why;
+    m_.reportCheck("XFER not serviced", 0x1000,
+                   fmt::format("XFER {:02X},{:02X} at {:04X} ({}){}", insn.q, r, insn.address,
+                               csp_.modelName(), tail));
+    stop(fmt::format("XFER {:02X},{:02X} at {:04X} refused by the {} control storage processor{}",
+                     insn.q, r, insn.address, csp_.modelName(), tail));
     return false;
 }
 

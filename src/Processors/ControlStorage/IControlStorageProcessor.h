@@ -96,6 +96,11 @@ public:
     // Consume the bit when it requests a check, as NuEmul::nudspchA does.
     virtual bool consumeInvalidOpcodeCheck(uint16_t resumeIar) = 0;
 
+    // F5 transfers the saved MSP state to the emulated-control-storage
+    // language assists. It uses the same interpreter escape as an SVC, but
+    // Q/R select FORTRAN or BASIC rather than an SVC handler.
+    virtual bool extendedControlStore(uint8_t q, uint8_t r, uint16_t sourceIar) = 0;
+
     virtual ITransientArea& transients() = 0;
 };
 

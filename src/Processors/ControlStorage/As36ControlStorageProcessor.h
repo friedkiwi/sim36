@@ -110,6 +110,7 @@ public:
     std::string lastRefusal() const override { return lastRefusal_; }
     bool raiseStorageProtection(uint16_t logical, bool forWrite) override;
     bool consumeInvalidOpcodeCheck(uint16_t resumeIar) override;
+    bool extendedControlStore(uint8_t q, uint8_t r, uint16_t sourceIar) override;
     ITransientArea& transients() override { return transients_; }
 
     // ---- TransientHost --------------------------------------------------

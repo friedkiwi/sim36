@@ -93,6 +93,7 @@ public:
     static constexpr int kOffInline2 = 17;
     static constexpr int kOffInline3 = 18;
     static constexpr int kOffPrivilege = 19;   // bit 0 tested against the privilege table
+    static constexpr int kOffOpcode = 20;      // interpreter escape opcode (F4 SVC, F5 XFER)
     static constexpr int kOffQByte = 21;
     static constexpr int kOffRByte = 22;
     static constexpr int kOffPsr = 23;

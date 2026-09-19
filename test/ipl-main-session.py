@@ -307,8 +307,10 @@ def main():
                         print("".join(transcript[mk:]))
                 print(w2.screen.render("=== W2 AFTER DIRECT STATEMENT ===", fields=True))
                 statement_tail = "".join(transcript[mark:])
-                if "CHECK [program]" in statement_tail or "SVC not serviced" in statement_tail:
-                    raise AssertionError("BASIC statement stopped on a processor or supervisor-call check")
+                if ("CHECK [program]" in statement_tail or
+                        "SVC not serviced" in statement_tail or
+                        "XFER not serviced" in statement_tail):
+                    raise AssertionError("BASIC statement stopped on a processor or control-storage check")
                 if w2.screen.contains("KBD-0099") or w2.screen.contains("BAS-1100"):
                     raise AssertionError("BASIC statement returned an invalid-key/session error")
                 if not w2.invited.is_set():

@@ -35,10 +35,20 @@ public:
         invalidOpcodeCheck = false;
         return v;
     }
+    bool extendedControlStore(uint8_t q, uint8_t r, uint16_t sourceIar) override
+    {
+        lastXferQ = q;
+        lastXferR = r;
+        lastXferIar = sourceIar;
+        return acceptXfer;
+    }
     controlstorage::ITransientArea& transients() override { return transients_; }
     int lastR = -1;
     bool invalidOpcodeCheck = true;
     uint16_t lastInvalidResume = 0;
+    bool acceptXfer = true;
+    int lastXferQ = -1, lastXferR = -1;
+    uint16_t lastXferIar = 0;
 
 private:
     class T : public controlstorage::ITransientArea {
@@ -172,6 +182,48 @@ TEST_CASE("msp: Advanced/36 invalid-opcode escape obeys the request flag")
     CHECK(m.msp.iar == 0x1006);       // emmsp saves the decoded next IAR even on error 15
     CHECK_FALSE(csp.invalidOpcodeCheck);  // nudspchA consumes rb+0x30 bit 0
     CHECK(csp.lastInvalidResume == 0x1006);
+}
+
+TEST_CASE("msp: XFER is a synchronous extended-control-store call")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    const uint8_t code[] = {0xF5, 0x02, 0x00, 0x3C, 0x5A, 0x20, 0x00};
+    m.write(0x1000, code, sizeof code);
+    m.msp.iar = 0x1000;
+
+    REQUIRE(msp.step());
+    CHECK_FALSE(msp.stopped());
+    CHECK(m.msp.iar == 0x1003);
+    CHECK(csp.lastXferQ == 0x02);
+    CHECK(csp.lastXferR == 0x00);
+    CHECK(csp.lastXferIar == 0x1000);
+    REQUIRE(msp.step());
+    CHECK(m.readByte(0x2000) == 0x5A);
+}
+
+TEST_CASE("msp: a refused XFER reports a check instead of silently halting")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    const uint8_t code[] = {0xF5, 0x02, 0x00};
+    m.write(0x1000, code, sizeof code);
+    m.msp.iar = 0x1000;
+    csp.acceptXfer = false;
+
+    CHECK_FALSE(msp.step());
+    CHECK(msp.stopped());
+    CHECK(m.msp.iar == 0x1003);
+    CHECK(msp.atPreemptionPoint());
+    CHECK(msp.instructionsExecuted() == 1);
+    CHECK(msp.stopReason().find("XFER 02,00 at 1000 refused by the test control storage processor") == 0);
+    const auto checks = m.copyCheckHistory();
+    REQUIRE(checks.size() == 1);
+    CHECK(checks.front().find("XFER not serviced") != std::string::npos);
 }
 
 TEST_CASE("msp: breakpoints halt before the fetch and step past once")
