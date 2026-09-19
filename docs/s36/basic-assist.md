@@ -158,10 +158,10 @@ The numeric low-nibble table is:
 | `5` | subtract | binary numeric reduction |
 | `6` | multiply | binary numeric reduction |
 | `7` | divide | binary numeric reduction |
-| `8` | greater than | push Boolean byte |
-| `9` | greater than or equal | push Boolean byte |
-| `A` | less than | push Boolean byte |
-| `B` | less than or equal | push Boolean byte |
+| `8` | less than | push Boolean byte |
+| `9` | less than or equal | push Boolean byte |
+| `A` | greater than | push Boolean byte |
+| `B` | greater than or equal | push Boolean byte |
 | `C` | not equal | push Boolean byte |
 | `D` | equal | push Boolean byte |
 | `E` | negate | push a sign-toggled copy; source is unchanged |
@@ -204,10 +204,9 @@ The common string low table is:
 For assignment and concatenation, CB byte `+4 == 1` permits truncation;
 otherwise excess length exits through CB `+93`.
 
-Class-5 operations reuse the cached effective numeric operand.  `50` pushes
-its BE16 address; `52` pops a two-byte destination address and copies the
-cached 5/9-byte value there; `53` pops a 5/9-byte value into the cached
-operand.  In particular, `52` is not a decimal truncation operation.
+Class-5 operations are specialized numeric stack forms.  `52` truncates the
+top 5/9-byte value toward an integer in place: it retains the sign/exponent and
+whole base-100 digits, zeroes fractional digits, and leaves SP unchanged.
 
 Array descriptors contain BE16 base at `+0`, first-dimension byte extent (and
 second-dimension stride) at `+2`, and a nonzero second-dimension count at `+4`.
@@ -314,6 +313,29 @@ installed System/36 product, clean program termination, and return to the prompt
 The checked-in fixture is `test/basic-acceptance-lines.txt`; one expectation
 line per statement is supplied separately so no BASIC-legal delimiter is used.
 The loop is in `test/basic-loop-acceptance-lines.txt`.
+
+The `RND` regression fixture `test/basic-rnd-loop-lines.txt` performs 500
+iterations of the reported conditional-print loop and then terminates.  Run it
+against the local SSP volume with:
+
+```sh
+env SIM36="$PWD/build/sim36" \
+  SIM36_VOLUME="$PWD/images/volumes/as36.img" S36_PORT_BASE=24430 \
+  S36_BASIC_COMMAND=1 \
+  S36_BASIC_STATEMENT_FILE="$PWD/test/basic-rnd-loop-lines.txt" \
+  S36_BASIC_STATEMENT_WAIT=30 \
+  python3 test/ipl-main-session.py --basic-research
+```
+
+This produces both `/` and `\\`, ends with the expected `BAS-5033` at line
+40, and returns to the invited prompt.  The original unbounded program exposed
+an erroneous decode of `52`: popping a two-byte address leaked two stack bytes
+per `RND` evaluation until SSP reported `BAS-5035`.  V4R4 code at
+`c1844e2c..c1844eac` proves that `52` instead truncates the top numeric value
+in place without changing SP.  The same live stream proves that SSP emits
+numeric opcode `98` for source `<`; this corrected the relational table and
+restored the mixed branch output seen on native SLIC.
+
 A representative trace excerpt is:
 
 ```text

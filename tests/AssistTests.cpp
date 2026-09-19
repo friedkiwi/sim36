@@ -171,10 +171,10 @@ TEST_CASE("NuBasic comparison table uses the SSP relational opcode order")
     constexpr int control = 0x2000;
     seedBasicExit(state, request, control);
     const uint8_t program[] = {
-        0x91, 0x31, 0x05, 0x98, 0x31, 0x00, // 2 > 1
-        0x91, 0x31, 0x05, 0x99, 0x31, 0x05, // 2 >= 2
-        0x91, 0x31, 0x00, 0x9A, 0x31, 0x05, // 1 < 2
-        0x91, 0x31, 0x00, 0x9B, 0x31, 0x00, // 1 <= 1
+        0x91, 0x31, 0x00, 0x98, 0x31, 0x05, // 1 < 2
+        0x91, 0x31, 0x05, 0x99, 0x31, 0x05, // 2 <= 2
+        0x91, 0x31, 0x05, 0x9A, 0x31, 0x00, // 2 > 1
+        0x91, 0x31, 0x00, 0x9B, 0x31, 0x00, // 1 >= 1
         0x91, 0x31, 0x00, 0x9C, 0x31, 0x05, // 1 <> 2
         0x91, 0x31, 0x00, 0x9D, 0x31, 0x00, // 1 = 1
         0x20,
@@ -381,6 +381,29 @@ TEST_CASE("NuBasic negate pushes a value without changing its source and integer
     CHECK(state.readByte(0x4000) == 0xC1);
     CHECK(state.readHalf(0x4005) == 13);
     CHECK(state.readHalf(control + 25) == 0x4007);
+}
+
+TEST_CASE("NuBasic opcode 52 truncates its numeric stack value without changing SP")
+{
+    machine::MachineState state(64 * 1024);
+    monitor::Tracer trace;
+    constexpr int request = 0x1000;
+    constexpr int control = 0x2000;
+    seedBasicExit(state, request, control);
+    const uint8_t program[] = {0x91, 0x31, 0x00, 0x52, 0x20};
+    const uint8_t onePointTwoThree[] = {0x41, 1, 23, 0, 0};
+    state.write(0x3000, program, sizeof program);
+    state.write(0x3100, onePointTwoThree, sizeof onePointTwoThree);
+
+    BasicAssist basic;
+    AssistContext context(state, trace, 0x0F00, request, 0x02, 0x00, 0x3FCA);
+    REQUIRE(basic.execute(context).status == AssistStatus::Completed);
+    CHECK(state.readHalf(control + 25) == 0x4005);
+    CHECK(state.readByte(0x4000) == 0x41);
+    CHECK(state.readByte(0x4001) == 1);
+    CHECK(state.readByte(0x4002) == 0);
+    CHECK(state.readByte(0x4003) == 0);
+    CHECK(state.readByte(0x4004) == 0);
 }
 
 TEST_CASE("NuBasic arithmetic conditions obey substitution and guest-continuation modes")

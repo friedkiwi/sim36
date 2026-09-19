@@ -323,6 +323,9 @@ def main():
                                              % direct_statement)
                     basic_status = w2.screen.row_text(24).strip()
                     if basic_status.startswith("BAS-") and not basic_status.startswith("BAS-5033"):
+                        if os.environ.get("S36_BASIC_TRACE") == "1":
+                            print("=== BASIC TRACE BEFORE ERROR ===", file=sys.stderr)
+                            print("".join(transcript[mark:]), file=sys.stderr)
                         raise AssertionError("BASIC statement %r returned %s"
                                              % (direct_statement, basic_status))
                     if statement_expectations:

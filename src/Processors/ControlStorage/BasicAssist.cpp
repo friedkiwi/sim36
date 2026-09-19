@@ -436,13 +436,18 @@ private:
             return AssistResult::complete();
         }
         if (low == 2) {
-            if (!popBytes(2)) return stackError("cached numeric assignment reference");
-            uint16_t destination = 0;
+            if (!requireTop(width_)) return stackError("numeric truncation");
+            const uint16_t start = static_cast<uint16_t>(sp_ - width_);
             std::vector<uint8_t> value(static_cast<std::size_t>(width_));
-            if (!readHalfOffset(sp_, destination) ||
-                !readOffset(currentOperand_, value.data(), width_) ||
-                !writeOffset(destination, value.data(), width_))
-                return storageError("assigning the cached BASIC numeric operand");
+            if (!readOffset(start, value.data(), width_))
+                return storageError("reading a BASIC truncate operand");
+            const int exponent = value[0] & 0x7F;
+            if (exponent < width_ + 64) {
+                const int first = exponent > 64 ? exponent - 63 : 0;
+                std::fill(value.begin() + first, value.end(), 0);
+                if (!writeOffset(start, value.data(), width_))
+                    return storageError("writing a BASIC truncate result");
+            }
             return AssistResult::complete();
         }
         if (low == 3) {
@@ -787,8 +792,8 @@ private:
                     return storageError("reading the right string comparison operand");
                 if (lhs != rhs) { relation = lhs < rhs ? -1 : 1; break; }
             }
-            const bool answer = low == 8 ? relation > 0 : low == 9 ? relation >= 0
-                              : low == 0xA ? relation < 0 : low == 0xB ? relation <= 0
+            const bool answer = low == 8 ? relation < 0 : low == 9 ? relation <= 0
+                              : low == 0xA ? relation > 0 : low == 0xB ? relation >= 0
                               : low == 0xC ? relation != 0 : relation == 0;
             const uint8_t value = answer ? 1 : 0;
             if (!writeOffset(sp_, &value, 1))
@@ -888,8 +893,8 @@ private:
         auto right = BasicNumber::decode(rightBytes.data(), rightBytes.size(), precision_, &error);
         if (!right) return fatal("malformed BASIC comparison operand: " + error);
         const int relation = left->compare(*right);
-        const bool answer = low == 8 ? relation > 0 : low == 9 ? relation >= 0 : low == 0xA ? relation < 0
-                          : low == 0xB ? relation <= 0 : low == 0xC ? relation != 0 : relation == 0;
+        const bool answer = low == 8 ? relation < 0 : low == 9 ? relation <= 0 : low == 0xA ? relation > 0
+                          : low == 0xB ? relation >= 0 : low == 0xC ? relation != 0 : relation == 0;
         const uint8_t value = answer ? 1 : 0;
         context_.trace().basicAssist(
             "BASIC compare op={:X} left={} right={} relation={} result={}", low,
