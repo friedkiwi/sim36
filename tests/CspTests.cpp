@@ -48,7 +48,7 @@ struct CspEmptyVolume {
 
 }  // namespace
 
-TEST_CASE("Advanced/36 dispatches XFER to the BASIC and FORTRAN assist stubs")
+TEST_CASE("Advanced/36 dispatches BASIC XFER and preserves the FORTRAN stub")
 {
     CspEmptyVolume volume;
     configuration::EmulatorConfig config;
@@ -63,16 +63,28 @@ TEST_CASE("Advanced/36 dispatches XFER to the BASIC and FORTRAN assist stubs")
     std::string failure;
     REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, request, failure));
     state.msp.iar = 0x3FCD;
+    state.msp.arr = 0x3FCD;
     state.msp.xr1 = 0x3B00;
-    state.msp.pactIar = machine::MspRegisters::kPactTranslate;
+    state.msp.pactIar = 0;
 
-    CHECK_FALSE(csp.extendedControlStore(0x02, 0x00, 0x3FCA));
-    CHECK(csp.lastRefusal().find("NuBasic") != std::string::npos);
+    state.writeHalf(0x3B00 + 19, 0x4000);
+    state.writeHalf(0x3B00 + 23, 0x4100);
+    state.writeHalf(0x3B00 + 25, 0x4100);
+    state.writeHalf(0x3B00 + 27, 0x41FF);
+    state.writeHalf(0x3B00 + 29, 0x4200);
+    state.writeHalf(0x3B00 + 31, 0x4200);
+    state.writeHalf(0x3B00 + 33, 0x42FF);
+    state.writeHalf(0x3B00 + 35, 0x2468);
+    state.writeByte(0x4000, 0x20);
+
+    CHECK(csp.extendedControlStore(0x02, 0x00, 0x3FCA));
+    CHECK(csp.lastRefusal().empty());
     CHECK(state.readByte(request + RequestBlock::kOffOpcode) == 0xF5);
     CHECK(state.readByte(request + RequestBlock::kOffQByte) == 0x02);
     CHECK(state.readByte(request + RequestBlock::kOffRByte) == 0x00);
     CHECK(state.readHalf(request + RequestBlock::kOffIar) == 0x3FCD);
     CHECK(state.readHalf(request + RequestBlock::kOffXr1Low) == 0x3B00);
+    CHECK(state.msp.xr2 == 0x2468);
 
     CHECK_FALSE(csp.extendedControlStore(0x01, 0x05, 0x2000));
     CHECK(csp.lastRefusal().find("NuFortran") != std::string::npos);

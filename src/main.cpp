@@ -23,7 +23,8 @@ void usage()
                "\n"
                "  -c, --config FILE   startup command file (default etc/sim36.sim)\n"
                "  -s, --script FILE   run monitor commands from FILE and exit\n"
-               "  -t, --trace LIST    msp,svc,csp,disk,ws,ace,sched,all\n"
+               "  -t, --trace LIST    msp,svc,csp,disk,ws,ace,sched,src,flow,isn,output,\n"
+               "                      assist [basic|fortran],all[,defer]\n"
                "      --check FILE... report unknown commands in each FILE (and the files it\n"
                "                      includes with 'do') without executing anything\n");
 }

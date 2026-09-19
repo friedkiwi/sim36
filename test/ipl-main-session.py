@@ -190,7 +190,7 @@ def main():
                 for member in os.environ.get("S36_BASIC_TRACE_MEMBERS", "").split(","):
                     if member.strip():
                         command("trace member %s" % member.strip())
-                command("trace " + os.environ.get("S36_BASIC_TRACE_CLASSES", "csp"))
+                command("trace " + os.environ.get("S36_BASIC_TRACE_CLASSES", "assist basic"))
                 time.sleep(0.5)
             generation = w2.generation
             basic_submit_record_mark = len(w2.records)
@@ -219,7 +219,20 @@ def main():
             # association the guest published on W2's TU (TU+60 owning job
             # task, TU+63 JCB) - the condition #CPSP's Cmd1 gate reads.
             direct_statement = os.environ.get("S36_BASIC_STATEMENT_DIRECT", "")
-            immediate_statement = direct_statement and os.environ.get(
+            direct_statements = [direct_statement] if direct_statement else []
+            statement_file = os.environ.get("S36_BASIC_STATEMENT_FILE", "")
+            if statement_file:
+                with open(statement_file, encoding="utf-8") as source:
+                    direct_statements.extend(line.rstrip("\r\n") for line in source
+                                             if line.rstrip("\r\n"))
+            statement_expectations = []
+            expectation_file = os.environ.get("S36_BASIC_EXPECT_FILE", "")
+            if expectation_file:
+                with open(expectation_file, encoding="utf-8") as source:
+                    statement_expectations = [line.rstrip("\r\n") for line in source]
+                if len(statement_expectations) != len(direct_statements):
+                    raise AssertionError("S36_BASIC_EXPECT_FILE must contain one line per BASIC statement")
+            immediate_statement = direct_statements and os.environ.get(
                 "S36_BASIC_STATEMENT_IMMEDIATE") == "1"
             mark = len(transcript)
             if not immediate_statement:
@@ -262,7 +275,7 @@ def main():
             # The BASIC panel is already the resumed interactive job.  Drive
             # its input field directly when requested; pressing Cmd1 first is
             # a separate resume-job experiment and changes the AID under test.
-            if direct_statement:
+            if direct_statements:
                 mark = len(transcript)
                 if not immediate_statement:
                     command("wait idle 30")
@@ -284,17 +297,39 @@ def main():
                     setup = setup.strip()
                     if setup:
                         command(setup)
-                generation = w2.generation
-                w2.type_at(23, 2, direct_statement)
-                w2.press("Enter", wait_invite=float(
-                    os.environ.get("S36_BASIC_STATEMENT_WAIT", "5")))
-                try:
-                    w2.wait_for_change(timeout=60, since=generation)
-                    w2.settle(quiet=0.75, timeout=10)
-                except TimeoutError:
-                    pass
-                command("wait idle 30")
-                time.sleep(1)
+                for statement_index, direct_statement in enumerate(direct_statements):
+                    generation = w2.generation
+                    w2.type_at(23, 2, direct_statement)
+                    w2.press("Enter", wait_invite=float(
+                        os.environ.get("S36_BASIC_STATEMENT_WAIT", "5")))
+                    try:
+                        w2.wait_for_change(timeout=60, since=generation)
+                        w2.settle(quiet=0.75, timeout=10)
+                    except TimeoutError:
+                        pass
+                    idle_mark = len(transcript)
+                    command("wait idle 30")
+                    wait_monitor("wait: guest is idle after", timeout=35, after=idle_mark)
+                    print(w2.screen.render(
+                        "=== W2 AFTER BASIC STATEMENT %d ===" % (statement_index + 1),
+                        fields=True))
+                    if not w2.invited.is_set():
+                        raise AssertionError("BASIC statement %r did not return to an invited input prompt"
+                                             % direct_statement)
+                    prompt_fields = [f for f in w2.screen.input_fields()
+                                     if f.row == 23 and f.col == 2]
+                    if not w2.screen.keyboard_unlocked or not prompt_fields:
+                        raise AssertionError("BASIC statement %r did not return to the row-23 BASIC prompt"
+                                             % direct_statement)
+                    basic_status = w2.screen.row_text(24).strip()
+                    if basic_status.startswith("BAS-") and not basic_status.startswith("BAS-5033"):
+                        raise AssertionError("BASIC statement %r returned %s"
+                                             % (direct_statement, basic_status))
+                    if statement_expectations:
+                        expected = statement_expectations[statement_index]
+                        output_text = "\n".join(w2.screen.row_text(row) for row in range(1, 23))
+                        if expected and expected.upper() not in output_text.upper():
+                            raise AssertionError("BASIC output does not contain expected text %r" % expected)
                 print("=== BASIC CSP TRACE (direct statement) ===")
                 print("".join(transcript[mark:]))
                 for probe in os.environ.get("S36_BASIC_STATEMENT_PROBE", "").split(";"):
@@ -313,8 +348,10 @@ def main():
                     raise AssertionError("BASIC statement stopped on a processor or control-storage check")
                 if w2.screen.contains("KBD-0099") or w2.screen.contains("BAS-1100"):
                     raise AssertionError("BASIC statement returned an invalid-key/session error")
-                if not w2.invited.is_set():
-                    raise AssertionError("BASIC statement did not return to an invited input prompt")
+                expected = os.environ.get("S36_BASIC_EXPECT", "")
+                output_text = "\n".join(w2.screen.row_text(row) for row in range(1, 23))
+                if expected and expected.upper() not in output_text.upper():
+                    raise AssertionError("BASIC output does not contain expected text %r" % expected)
 
                 print("RESEARCH RESULT: BASIC statement was accepted and returned to an invited prompt without a check")
                 return 0

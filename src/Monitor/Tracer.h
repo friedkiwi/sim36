@@ -34,7 +34,14 @@ enum TraceFlags : uint32_t {
     // in-memory ring instead of the console, printed only when the machine
     // stops, so that tracing does not slow a timing-dependent IPL down.
     TraceDefer = 1u << 11,
-    TraceAll = 0x7FF,
+    TraceAssistBasic = 1u << 12,
+    TraceAssistFortran = 1u << 13,
+    // Reserve one byte for language-assist categories.  The parent selector
+    // deliberately includes unassigned bits so `trace assist` automatically
+    // covers assist classes added later.
+    TraceAssist = 0xFFu << 12,
+    // All current and reserved categories, deliberately excluding Defer.
+    TraceAll = 0xFF7FF,
 };
 
 // Parses "msp,svc,..." (also '+' and ' ' separators).  Throws
@@ -93,6 +100,8 @@ public:
     SIM36_TRACE_METHOD(ace, TraceAce, "ace")
     SIM36_TRACE_METHOD(sched, TraceSched, "sch")
     SIM36_TRACE_METHOD(src, TraceSrc, "src")
+    SIM36_TRACE_METHOD(basicAssist, TraceAssistBasic, "asstb")
+    SIM36_TRACE_METHOD(fortranAssist, TraceAssistFortran, "asstf")
 #undef SIM36_TRACE_METHOD
 
 private:

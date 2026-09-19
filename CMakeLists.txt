@@ -109,6 +109,7 @@ add_library(sim36core STATIC
     src/Processors/ControlStorage/As36Transfer.cpp
     src/Processors/ControlStorage/As36WorkStation.cpp
     src/Processors/ControlStorage/BasicAssist.cpp
+    src/Processors/ControlStorage/BasicNumber.cpp
     src/Processors/ControlStorage/DirectArea.cpp
     src/Processors/ControlStorage/ExtendedControlStoreAssist.cpp
     src/Processors/ControlStorage/FortranAssist.cpp
@@ -144,6 +145,7 @@ target_link_libraries(sim36 PRIVATE sim36core cxxopts::cxxopts)
 # ---------------------------------------------------------------------------
 add_executable(sim36_tests
     tests/AssistTests.cpp
+    tests/BasicNumberTests.cpp
     tests/main.cpp
     tests/CommandLineTests.cpp
     tests/CompletionTests.cpp

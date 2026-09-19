@@ -15,7 +15,8 @@ const Named kNames[] = {
     {"None", TraceNone}, {"Msp", TraceMsp}, {"Svc", TraceSvc}, {"Csp", TraceCsp},
     {"Disk", TraceDisk}, {"Ws", TraceWs}, {"Ace", TraceAce}, {"Sched", TraceSched},
     {"Src", TraceSrc}, {"Flow", TraceFlow}, {"Isn", TraceIsn}, {"Output", TraceOutput},
-    {"All", TraceAll}, {"Defer", TraceDefer},
+    {"Defer", TraceDefer}, {"AssistBasic", TraceAssistBasic},
+    {"AssistFortran", TraceAssistFortran}, {"Assist", TraceAssist}, {"All", TraceAll},
 };
 
 }  // namespace
@@ -23,6 +24,9 @@ const Named kNames[] = {
 uint32_t parseTraceFlags(const std::string& s)
 {
     uint32_t f = TraceNone;
+    bool assist = false;
+    bool basic = false;
+    bool fortran = false;
     std::string part;
     auto flush = [&]() {
         std::string p = toLower(part);
@@ -45,6 +49,9 @@ uint32_t parseTraceFlags(const std::string& s)
         else if (p == "output" || p == "out") f |= TraceOutput;
         else if (p == "src") f |= TraceSrc;
         else if (p == "defer" || p == "deferred") f |= TraceDefer;
+        else if (p == "assist") assist = true;
+        else if (p == "basic") basic = true;
+        else if (p == "fortran") fortran = true;
         else if (p == "all") f |= TraceAll;
         else throw std::invalid_argument("unknown trace class '" + p + "'");
     };
@@ -53,12 +60,23 @@ uint32_t parseTraceFlags(const std::string& s)
         else part.push_back(c);
     }
     flush();
+    // `assist` is a category family.  With no qualifier it selects the whole
+    // family; `assist basic` and `assist fortran` select just one member.
+    // Accepting a qualifier by itself also makes --trace=basic useful.
+    if (basic) f |= TraceAssistBasic;
+    if (fortran) f |= TraceAssistFortran;
+    if (assist && !basic && !fortran) f |= TraceAssist;
     return f;
 }
 
 std::string traceFlagsToString(uint32_t flags)
 {
     if (flags == 0) return "None";
+    // Defer is a modifier rather than a category.  Render it last even though
+    // its long-established bit now lies below the assist-category bits.
+    if ((flags & TraceDefer) != 0 && flags != TraceDefer) {
+        return traceFlagsToString(flags & ~TraceDefer) + ", Defer";
+    }
     for (const Named& n : kNames)
         if (n.value == flags) return n.name;
     // Decompose from the largest value down, then print in ascending order.

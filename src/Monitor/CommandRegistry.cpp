@@ -51,7 +51,7 @@ const std::vector<Command>& table()
         {"wait", L::Machine, "execution", "wait idle [seconds]|<seconds>", "wait for idle or elapsed time", {}},
         {"listener-auto-signon", L::Any, "configuration", "listener-auto-signon [on|off]", "show or change listener AUTOSIGNON", {}},
         {"stations", L::Any, "inspection", "stations", "show station definitions and state", {}},
-        {"trace", L::Any, "inspection", "trace <classes|off>", "show or change tracing", {}},
+        {"trace", L::Any, "inspection", "trace <classes|assist [basic|fortran]|off>", "show or change tracing", {}},
 
         {"vtoc", L::Machine, "inspection", "vtoc [system|user]", "list volume tables of contents", {}},
         {"lib", L::Machine, "inspection", "lib <name> [count]", "list library members", {}},

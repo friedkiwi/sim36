@@ -30,9 +30,10 @@ struct AssistResult {
     {
         return {AssistStatus::NotImplemented, std::move(detail), -1};
     }
-    // NuBasic and NuFortran use NuEmul::nuerr2 for language/runtime errors.
-    // Preserve that distinction from host/emulator failure even before the
-    // individual opcode implementations begin returning those errors.
+    // Preserve a guest-requested abnormal termination (for example NuBasic's
+    // fatal invalid-state nuerr2(61)) separately from a host/emulator failure.
+    // Recoverable BASIC arithmetic and range conditions instead return through
+    // guest continuation vectors and must not use this result.
     static AssistResult guestError(uint8_t code, std::string detail)
     {
         return {AssistStatus::GuestError, std::move(detail), code};

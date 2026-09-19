@@ -315,6 +315,14 @@ TEST_CASE("trace flags: parse and render as the reference's enum did")
     CHECK(traceFlagsToString(parseTraceFlags("msp,svc")) == "Msp, Svc");
     CHECK(traceFlagsToString(parseTraceFlags("all,defer")) == "All, Defer");
     CHECK(traceFlagsToString(parseTraceFlags("all")) == "All");
+    CHECK(parseTraceFlags("assist") == TraceAssist);
+    CHECK(parseTraceFlags("assist basic") == TraceAssistBasic);
+    CHECK(parseTraceFlags("assist,fortran") == TraceAssistFortran);
+    CHECK(parseTraceFlags("basic") == TraceAssistBasic);
+    CHECK(traceFlagsToString(TraceAssist) == "Assist");
+    CHECK(traceFlagsToString(TraceAssistBasic) == "AssistBasic");
+    CHECK((TraceAll & TraceDefer) == 0);
+    CHECK((TraceAll & TraceAssist) == TraceAssist);
     CHECK(traceFlagsToString(TraceDisk | TraceAce) == "Disk, Ace");
     CHECK_THROWS(parseTraceFlags("bogus"));
 }
