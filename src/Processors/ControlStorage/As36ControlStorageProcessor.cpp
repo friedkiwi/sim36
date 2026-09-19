@@ -585,11 +585,21 @@ bool As36ControlStorageProcessor::extendedControlStore(uint8_t q, uint8_t r, uin
         m_.writeByte(currentRequestBlock_ + RequestBlock::kOffRByte, r);
     }
 
+    AssistContext context(m_, trace_, currentTaskBlock_, currentRequestBlock_, q, r, sourceIar);
+    AssistResult result;
     if (q == 0x02 && r == 0x00)
-        return refuse("XFER 02,00 at {:04X}: the NuBasic extended-control-storage assist is not implemented", sourceIar);
-    if (q == 0x01)
-        return refuse("XFER 01,{:02X} at {:04X}: the NuFortran extended-control-storage assist is not implemented", r, sourceIar);
-    return refuse("XFER {:02X},{:02X} at {:04X}: invalid extended-control-storage function", q, r, sourceIar);
+        result = basicAssist_.execute(context);
+    else if (q == 0x01)
+        result = fortranAssist_.execute(context);
+    else
+        return refuse("XFER {:02X},{:02X} at {:04X}: invalid extended-control-storage function", q, r, sourceIar);
+
+    if (!result.completed()) return refuseText(result.detail);
+    // Like SVC, the assist returns results through the saved request block.
+    // It may eventually switch request frames, so restore from the current
+    // one rather than retaining the entry value.
+    restoreRegisters(currentRequestBlock_);
+    return true;
 }
 
 bool As36ControlStorageProcessor::service(SvcRequest& req)

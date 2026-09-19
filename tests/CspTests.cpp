@@ -48,6 +48,38 @@ struct CspEmptyVolume {
 
 }  // namespace
 
+TEST_CASE("Advanced/36 dispatches XFER to the BASIC and FORTRAN assist stubs")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int request = 0x1100;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, request, failure));
+    state.msp.iar = 0x3FCD;
+    state.msp.xr1 = 0x3B00;
+    state.msp.pactIar = machine::MspRegisters::kPactTranslate;
+
+    CHECK_FALSE(csp.extendedControlStore(0x02, 0x00, 0x3FCA));
+    CHECK(csp.lastRefusal().find("NuBasic") != std::string::npos);
+    CHECK(state.readByte(request + RequestBlock::kOffOpcode) == 0xF5);
+    CHECK(state.readByte(request + RequestBlock::kOffQByte) == 0x02);
+    CHECK(state.readByte(request + RequestBlock::kOffRByte) == 0x00);
+    CHECK(state.readHalf(request + RequestBlock::kOffIar) == 0x3FCD);
+    CHECK(state.readHalf(request + RequestBlock::kOffXr1Low) == 0x3B00);
+
+    CHECK_FALSE(csp.extendedControlStore(0x01, 0x05, 0x2000));
+    CHECK(csp.lastRefusal().find("NuFortran") != std::string::npos);
+    CHECK(state.readByte(request + RequestBlock::kOffQByte) == 0x01);
+    CHECK(state.readByte(request + RequestBlock::kOffRByte) == 0x05);
+}
+
 TEST_CASE("SSP's final #CCPW power-control wait stops the emulated machine")
 {
     CspEmptyVolume volume;

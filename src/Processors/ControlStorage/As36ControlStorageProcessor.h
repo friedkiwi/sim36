@@ -32,7 +32,9 @@
 #include "Monitor/Tracer.h"
 #include "Processors/ControlStorage/ActionControlElement.h"
 #include "Processors/ControlStorage/ActionControlElementQueue.h"
+#include "Processors/ControlStorage/BasicAssist.h"
 #include "Processors/ControlStorage/DirectArea.h"
+#include "Processors/ControlStorage/FortranAssist.h"
 #include "Processors/ControlStorage/GuestHeap.h"
 #include "Processors/ControlStorage/IControlStorageProcessor.h"
 #include "Processors/ControlStorage/NuPtt.h"
@@ -271,6 +273,8 @@ private:
     monitor::Tracer& trace_;
     GuestHeap heap_;
     DirectArea directArea_;
+    BasicAssist basicAssist_;
+    FortranAssist fortranAssist_;
     ActionControlElementQueue aces_;
     TransientArea transients_;
     NuPttPool ptt_;
