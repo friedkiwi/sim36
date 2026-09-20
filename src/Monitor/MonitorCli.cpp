@@ -718,16 +718,13 @@ void MonitorCli::addressMap(const std::vector<std::string>& a)
     using machine::MachineState;
     if ((pact & machine::MspRegisters::kPactPmrBit) == 0) {
         const int real = ((pact & MachineState::kPactAddressBits) << 16) | logical;
-        fmt::print("  untranslated: PACT address nibble {:X} -> real {:06X}{}\n", pact & MachineState::kPactAddressBits, real,
-                   (pact & MachineState::kPactFlagBits) != 0
-                       ? fmt::format("; flag bits {:02X} are not address", pact & MachineState::kPactFlagBits) : "");
+        fmt::print("  untranslated: PACT address prefix {:02X} -> real {:06X}\n",
+                   pact & MachineState::kPactAddressBits, real);
         return;
     }
     const int page = logical >> MachineState::kPageShift;
     const uint16_t atr = m_.state.atr[MachineState::kAtrTaskGroup0 + page];
-    fmt::print("  translated: PACT bit 80 on; logical page {:02X} -> ATR[{}]={:04X}{}\n", page, page, atr,
-               (pact & MachineState::kPactFlagBits) != 0
-                   ? fmt::format("; PACT flag bits {:02X} do not change the mode", pact & MachineState::kPactFlagBits) : "");
+    fmt::print("  translated: PACT bit 80 on; logical page {:02X} -> ATR[{}]={:04X}\n", page, page, atr);
     int real = 0;
     if (m_.state.resolve(logical, pact, MachineState::kAtrTaskGroup0, forWrite, real))
         fmt::print("  resolves to real {:06X}\n", real);

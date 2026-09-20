@@ -56,12 +56,14 @@ TEST_CASE("pmr: bits 3-6 are projected from the PACT bytes")
     CHECK(r.pactCsp == 0);
 }
 
-TEST_CASE("state: untranslated addressing concatenates four prefix bits")
+TEST_CASE("state: untranslated addressing concatenates seven prefix bits")
 {
-    MachineState m(64 * 1024, 1024 * 1024);
+    MachineState m(64 * 1024, 8 * 1024 * 1024);
     int real = 0;
     REQUIRE(m.resolve(0x82CB, 0x40, MachineState::kAtrTaskGroup0, false, real));
-    CHECK(real == 0x0082CB);   // flag bits above the nibble are not address
+    CHECK(real == 0x4082CB);
+    REQUIRE(m.resolve(0xDB50, 0x10, MachineState::kAtrTaskGroup0, false, real));
+    CHECK(real == 0x10DB50);   // the Advanced/36 system queue crosses 1 MB
     REQUIRE(m.resolve(0x1234, 0x05, MachineState::kAtrTaskGroup0, false, real));
     CHECK(real == 0x051234);
 }

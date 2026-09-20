@@ -127,6 +127,13 @@ SelfTestResult runSelfTest(machine::MachineState& m, processors::MainStorageProc
     report("BC  address recall register = 0BD0", m.msp.arr == 0x0BD0, sc);
     reportPsr("BC  status byte = 00010001", m, 0x11, sc);
 
+    // PACT 1-28: every untranslated prefix bit is concatenated with the
+    // 16-bit register.  Advanced/36 queue space routinely crosses 1 MB, so
+    // prefix 10 must not alias prefix 00.
+    int pactReal = 0;
+    report("PACT 10:DB50 resolves above 1 MB",
+           m.resolve(0xDB50, 0x10, MachineState::kAtrTaskGroup0, false, pactReal) && pactReal == 0x10DB50, sc);
+
     // A BC target is a logical control-flow address, never a storage access:
     // condition false, XR1 zero, page 0 protected must not raise level 5.
     const uint16_t oldAtr0 = m.atr[MachineState::kAtrTaskGroup0];

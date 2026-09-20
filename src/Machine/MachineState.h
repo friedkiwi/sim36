@@ -60,10 +60,12 @@ public:
     static constexpr int kAtrTaskGroup0 = 64;
     static constexpr int kAtrTaskGroup1 = 0;
 
-    // The address bits of a PACT prefix: four, because concatenation forms
-    // a 20-bit address (SA21-9436 1-28).  Bits 1-3 carry flags, not address.
-    static constexpr uint8_t kPactAddressBits = 0x0F;
-    static constexpr uint8_t kPactFlagBits = 0x70;
+    // Bit 0 (IBM numbering, mask 0x80) selects translation.  Otherwise the
+    // remaining seven bits are concatenated with the 16-bit register.  The
+    // manual says PACT provides real addressing up to 7302 KB and explicitly
+    // says a value other than 0x80 is concatenated; restricting this to a
+    // four-bit nibble aliases Advanced/36 system-queue addresses above 1 MB.
+    static constexpr uint8_t kPactAddressBits = 0x7F;
 
     MspRegisters msp;
     long long cycles = 0;   // virtual time in MSP instruction units
@@ -112,7 +114,7 @@ public:
 
     // ---- address translation ---------------------------------------------
     // Resolve a 16-bit logical address for one access path.  Untranslated,
-    // the PACT prefix's low four bits are concatenated with the register.
+    // the PACT prefix's low seven bits are concatenated with the register.
     // Translated, address bits 0-4 select one of 32 ATRs and the real
     // address is the page frame concatenated with address bits 5-15.
     bool resolve(uint16_t logical, uint8_t pact, int atrBase, bool forWrite, int& real,

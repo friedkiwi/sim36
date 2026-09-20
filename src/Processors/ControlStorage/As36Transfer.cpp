@@ -208,6 +208,13 @@ bool As36ControlStorageProcessor::transferControl(SvcRequest& req, const std::st
                           call, residentPb, residentHave, residentNeed);
         }
 
+        // The direct resident arm and the hash/disk arm converge on the same
+        // request-frame lifetime: nupexit drops one program-block reference
+        // when it releases that frame.  nup1000 activates the already-known
+        // block before nup2000 just as it activates a hash hit.  Omitting the
+        // matching increment made repeated resident fast transfers count
+        // down through zero and wrap the guest-owned use count.
+        activateControlBlock(residentPb, call);
         return performTransfer(req, call, residentPb, entryPoint);
     }
 

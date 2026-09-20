@@ -259,6 +259,19 @@ addition to the established A0/A4 no-transfer commands.  With it, RPGC
 advances from `#MGRE+0687` to the guest's own `#CLSG` error disposition rather
 than stopping at the device boundary.
 
+The longer replay crossed a second, independently evidenced boundary.  DDDM's
+resident fast-transfer slot 63 allocated request blocks above 1 MB; a flow
+trace showed its final indirect load using `PXR2:XR2 = 10:D90A`, while sim36
+incorrectly fetched from `00:D90A` and entered data at `9003`.  SA21-9436
+1-20 and 1-28 state that PACT provides real addressing up to 7302 KB and that
+an untranslated PACT value is concatenated with the 16-bit register.  Thus
+bits `0x10`, `0x20`, and `0x40` are real-address prefix bits, not flags; only
+IBM bit 0 (`0x80`) selects ATR translation.  Resolving all seven prefix bits
+makes `10:D90A` name the live request area and carries RPGC past the false SVC
+D3.  The same trace also established that a direct resident transfer takes a
+program-block reference which `nupexit` releases; the emulator now balances
+that reference instead of wrapping PB+27 during repeated DDDM calls.
+
 This organization is independently consistent with the local OS/400 V4R4
 SAVSYS analysis in the adjacent `syspass_research` tree: standard label
 records are 80-byte EBCDIC CP037, `HDR1` carries the 17-byte dataset ID at

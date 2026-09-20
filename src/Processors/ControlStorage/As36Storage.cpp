@@ -785,8 +785,8 @@ int As36ControlStorageProcessor::findTaskById(int id, int currentTaskBlock)
 
 // A saved MSP address is a PACT byte followed by a 16-bit address.  With the
 // translate bit on, the low 16 bits go through the task's translation
-// registers.  Otherwise only the PACT address nibble is part of the physical
-// address; its other bits are processor-control flags, not high address bits.
+// registers.  Otherwise its low seven bits are the physical address prefix;
+// only bit 0 in IBM numbering (mask 0x80) selects translated addressing.
 bool As36ControlStorageProcessor::resolveTranslated(int address, int& real)
 {
     if ((address & kTranslatedBit) == 0) {

@@ -31,8 +31,8 @@ public:
 
     // ---- PACT: one register per addressing path ------------------------
     // Bit 0 (mask 0x80) selects translation through the ATRs; otherwise the
-    // low four bits are concatenated with the 2-byte register to form a
-    // 20-bit address.  Reset value is 0, untranslated: PACT bit 0 IS the
+    // low seven bits are concatenated with the 2-byte register.  Reset value
+    // is 0, untranslated: PACT bit 0 IS the
     // corresponding PMR bit, and phase 1 runs in real storage.
     static constexpr uint8_t kPactTranslate = 0x80;
     static constexpr uint8_t kPactPmrBit = 0x80;
