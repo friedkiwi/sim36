@@ -909,17 +909,22 @@ void MainStorageProcessor::addToRegister(uint8_t q, bool subtract)
     const bool carry = subtract ? operand <= reg : sum > 0xFFFF;
 
     if (q != 0x00) {
-        setSelected(q, result);
         if (hasPact) {
+            // A and S operate on the selected TWO-byte register.  Unlike L
+            // and ST, an A0-A3 selector does not make the storage operand a
+            // three-byte PACT/address field.  Calling setSelected() here
+            // rereads operand-2 as a prefix byte; at a page boundary that
+            // invents an access to the preceding page (SPCLO A A1,01(XR2)
+            // with XR2=4000 exposed this as a false read of 3FFF).
             MspRegisters& r = m_.msp;
             switch (q) {
-                case 0xA0: r.pactDir = pact; break;
-                case 0xA1: r.pactXr1 = pact; break;
-                case 0xA2: r.pactXr2 = pact; break;
-                case 0xA3: r.pactIar = pact; break;
+                case 0xA0: break;  // PDIR has no paired 16-bit register
+                case 0xA1: r.xr1 = result; break;
+                case 0xA2: r.xr2 = result; break;
+                case 0xA3: r.iar = result; iarWritten_ = true; break;
                 default: break;
             }
-        }
+        } else setSelected(q, result);
     }
 
     const uint8_t keep = subtract ? static_cast<uint8_t>(kPsrHigh | kPsrLow | kPsrEqual)

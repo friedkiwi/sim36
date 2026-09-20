@@ -118,6 +118,27 @@ SelfTestResult runSelfTest(machine::MachineState& m, processors::MainStorageProc
     report("A   (manual 3-12) XR2 = 7D8A", m.msp.xr2 == 0x7D8A, sc);
     reportPsr("A   status byte = 00000010 (Low)", m, 0x02, sc);
 
+    // A/S with an A1-A3 selector update the selected two-byte register and
+    // preserve its PACT.  The operand remains two bytes: SPCLO deliberately
+    // places it at 4000..4001 while translated page 7 is protected.
+    const uint16_t oldAtr7 = m.atr[MachineState::kAtrTaskGroup0 + 7];
+    const uint16_t oldAtr8 = m.atr[MachineState::kAtrTaskGroup0 + 8];
+    pokeBytes(m, 0x4000, {0x00, 0x02});
+    pokeBytes(m, 0x1000, {0xB6, 0xA1, 0x01});
+    m.atr[MachineState::kAtrTaskGroup0 + 7] = MachineState::kAtrProtect;
+    m.atr[MachineState::kAtrTaskGroup0 + 8] = 8;
+    m.msp.pactXr1 = 0x80;
+    m.msp.xr1 = 0x0100;
+    m.msp.pactXr2 = 0x80;
+    m.msp.xr2 = 0x4000;
+    runAt(0x1000);
+    report("A A1 page-boundary operand stays two bytes",
+           !msp.stopped() && m.msp.xr1 == 0x0102 && m.msp.pactXr1 == 0x80, sc);
+    m.atr[MachineState::kAtrTaskGroup0 + 7] = oldAtr7;
+    m.atr[MachineState::kAtrTaskGroup0 + 8] = oldAtr8;
+    m.msp.pactXr1 = 0;
+    m.msp.pactXr2 = 0;
+
     // Branch On Condition, 3-18.  Instruction C0 88 02 BF at 0BCC, so the
     // ARR is 0BD0.  Q-byte 10001000 tests decimal overflow, on in 00011001.
     pokeBytes(m, 0x0BCC, {0xC0, 0x88, 0x02, 0xBF});

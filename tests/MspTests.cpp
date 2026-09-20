@@ -69,7 +69,7 @@ TEST_CASE("msp: every manual vector passes on a bare machine")
     monitor::Tracer t;
     RefusingCsp csp(m, t);
     monitor::SelfTestResult r = monitor::runSelfTest(m, csp.mainStorage());
-    CHECK(r.passed == 52);
+    CHECK(r.passed == 53);
     CHECK(r.failed == 0);
 }
 
