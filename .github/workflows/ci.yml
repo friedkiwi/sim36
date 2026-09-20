@@ -37,8 +37,25 @@ jobs:
           CC: gcc-10
       - name: Build
         run: cmake --build --preset linux
+      - name: Checkout private AS/36 test media
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/checkout@v4
+        with:
+          repository: friedkiwi/as36_media_repo
+          token: ${{ secrets.AS36_MEDIA_PAT }}
+          path: .ci-as36-media
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Expand AS/36 test volume
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          gzip -dc .ci-as36-media/as36_cicd.img.gz > "$RUNNER_TEMP/as36_cicd.img"
+          echo "SIM36_VOLUME=$RUNNER_TEMP/as36_cicd.img" >> "$GITHUB_ENV"
       - name: Test
         run: ctest --preset linux
+      - name: Remove AS/36 test volume
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: rm -f "$RUNNER_TEMP/as36_cicd.img"
       - name: Empty command file exits 0
         run: ./build/linux/sim36 -s test/empty.sim
       - name: Package
@@ -79,8 +96,40 @@ jobs:
         run: cmake --preset windows-static
       - name: Build
         run: cmake --build --preset windows-static
+      - name: Checkout private AS/36 test media
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/checkout@v4
+        with:
+          repository: friedkiwi/as36_media_repo
+          token: ${{ secrets.AS36_MEDIA_PAT }}
+          path: .ci-as36-media
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Expand AS/36 test volume
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE '.ci-as36-media\as36_cicd.img.gz'
+          $destination = Join-Path $env:RUNNER_TEMP 'as36_cicd.img'
+          $input = [System.IO.File]::OpenRead($source)
+          $output = [System.IO.File]::Create($destination)
+          try {
+            $gzip = [System.IO.Compression.GZipStream]::new(
+              $input,
+              [System.IO.Compression.CompressionMode]::Decompress)
+            try { $gzip.CopyTo($output) } finally { $gzip.Dispose() }
+          } finally {
+            $output.Dispose()
+            $input.Dispose()
+          }
+          $volume = $destination.Replace('\', '/')
+          "SIM36_VOLUME=$volume" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Test
         run: ctest --preset windows-static
+      - name: Remove AS/36 test volume
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: Remove-Item -LiteralPath "$env:RUNNER_TEMP\as36_cicd.img" -Force -ErrorAction SilentlyContinue
       - name: Empty command file exits 0
         shell: pwsh
         run: |
