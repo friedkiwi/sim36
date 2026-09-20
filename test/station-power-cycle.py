@@ -63,6 +63,7 @@ def machine(mux_port, station_port):
     send(proc, "set station 0.0 role console")
     for n in (1, 2, 3):
         send(proc, "set station 0.%d role display" % n)
+        send(proc, "set station 0.%d device-code 11" % n)
         send(proc, "set station 0.%d listen 127.0.0.1:%d" % (n, station_port + n))
     if mux_port:
         send(proc, "set terminal multiplex listen 127.0.0.1:%d" % mux_port)
