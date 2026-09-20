@@ -21,9 +21,22 @@ ipl pause
 loadfile $TMP/vectors.bin 0C00
 loadfile $TMP/program.bin 1000
 trace csp
+# --- SVC 2F through a direct PACT carrying a non-address flag --------------
+# PXR2 bit 0x10 is a processor-control flag, not an address bit.  Give the
+# low-storage list a distinct target for this call and restore it afterwards.
+poke 0D40 61
+set pxr1 80
+set xr1 0000
+set pxr2 10
+set xr2 0D40
+set iar 1000
+step 1
+show cpu
+poke 0D40 51
 # --- SVC 2F, SA21-9436 3-125's own example --------------------------------
 set pxr1 80
 set xr1 0000
+set pxr2 00
 set xr2 0D40
 set iar 1000
 step 1
@@ -109,6 +122,7 @@ out=$("$SIM36" -c "$TMP/run.sim" 2>&1)
 
 check "2F  manual 3-125: XR1 = 805000        " 'XR1 5000'
 check "2F  manual 3-125: XR1 prefix is 80    " 'PACT iar 00  dir 00  xr1 80'
+check "2F  direct PACT flags are not address " 'XR1 6000  XR2 0D40  PSR'
 check "2F  action 4 searches tb+43          " 'no control block of type 81 is on the chain at 0F2B'
 check "2F  action 9 map entry                " '000e40  06 02 00 00 00 00 0c 00'
 check "2F  action 9 takes map reference      " 'SVC 2F action 9: activePP - control block 000C00 use count +27 = 1'
