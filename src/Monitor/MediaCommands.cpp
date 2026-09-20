@@ -468,7 +468,9 @@ void MonitorCli::tapeTest(const std::vector<std::string>& a)
                 r = t->readBlock(blk);
                 report("second read returns a tape mark", r == TapeResult::TapeMark, sc);
                 r = t->readBlock(blk);
-                report("third read returns end of data", r == TapeResult::EndOfData, sc);
+                report("third read returns the empty-volume tape mark", r == TapeResult::TapeMark, sc);
+                r = t->readBlock(blk);
+                report("fourth read returns end of data", r == TapeResult::EndOfData, sc);
 
                 const std::vector<std::vector<uint8_t>> data = {
                     {'B', 'L', 'O', 'C', 'K', '-', 'O', 'N', 'E'},
@@ -617,7 +619,7 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                         if (st.readByte(buffer + static_cast<int>(i)) != payload[i]) same = false;
                     report("SVC 46 read back returns the written record verbatim", same, sc);
 
-                    c = issue(0x00, 0, 0x100);
+                    c = issue(0x32, 0, 0x100);
                     report("SVC 46 with an invalid command is refused", (c & 0x0F) == NuTaIob::kCompletionError, sc);
 
                     drive.unload();

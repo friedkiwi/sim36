@@ -53,8 +53,8 @@ public:
     static constexpr int kOffDataFlag = 0x21;      // required non-zero for a data command; role INFERRED
 
     // ---- commands ----
-    static constexpr int kCommandMin = 0x01;   // any command in this range is accepted as well-formed (VERIFIED)
-    static constexpr int kCommandMax = 0x40;
+    static constexpr int kCommandMin = 0x01;   // NuTapeIo::entry subtracts one before its unsigned range check
+    static constexpr int kCommandMax = 0x31;   // VERIFIED: (command - 1) must be <= 48 decimal
     static constexpr int kCommandReadData = 0x17;      // the tape buffer is copied INTO the guest buffer
     static constexpr int kCommandReadDataAlt = 0x22;   // the 0x17/0x22 distinction is not recovered
     static constexpr int kCommandWriteData = 0x18;     // the guest buffer is copied INTO the tape buffer

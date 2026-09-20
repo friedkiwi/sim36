@@ -79,7 +79,7 @@ FROMLIBR TPPROC,PROC,DISCFILE,TC,1,DISC01,TRKTEST,,,REWIND
 This is reproducible proof that the failing request belongs to the real guest
 export path.
 
-## First tape request and current boundary
+## Native request sequence and the corrected SLIC boundary
 
 With disk/tape tracing enabled, that `FROMLIBR` request loads the SSP tape
 transients and issues:
@@ -90,10 +90,43 @@ SVC 46 iob=037D58 eye=C9E3 cmd=01 mod=00 len=880 buffer=803A00 Q=01
 
 The IOB address varies with allocation, but the command, modifier, Q byte,
 length, and translated-buffer form are stable in repeated overlay sessions.
-Current sim36 refuses command `0x01`; SSP posts a processor check before any
-tape read or write.  Thus the existing synthetic tests for commands `0x17`,
-`0x18`, `0x21`, and `0x22` do not establish the command used to open/create a
-real labeled SSP tape file.
+A disposable diagnostic mapping, removed after each trace, exposed the next
+native requests without treating them as implemented:
+
+```text
+01/00 length 880   initialise/rewind path
+02/03 length 880   reads the 80-byte VOL1 record into the translated buffer
+13/03 length 880   volume/label setup
+16/03 length 480   find/open using a buffer beginning with DISCFILE and owner SIM36
+```
+
+Returning success for `13` only advances when `02` has delivered the real
+VOL1 bytes.  Returning an invented result for `16` either takes the existing-
+file path or invokes SSP's error/storage-dump path; it does not establish the
+write operation.  Those diagnostic mappings are therefore not present in the
+implementation.
+
+The local V4R4 SLIC corpus supplies the missing upper layer.  In
+`NuTapeIo::entry` (`ffffffffc23e20c0`) the command is read from IOB `+0x0A`,
+one is subtracted, and an unsigned comparison against **48 decimal** accepts
+commands `0x01..0x31`.  The former `0x40` ceiling in sim36 was a decimal/hex
+transcription error and has been corrected to `0x31`.  The decoded jump table
+at `ffffffffc30761f0` proves these relevant dispatches:
+
+| command | SLIC target | established role |
+|---:|---|---|
+| `13` | `entry+0x14DC` | requires length 880 and performs volume/label setup |
+| `16`, `20` | `NuTapeIo::tapFind` | locate/find a named tape file |
+| `17` | `entry+0x0C18` | data-read family |
+| `18` | `entry+0x0FB4` | data-write family |
+| `21` | `entry+0x0AE4` | data-write family |
+| `22` | `entry+0x032C` | data-read family |
+
+Other named routines in the same locally decoded layer include `tapLocate`,
+`tapRdLbls`, `tapWrtLbls`, `tapWriteEov`, and `tapEofHan`.  This corrects the
+earlier conclusion drawn from `NuTapeLogicalOp` alone: positioning and label
+handling are not absent from the A/36 implementation; they live in
+`NuTapeIo`, above that lower data mover.
 
 IBM's *System/36 Program Service Information*, LY21-0590-4, sections 2-116 to
 2-118, documents the record-mode tape data-management modules `#TAFND`,
@@ -115,13 +148,13 @@ also distinguish BOT, tape mark, EOD, not-ready, write-protect, short block,
 long block, and malformed requests, including the verified completion, MIC,
 and count/residual fields for each case.
 
-The following remain deliberately unsupported until established by a decoded
-SSP path, the reference emulator, IBM's LY21-0592 *System Data Areas*, or a
-reproducible differential trace:
+The following remain deliberately unsupported until established by the local
+decoded SSP/SLIC paths or a reproducible guest trace:
 
-- command `0x01` semantics and all of its IOB fields;
-- the guest commands that cause rewind, spacing, filemark, and position
-  operations;
+- the complete side effects and output fields for commands `01`, `02`, `13`,
+  and `16` (the workflow roles above do not yet establish their full contract);
+- the remaining command-to-rewind/spacing/filemark mappings in the
+  `NuTapeIo` jump-table arms;
 - exact completion bytes and MICs for tape mark, EOD, BOT, write protection,
   and short/long blocks;
 - exact HDR1/HDR2/UHL1/UHL2/EOF1/EOF2 contents and the `LIBRFILE` data stream;
@@ -132,4 +165,3 @@ reproducible differential trace:
 No implementation milestone may turn those unknowns into constants by
 inference.  Synthetic tape tests remain useful for backend failure
 localization, but they are not evidence for SSP IOB semantics.
-

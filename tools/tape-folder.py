@@ -358,7 +358,10 @@ def command_init(args):
     write_tape(args.tape_dir, volume,
                [{"blocks": [vol1], "metadata": {"kind": "label",
                                                   "recordFormat": "F",
-                                                  "recordLength": LABEL_LENGTH}}],
+                                                  "recordLength": LABEL_LENGTH}},
+                {"blocks": [], "metadata": {"kind": "data",
+                                                "recordFormat": "U",
+                                                "recordLength": 0}}],
                force=args.force)
     print("initialised %s as volume %s" % (args.tape_dir, volume_id))
 

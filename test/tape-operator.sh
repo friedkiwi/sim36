@@ -62,8 +62,9 @@ check "  ... and the spun-up state              " "loaded (spun up at load point
 check "vtoc lists the VOL1 volume serial        " "volume id       TAP07"
 check "  ... and the owner id                   " "owner id        ACME"
 check "  ... and the decoded VOL1 label record  " "VOL1 volumeId=TAP07"
-# files lists the tape files: 1 before the write, 2 after.
-check "files lists the label file (1 file)      " "-- tape files (1) --"
+# A blank tape has the VOL1 file plus an empty file for the second mark.  The
+# later write replaces that empty terminator, so the count remains two.
+check "files lists label plus empty terminator  " "-- tape files (2) --"
 check "  ... as an 80-byte label file           " "1  label"
 check "files re-lists after a data write (2)    " "-- tape files (2) --"
 check "  ... and the appended data file appears " "2  data"
@@ -93,7 +94,7 @@ EOF
 out=$($SIM36 -c "$TMP/default-machine.sim" -s "$TMP/position.sim" 2>&1)
 check "position reports load point               " "tape position: file 0 block 0 BOT"
 check "block spacing stops at a tape mark        " "tape space block 1: Ok, moved 1; file 0 block 1 @mark"
-check "file spacing crosses the mark             " "tape space file 1: Ok, moved 1; file 1 block 0 EOD"
+check "file spacing crosses the mark             " "tape space file 1: Ok, moved 1; file 1 block 0 @mark"
 check "rewind reports the resulting BOT          " "tape rewind: Ok; file 0 block 0 BOT"
 check "mark writes consecutive filemarks         " "tape mark 2: Ok, wrote 2; file 3 block 0 EOD"
 check "position sees the consecutive marks       " "tape position: file 3 block 0 EOD"

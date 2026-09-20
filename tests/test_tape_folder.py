@@ -96,8 +96,10 @@ class TapeFolderTests(unittest.TestCase):
         self.run_tool("init", tape, "--volume-id", "TEST01", "--owner", "OWNER")
         before = {path.name: (path.stat().st_mtime_ns, path.read_bytes())
                   for path in tape.iterdir()}
-        self.assertIn("OK: 1 tape file(s), 1 block(s), 80 byte(s)",
+        self.assertIn("OK: 2 tape file(s), 1 block(s), 80 byte(s)",
                       self.run_tool("verify", tape).stdout)
+        self.assertEqual([("block", vol1()), ("mark", b""), ("mark", b"")],
+                         self.logical_stream(tape))
         self.assertIn("TEST01", self.run_tool("list", tape).stdout)
         decoded = json.loads(self.run_tool("labels", tape).stdout)
         self.assertEqual("TEST01", decoded["labelGroups"][0]["labels"]["vol1"]["volumeId"])
@@ -150,9 +152,9 @@ class TapeFolderTests(unittest.TestCase):
         packed = self.temp / "text-tape"
         self.run_tool("pack", work, packed)
         manifest = json.loads((packed / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(4, manifest["files"][1]["recordLength"])
-        self.assertEqual(8, manifest["files"][1]["blockLength"])
-        self.assertEqual("ABC D   ", (packed / "0002.dat").read_bytes().decode("cp037"))
+        self.assertEqual(4, manifest["files"][2]["recordLength"])
+        self.assertEqual(8, manifest["files"][2]["blockLength"])
+        self.assertEqual("ABC D   ", (packed / "0003.dat").read_bytes().decode("cp037"))
 
         too_long = self.temp / "too-long.txt"
         too_long.write_text("12345\n", encoding="utf-8")

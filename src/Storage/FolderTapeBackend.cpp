@@ -118,7 +118,9 @@ bool FolderTapeBackend::init(const std::string& folder, const std::string& volum
         reason = ec.message();
         return false;
     }
-    // A fresh, initialised volume: one VOL1 record, then a tape mark.
+    // A fresh standard-labeled volume: VOL1, then two tape marks.  The empty
+    // second tape file represents the second consecutive mark; one mark alone
+    // is only a file boundary, not the standard empty-volume terminator.
     std::vector<uint8_t> vol1 = TapeLabel::renderVol1(volumeId, ' ', ownerId);
 
     TapeManifest manifest;
@@ -137,7 +139,18 @@ bool FolderTapeBackend::init(const std::string& folder, const std::string& volum
     f.labels["vol1"] = TapeLabel::decodeVol1(vol1, 0);
     manifest.files.push_back(f);
 
+    TapeFileEntry end;
+    end.sequence = 2;
+    end.kind = "data";
+    end.blob = "0002.dat";
+    end.blockCount = 0;
+    end.hasBlockLengths = true;
+    end.recordFormat = "U";
+    manifest.files.push_back(end);
+
     if (!writeWholeFile(fs::path(folder) / "0001.dat", vol1.data(), vol1.size(), reason)) return false;
+    const char empty = 0;
+    if (!writeWholeFile(fs::path(folder) / "0002.dat", &empty, 0, reason)) return false;
     std::string text = manifest.write();
     return writeWholeFile(fs::path(folder) / kManifestName, text.data(), text.size(), reason);
 }

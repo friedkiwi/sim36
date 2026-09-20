@@ -21,6 +21,8 @@ entry in the manifest ends with one implicit tape mark.  Therefore an entry
 with zero blocks represents a tape mark immediately after the preceding mark,
 and two such entries represent consecutive marks.  A standard-labeled dataset
 normally occupies three tape files: header labels, data, and trailer labels.
+The blank-volume initializer emits a VOL1 label file followed by an empty tape
+file, giving the two consecutive tape marks required for a labeled empty tape.
 
 Each blob is the exact concatenation of that tape file's blocks.  A uniform
 file declares `blockLength` and `blockCount`; a variable file declares the

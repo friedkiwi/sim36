@@ -64,9 +64,11 @@ bool VirtualTape::execute(int iob, uint8_t qByte)
         return true;
     }
 
-    // The command must be in 1..0x40; anything else is a malformed IOB,
-    // refused rather than answered, the way the disk refuses a command it
-    // cannot decode.
+    // NuTapeIo::entry accepts 1..0x31.  Its compare is against decimal 48
+    // after subtracting one; the earlier 0x40 ceiling confused that decimal
+    // bound with a hexadecimal command value.  Anything else is malformed
+    // and refused rather than answered, the way disk refuses an undecodable
+    // command.
     if (command < NuTaIob::kCommandMin || command > NuTaIob::kCommandMax) {
         trace_.diskIo("  command {:02X} is outside NuTapeIobCheck's accepted range {:02X}..{:02X} - refused (the A/36 "
                       "returns its error code 9 here). docs/s36/tape-svc-integration.md",

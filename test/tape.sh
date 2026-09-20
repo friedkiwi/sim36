@@ -23,7 +23,7 @@ instantiate default-machine
 printf 'ipl pause\ntapetest %s/tape\nquit\n' "$TMP" > "$TMP/tt.sim"
 out=$("$SIM36" -c "$TMP/default-machine.sim" -s "$TMP/tt.sim" 2>&1)
 
-check "the backend round-trip is all green    " "tape backend: 19 passed, 0 failed"
+check "the backend round-trip is all green    " "tape backend: 20 passed, 0 failed"
 # A couple of the individual properties, named, so a regression points at itself.
 check "init writes a labeled tape folder      " "init writes a labeled tape folder          PASS"
 check "reads decode EBCDIC VOL1               " "...first four bytes are EBCDIC VOL1        PASS"
