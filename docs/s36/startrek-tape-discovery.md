@@ -248,6 +248,17 @@ the supplied VOL1 record, writes two filemarks, and rewinds.  Command `12` now
 implements that verified sequence; the unobserved command-11 variant sharing
 the SLIC arm remains refused.
 
+The first native RPGC replay also exposed a non-tape prerequisite in the
+fixed-disk IOS.  Its `#MGRE` message path issued SVC 40 with command `00` and
+an otherwise empty IOB.  This is not an inferred alias for a disk operation:
+local V4R4 `NuDiskIo::executeInternal` at `c1864a4c..c1865478` initializes its
+result to completion `40`; only the A1, A2, and A3 transfer arms replace that
+result, so command `00` reaches the common return unchanged without a
+transfer.  The emulator now accepts only that observed default form in
+addition to the established A0/A4 no-transfer commands.  With it, RPGC
+advances from `#MGRE+0687` to the guest's own `#CLSG` error disposition rather
+than stopping at the device boundary.
+
 This organization is independently consistent with the local OS/400 V4R4
 SAVSYS analysis in the adjacent `syspass_research` tree: standard label
 records are 80-byte EBCDIC CP037, `HDR1` carries the 17-byte dataset ID at

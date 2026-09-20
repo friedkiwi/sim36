@@ -48,9 +48,13 @@ bool VirtualFixedDisk::execute(int iob, uint8_t qByte)
     trace_.diskIo("SVC 40 iob={:06X} cmd={:02X}/{:02X} sector={} count-1={} buffer={:06X} bypass-cache={}",
                   iob, command, modifier, sector, count, bufferField, bypassCache ? "True" : "False");
 
-    if (command == kCommandComplete || command == kCommandCompleteAlt) {
-        // These two return 0x40, the ECM's "complete", without reading,
-        // writing or validating anything.
+    if (command == kCommandCompleteDefault || command == kCommandComplete ||
+        command == kCommandCompleteAlt) {
+        // NuDiskIo::executeInternal (V4R4 c1864a4c..c1865478) seeds its
+        // return value with 0x40.  A1/A2/A3 replace it through their transfer
+        // arms; an observed RPGC #MGRE request with command 00 reaches the
+        // common return unchanged, just like the explicit A0/A4 early arm.
+        // Keep this deliberately limited to the observed 00 default form.
         trace_.diskIo("  command {:02X} completes immediately, no transfer", command);
         IoBlock::complete(m_, iob, 0);
         return true;

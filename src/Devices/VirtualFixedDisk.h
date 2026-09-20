@@ -18,11 +18,12 @@ namespace sim36::devices {
 
 class VirtualFixedDisk {
 public:
-    // The disk command set.  A0 and A4 are accepted and complete
+    // The disk command set.  00, A0 and A4 are accepted and complete
     // immediately without touching the volume; A1 reads, A2 writes (with
     // the modifier C0 at +0x0B making byte 13 a fill character), A3 scans.
     static constexpr int kCommandComplete = 0xA0;
     static constexpr int kCommandCompleteAlt = 0xA4;
+    static constexpr int kCommandCompleteDefault = 0x00;
     static constexpr int kCommandRead = 0xA1;
     static constexpr int kCommandWrite = 0xA2;
     static constexpr int kCommandScan = 0xA3;

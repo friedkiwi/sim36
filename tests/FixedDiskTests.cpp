@@ -53,7 +53,7 @@ void buildIob(machine::MachineState& m, int iob, int command, int modifier, int 
 
 }  // namespace
 
-TEST_CASE("fixed disk: A0 and A4 complete without a transfer, seeding the work sector")
+TEST_CASE("fixed disk: command 00, A0 and A4 complete without a transfer")
 {
     Volume v(100);
     machine::MachineState m(64 * 1024);
@@ -61,11 +61,15 @@ TEST_CASE("fixed disk: A0 and A4 complete without a transfer, seeding the work s
     DiskBackend d(v.path.string(), storage::VolumeMode::ReadOnly);
     VirtualFixedDisk disk(m, d, t);
     const int iob = 0x600;
-    buildIob(m, iob, VirtualFixedDisk::kCommandComplete, 0, 5, 1, 0x2000);
-    CHECK(disk.execute(iob, 0));
-    CHECK(Ecm::isComplete(m, iob));
-    CHECK(m.readByte(iob + Ecm::kOffCompletion) == 0x40);
-    CHECK(m.readAddr24(iob + IoBlock::kOffDiskSectorWork) == 6);
+    for (int command : {VirtualFixedDisk::kCommandCompleteDefault,
+                        VirtualFixedDisk::kCommandComplete,
+                        VirtualFixedDisk::kCommandCompleteAlt}) {
+        buildIob(m, iob, command, 0, 5, 1, 0x2000);
+        CHECK(disk.execute(iob, 0));
+        CHECK(Ecm::isComplete(m, iob));
+        CHECK(m.readByte(iob + Ecm::kOffCompletion) == 0x40);
+        CHECK(m.readAddr24(iob + IoBlock::kOffDiskSectorWork) == 6);
+    }
     CHECK(disk.readsIssued() == 0);
 }
 
