@@ -40,6 +40,7 @@ check "native command 16 locates the dataset  " "native command 16 finds HDR1 an
 check "the selected dataset is readable       " "the next guest read returns the selected dataset's first block PASS"
 # A read on the tape mark is a distinct, non-success completion.
 check "the tape mark posts non-success        " "SVC 46 read on the tape mark posts non-success PASS"
+check "dataset-not-found has guest status     " "native command 16 reports the #CATP dataset-not-found status PASS"
 # A write through SVC 46 reaches the backend, and reads back verbatim.
 check "write posts complete                   " "SVC 46 write posts complete                PASS"
 check "the written record reads back verbatim " "SVC 46 read back returns the written record verbatim PASS"
@@ -51,7 +52,7 @@ check "native command 12 initializes the tape " "native command 12 writes VOL1, 
 check "the initialized stream is readable     " "the initialized logical stream is readable PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 20 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 21 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"

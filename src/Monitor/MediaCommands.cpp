@@ -658,6 +658,17 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     report("SVC 46 read on the tape mark posts non-success",
                            (c & Ecm::kComplete) != 0 && (c & 0x0F) != NuTaIob::kCompletionOk, sc);
 
+                    const uint8_t missingId[] = {0xD4, 0xC9, 0xE2, 0xE2, 0xC9, 0xD5, 0xC7}; // MISSING
+                    for (int i = 0; i < 17; i++)
+                        st.writeByte(buffer + i, i < static_cast<int>(std::size(missingId)) ? missingId[i] : 0x40);
+                    c = issue(NuTaIob::kCommandFindDataSet, 3, 0x1E0);
+                    report("native command 16 reports the #CATP dataset-not-found status",
+                           (c & 0x0F) == NuTaIob::kCompletionEndOfFile &&
+                               st.readByte(iob + NuTaIob::kOffMicPrefix) == 0x60 &&
+                               st.readByte(iob + NuTaIob::kOffMicPrefix + 1) == 0x74 &&
+                               st.readByte(iob + NuTaIob::kOffMicPrefix + 2) == 0x34,
+                           sc);
+
                     back->rewind();
                     int spaced = 0;
                     back->spaceFiles(1, spaced);

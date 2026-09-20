@@ -12,7 +12,7 @@
 // command, +0x0B modifier, +0x0D/0x0F data buffer); the data-transfer
 // length at iob+0x10; the read commands 0x17/0x22 and write commands
 // 0x18/0x21 (their DIRECTION proved by which way the byte-mover copies); the
-// MIC halfword at iob+0x1E.  What is INFERRED: the exact per-condition
+// MIC/status tail at iob+0x1D..0x1F.  What is INFERRED: the exact per-condition
 // completion nibble and MIC for a tape mark, end of data and write-protect;
 // Command 0x16's labeled-dataset search and position are also verified from
 // NuTapeIo::tapFind.  The remaining positioning command mappings and exact
@@ -48,7 +48,8 @@ public:
     static constexpr int kOffReturnedLength = 0x12; // label bytes returned by tapLbls2 (VERIFIED)
     static constexpr int kOffCount0 = 0x14;        // halfword bounded by iob+0x10; role INFERRED, not written back
     static constexpr int kOffCount1 = 0x16;        // its companion; role INFERRED
-    static constexpr int kOffMic = 0x1E;           // MIC halfword: the location is VERIFIED, the values INFERRED
+    static constexpr int kOffMicPrefix = 0x1D;     // guest #CATP tests a two-byte prefix here (VERIFIED)
+    static constexpr int kOffMic = 0x1E;           // SLIC-facing MIC halfword; overlaps the guest status tail
     static constexpr int kOffDataFlag = 0x21;      // required non-zero for a data command; role INFERRED
 
     // ---- commands ----
@@ -72,11 +73,10 @@ public:
     static constexpr int kCompletionError = 4;       // a non-success class; 4 and 5 are written on the error arms
     static constexpr int kCompletionEndOfFile = 5;   // INFERRED: kept distinct from the plain error
 
-    // ---- MIC values (iob+0x1E); dataset-not-found is verified, the rest remain inferred ----
+    // ---- SLIC-facing MIC values (iob+0x1E); exact guest encodings can differ ----
     static constexpr int kMicInvalidCommand = 0x000A;
     static constexpr int kMicLength = 0x0025;
     static constexpr int kMicTapeMark = 0x0025;
-    static constexpr int kMicDataSetNotFound = 0x001B; // VERIFIED: tapFind EOD/not-found arm
     static constexpr int kMicWriteProtected = 0x000A;
 
     static const char* commandName(int command);

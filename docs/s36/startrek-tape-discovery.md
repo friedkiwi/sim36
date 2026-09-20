@@ -151,12 +151,16 @@ with the matched HDR1 into the guest work area.  A synthetic labeled tape
 driven through the real SVC 46 path now proves that the next guest read returns
 the chosen data block.
 
-The same decoded end-condition arm establishes MIC `0x001b` with completion
-low nibble `5` when the search reaches physical end without a match.  A
-VOL1-only synthetic tape still leads this SSP FROMLIBR path to request a
-storage dump, so that result is not treated as proof that the current blank
-tape organization is a guest-valid output volume.  The missing initialization
-or write-label step remains open.
+The same decoded SLIC end-condition arm uses internal condition `0x001b` and
+completion low nibble `5` when the search reaches physical end without a
+match.  That internal condition is not the guest-visible MIC.  The locally
+extracted `#CATP` transient checks completion byte `45`, compares IOB bytes
+`+1d..+1e` with its constant `60 74`, and then requires byte `+1f` to be `34`.
+The native command-16 implementation therefore returns the verified
+three-byte `60 74 34` status tail for dataset-not-found.  This also corrects
+the earlier claim that the tape MIC was simply a halfword beginning at
+`+1e`: that is the SLIC-facing field, while the guest consumes the overlapping
+three-byte status representation.
 
 The shipped `TAPEINIT` procedure supplies that initialization workflow.  Its
 standard-label form prompts for `TC`, label type `SL`, volume and owner IDs,

@@ -278,10 +278,15 @@ bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField
 
         trace_.diskIo("  command 16 did not find the requested HDR1 identifier: {} after {} record(s); {}",
                       storage::tapeResultName(r), records, medium_->readPosition().toString());
-        // tapFind's 0x1b/0x1c physical end conditions converge on MIC 0x1b
-        // and completion 5.  Keep it distinct from an ordinary data-read
-        // tape mark; the larger FROMLIBR creation path is still under trace.
-        postError(iob, NuTaIob::kCompletionEndOfFile, NuTaIob::kMicDataSetNotFound);
+        // The guest #CATP transient checks completion 45 and then compares
+        // IOB+1D..1F with 60 74 34 before accepting "dataset not found".
+        // This is the guest-visible encoding produced above the SLIC
+        // tapFind arm; the latter's internal 0x1b condition is not itself
+        // the System/36 MIC representation.
+        m_.writeByte(iob + NuTaIob::kOffMicPrefix, 0x60);
+        m_.writeByte(iob + NuTaIob::kOffMicPrefix + 1, 0x74);
+        m_.writeByte(iob + NuTaIob::kOffMicPrefix + 2, 0x34);
+        IoBlock::complete(m_, iob, NuTaIob::kCompletionEndOfFile);
         return true;
     }
 }
