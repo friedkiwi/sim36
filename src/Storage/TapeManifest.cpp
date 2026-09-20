@@ -261,20 +261,42 @@ std::unique_ptr<TapeManifest> TapeManifest::read(const std::string& text, std::s
                      FolderTapeBackend::kFormatId + "'";
             return nullptr;
         }
+        auto version = root.find("formatVersion");
+        if (version == root.end() || (!version->is_number_integer() && !version->is_number_unsigned()) ||
+            version->get<long long>() != FolderTapeBackend::kFormatVersion) {
+            reason = "manifest formatVersion is not supported (expected " +
+                     std::to_string(FolderTapeBackend::kFormatVersion) + ")";
+            return nullptr;
+        }
 
         auto m = std::make_unique<TapeManifest>();
         auto vol = root.find("volume");
-        if (vol != root.end()) {
-            if (!vol->is_object()) throw std::runtime_error("expected a JSON object");
-            m->volume = TapeVolume::fromJson(*vol);
-        }
+        if (vol == root.end() || !vol->is_object()) throw std::runtime_error("volume must be a JSON object");
+        m->volume = TapeVolume::fromJson(*vol);
         auto files = root.find("files");
-        if (files != root.end()) {
-            if (!files->is_array()) throw std::runtime_error("expected a JSON array");
-            for (const auto& f : *files) {
-                if (!f.is_object()) throw std::runtime_error("expected a JSON object");
-                m->files.push_back(TapeFileEntry::fromJson(f));
-            }
+        if (files == root.end() || !files->is_array()) throw std::runtime_error("files must be a JSON array");
+        for (const auto& f : *files) {
+            if (!f.is_object()) throw std::runtime_error("each file must be a JSON object");
+            if (!f.contains("sequence") || (!f["sequence"].is_number_integer() && !f["sequence"].is_number_unsigned()))
+                throw std::runtime_error("each file must declare an integer sequence");
+            if (!f.contains("blob") || !f["blob"].is_string())
+                throw std::runtime_error("each file must declare a string blob path");
+            bool variable = f.contains("blockLengths");
+            bool fixed = f.contains("blockLength");
+            if (variable == fixed) throw std::runtime_error("each file must declare exactly one block length form");
+            if (!f.contains("blockCount") || (!f["blockCount"].is_number_integer() && !f["blockCount"].is_number_unsigned()))
+                throw std::runtime_error("each file must declare an integer blockCount");
+            if (f["blockCount"].get<long long>() < 0) throw std::runtime_error("blockCount cannot be negative");
+            if (fixed && !f["blockLength"].is_number_integer() && !f["blockLength"].is_number_unsigned())
+                throw std::runtime_error("blockLength must be an integer");
+            if (variable && (!f["blockLengths"].is_array() ||
+                             f["blockCount"].get<long long>() != static_cast<long long>(f["blockLengths"].size())))
+                throw std::runtime_error("blockCount does not match blockLengths");
+            if (variable)
+                for (const auto& length : f["blockLengths"])
+                    if (!length.is_number_integer() && !length.is_number_unsigned())
+                        throw std::runtime_error("every blockLengths entry must be an integer");
+            m->files.push_back(TapeFileEntry::fromJson(f));
         }
         return m;
     } catch (const std::exception& e) {   // a malformed manifest is a reason, not a crash

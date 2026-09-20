@@ -159,6 +159,7 @@ add_executable(sim36_tests
     tests/FixedDiskTests.cpp
     tests/MachineStateTests.cpp
     tests/MspTests.cpp
+    tests/TapeTests.cpp
     tests/VtocTests.cpp
     tests/VirtualWorkstationTests.cpp
 )

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <stdexcept>
 
 #include <fmt/format.h>
@@ -38,6 +39,107 @@ bool writeWholeFile(const fs::path& p, const void* bytes, std::size_t length, st
     if (!out) {
         reason = std::strerror(errno);
         return false;
+    }
+    return true;
+}
+
+bool safeBlobPath(const std::string& blob)
+{
+    if (blob.empty() || blob.find('\\') != std::string::npos) return false;
+    fs::path p(blob);
+    if (p.is_absolute()) return false;
+    for (const auto& part : p)
+        if (part.empty() || part == "." || part == "..") return false;
+    return true;
+}
+
+bool validateTapeFolder(const fs::path& folder, const TapeManifest& manifest, std::string& reason)
+{
+    constexpr int kMaxBlockLength = 0x7FFF;
+    std::set<std::string> blobs;
+    for (std::size_t index = 0; index < manifest.files.size(); ++index) {
+        const TapeFileEntry& f = manifest.files[index];
+        const int expectedSequence = static_cast<int>(index) + 1;
+        if (f.sequence != expectedSequence) {
+            reason = fmt::format("tape file {} has sequence {}, expected {}", index + 1, f.sequence, expectedSequence);
+            return false;
+        }
+        if (!safeBlobPath(f.blob)) {
+            reason = fmt::format("tape file {} has unsafe blob path '{}'", f.sequence, f.blob);
+            return false;
+        }
+        if (!blobs.insert(f.blob).second) {
+            reason = fmt::format("tape file {} reuses blob '{}'", f.sequence, f.blob);
+            return false;
+        }
+        std::vector<int> lengths = f.resolveBlockLengths();
+        if (f.blockCount < 0 || static_cast<std::size_t>(f.blockCount) != lengths.size()) {
+            reason = fmt::format("tape file {} has inconsistent blockCount", f.sequence);
+            return false;
+        }
+        long long declaredBytes = 0;
+        for (int length : lengths) {
+            if (length < 1 || length > kMaxBlockLength) {
+                reason = fmt::format("tape file {} has block length {} outside 1..{}", f.sequence, length, kMaxBlockLength);
+                return false;
+            }
+            declaredBytes += length;
+        }
+        fs::path path = folder / fs::path(f.blob);
+        std::error_code ec;
+        if (fs::is_symlink(path, ec) || !fs::is_regular_file(path, ec)) {
+            reason = fmt::format("tape file {} blob '{}' is missing or is not a regular file", f.sequence, f.blob);
+            return false;
+        }
+        std::uintmax_t actualBytes = fs::file_size(path, ec);
+        if (ec || actualBytes != static_cast<std::uintmax_t>(declaredBytes)) {
+            reason = fmt::format("tape file {} blob '{}' has {} byte(s), manifest declares {}", f.sequence, f.blob,
+                                 ec ? 0 : actualBytes, declaredBytes);
+            return false;
+        }
+        if (!f.labels.empty()) {
+            std::vector<std::vector<uint8_t>> records;
+            std::ifstream in(path, std::ios::binary);
+            for (int length : lengths) {
+                std::vector<uint8_t> record(static_cast<std::size_t>(length));
+                in.read(reinterpret_cast<char*>(record.data()), static_cast<std::streamsize>(record.size()));
+                records.push_back(std::move(record));
+            }
+            nlohmann::ordered_json decoded = nlohmann::ordered_json::object();
+            if (!TapeLabel::decodeLabelGroup(records, decoded) || decoded != f.labels) {
+                reason = fmt::format("tape file {} decoded labels do not match its blob bytes", f.sequence);
+                return false;
+            }
+        }
+    }
+
+    if (manifest.volume.labeled) {
+        if (manifest.files.empty()) {
+            reason = "labeled tape has no VOL1 file";
+            return false;
+        }
+        const TapeFileEntry& first = manifest.files.front();
+        std::vector<int> lengths = first.resolveBlockLengths();
+        if (lengths.empty() || lengths.front() != FolderTapeBackend::kLabelLength) {
+            reason = "labeled tape does not begin with an 80-byte VOL1 block";
+            return false;
+        }
+        std::ifstream in(folder / first.blob, std::ios::binary);
+        std::vector<uint8_t> record(FolderTapeBackend::kLabelLength);
+        in.read(reinterpret_cast<char*>(record.data()), FolderTapeBackend::kLabelLength);
+        if (record[0] != 0xE5 || record[1] != 0xD6 || record[2] != 0xD3 || record[3] != 0xF1) {
+            reason = "labeled tape does not begin with VOL1 bytes";
+            return false;
+        }
+        nlohmann::ordered_json vol1 = TapeLabel::decodeVol1(record, 0);
+        std::string expectedAccess = manifest.volume.accessSecurity;
+        if (expectedAccess == " ") expectedAccess.clear();
+        if (vol1.value("volumeId", std::string()) != manifest.volume.volumeId ||
+            vol1.value("ownerId", std::string()) != manifest.volume.ownerId ||
+            vol1.value("accessSecurity", std::string()) != expectedAccess) {
+            reason = "manifest volume metadata does not match the VOL1 bytes";
+            return false;
+        }
     }
     return true;
 }
@@ -105,6 +207,7 @@ std::unique_ptr<FolderTapeBackend> FolderTapeBackend::open(const std::string& fo
     if (!readWholeFile(manifestPath, text, reason)) return nullptr;
     std::unique_ptr<TapeManifest> m = TapeManifest::read(text, reason);
     if (!m) return nullptr;
+    if (!validateTapeFolder(folder, *m, reason)) return nullptr;
     return std::unique_ptr<FolderTapeBackend>(new FolderTapeBackend(folder, readOnly, std::move(*m)));
 }
 
@@ -125,7 +228,7 @@ bool FolderTapeBackend::init(const std::string& folder, const std::string& volum
 
     TapeManifest manifest;
     manifest.volume.volumeId = TapeLabel::normaliseVolumeId(volumeId);
-    manifest.volume.ownerId = ownerId;
+    manifest.volume.ownerId = ownerId.substr(0, 14);
     manifest.volume.labeled = true;
 
     TapeFileEntry f;

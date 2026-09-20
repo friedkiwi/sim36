@@ -55,6 +55,12 @@ bounded positive block lengths, blob byte counts, VOL1/volume agreement, and
 decoded label groups.  Orphan `.dat` files produce a warning; use
 `--reject-orphans` to make them an error.
 
+The simulator repeats the safety-critical checks when mounting: exact format
+version, contiguous sequences, traversal-free non-symlink blob paths, bounded
+integer block lengths, exact blob sizes, and label mirrors matching the actual
+EBCDIC bytes.  Malformed media is rejected at `tape load`, before guest I/O can
+reach a truncated block.
+
 Unpack, edit, and repack:
 
 ```sh
