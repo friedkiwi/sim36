@@ -316,12 +316,21 @@ def main():
         display.press("Enter")
         display.wait_for_text("SHIELD ENERGY", timeout=60)
         display.wait_for_text("ENTER YOUR COMMAND", timeout=60)
-        display.type_at(21, 26, "S")
-        display.press("Enter")
-        display.wait_for_text("S U R R E N D E R", timeout=60)
-        display.wait_for_text("PRESS CMD 7", timeout=60)
-        display.press("Cmd7")
-        display.wait_for_text("Main System/36 help menu", timeout=120)
+        # Combat can emit one or more additional invited formats after the
+        # shield reply.  KG is the RPG input indicator for Cmd7 on every
+        # format; repeat the key at each invitation until the program's LR
+        # path returns the workstation job to MAIN.
+        for _ in range(6):
+            generation = display.generation
+            display.press("Cmd7")
+            display.wait_for_change(timeout=60, since=generation)
+            display.settle(quiet=0.25, timeout=10)
+            with display.lock:
+                if display.screen.contains("Main System/36 help menu"):
+                    break
+        else:
+            raise TimeoutError("Cmd7 did not terminate STREK\n%s" %
+                               display.screen.render(fields=True))
         game_text = monitor_text(game_mark)
         if "CHECK [" in game_text or "storage protection" in game_text:
             raise AssertionError("STREK stopped in the emulator\n%s" %
