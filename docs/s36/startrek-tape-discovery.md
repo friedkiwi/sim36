@@ -158,6 +158,15 @@ storage dump, so that result is not treated as proof that the current blank
 tape organization is a guest-valid output volume.  The missing initialization
 or write-label step remains open.
 
+The shipped `TAPEINIT` procedure supplies that initialization workflow.  Its
+standard-label form prompts for `TC`, label type `SL`, volume and owner IDs,
+expiration checking/clearing, optional erase, and final rewind/unload.  The
+observed execution begins `01/00`, `02/00`, then `12/00` with an 80-byte guest
+buffer.  The local `NuTapeIo` command-12 arm requires that exact length, writes
+the supplied VOL1 record, writes two filemarks, and rewinds.  Command `12` now
+implements that verified sequence; the unobserved command-11 variant sharing
+the SLIC arm remains refused.
+
 This organization is independently consistent with the local OS/400 V4R4
 SAVSYS analysis in the adjacent `syspass_research` tree: standard label
 records are 80-byte EBCDIC CP037, `HDR1` carries the 17-byte dataset ID at

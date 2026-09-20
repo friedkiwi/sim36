@@ -47,9 +47,11 @@ check "an overlength record is not truncated    " "an overlength block is reject
 check "the rejected record remains retryable   " "and remains positioned for a retry"
 # Status edges: a bad command is refused, an empty drive answers not-ready.
 check "an invalid command is refused          " "SVC 46 with an invalid command is refused  PASS"
+check "native command 12 initializes the tape " "native command 12 writes VOL1, two marks, and rewinds PASS"
+check "the initialized stream is readable     " "the initialized logical stream is readable PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 18 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 20 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"

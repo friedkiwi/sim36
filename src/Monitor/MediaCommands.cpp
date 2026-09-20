@@ -690,6 +690,20 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     c = issue(0x32, 0, 0x100);
                     report("SVC 46 with an invalid command is refused", (c & 0x0F) == NuTaIob::kCompletionError, sc);
 
+                    for (std::size_t i = 0; i < vol1.size(); i++) st.writeByte(buffer + static_cast<int>(i), vol1[i]);
+                    c = issue(NuTaIob::kCommandInitializeStandard, 0, 80);
+                    report("native command 12 writes VOL1, two marks, and rewinds",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().beginningOfTape,
+                           sc);
+                    std::vector<uint8_t> initializedLabel;
+                    TapeResult initializedRead = back->readBlock(initializedLabel);
+                    TapeResult initializedMark1 = back->readBlock(initializedLabel);
+                    TapeResult initializedMark2 = back->readBlock(initializedLabel);
+                    report("...the initialized logical stream is readable",
+                           initializedRead == TapeResult::Ok && initializedMark1 == TapeResult::TapeMark &&
+                               initializedMark2 == TapeResult::TapeMark,
+                           sc);
+
                     drive.unload();
                     c = issue(NuTaIob::kCommandReadData, 0, 0x100);
                     report("SVC 46 read on an empty drive answers not-ready",

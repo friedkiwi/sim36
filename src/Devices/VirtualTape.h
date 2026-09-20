@@ -56,6 +56,7 @@ public:
     static constexpr int kCommandMax = 0x31;   // VERIFIED: (command - 1) must be <= 48 decimal
     static constexpr int kCommandActivate = 0x01;
     static constexpr int kCommandSetSession = 0x02;
+    static constexpr int kCommandInitializeStandard = 0x12;
     static constexpr int kCommandReadVolumeLabels = 0x13;
     static constexpr int kCommandFindDataSet = 0x16;
     static constexpr int kCommandReadData = 0x17;      // the tape buffer is copied INTO the guest buffer
@@ -120,6 +121,7 @@ private:
     bool write(int iob, int command, int length, int bufferField);
     bool activate(int iob, int modifier);
     bool setSession(int iob, int modifier);
+    bool initializeStandard(int iob, int modifier, int length, int bufferField);
     bool readVolumeLabels(int iob, int modifier, int length, int bufferField);
     bool findDataSet(int iob, int modifier, int length, int bufferField);
     bool control(int iob, int modifier);

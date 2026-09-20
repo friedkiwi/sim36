@@ -17,6 +17,7 @@ const char* NuTaIob::commandName(int command)
     switch (command) {
         case kCommandActivate: return "activate";
         case kCommandSetSession: return "set session";
+        case kCommandInitializeStandard: return "initialize standard labels";
         case kCommandReadVolumeLabels: return "read volume labels";
         case kCommandFindDataSet: return "find data set";
         case kCommandReadData: return "read data";
@@ -84,6 +85,7 @@ bool VirtualTape::execute(int iob, uint8_t qByte)
     switch (command) {
         case NuTaIob::kCommandActivate: return activate(iob, modifier);
         case NuTaIob::kCommandSetSession: return setSession(iob, modifier);
+        case NuTaIob::kCommandInitializeStandard: return initializeStandard(iob, modifier, length, bufferField);
         case NuTaIob::kCommandReadVolumeLabels: return readVolumeLabels(iob, modifier, length, bufferField);
         case NuTaIob::kCommandFindDataSet: return findDataSet(iob, modifier, length, bufferField);
         case NuTaIob::kCommandReadData:
@@ -129,6 +131,49 @@ bool VirtualTape::setSession(int iob, int modifier)
         return false;
     }
     trace_.diskIo("  command 02/{:02X} establishes the loaded tape session without moving media", modifier);
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::initializeStandard(int iob, int modifier, int length, int bufferField)
+{
+    // TAPEINIT's observed 12/00 request reaches the shared 11/12 arm at
+    // V4R4 c23e3a30.  That arm requires an 80-byte buffer, copies the label,
+    // writes it at load point, writes two filemarks through vtable 0x188,
+    // and rewinds through vtable 0x190.  Only command 12/00 is observed and
+    // exposed here; command 11 remains refused.
+    if (modifier != 0 || length != 80) {
+        trace_.diskIo("  command 12 requires modifier 00 and one 80-byte VOL1; got {:02X}/{}", modifier, length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    std::vector<uint8_t> label(80);
+    if (!m_.readGuest24Range(bufferField, label.data(), static_cast<int>(label.size()))) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    static constexpr uint8_t vol1[] = {0xE5, 0xD6, 0xD3, 0xF1};
+    if (!std::equal(std::begin(vol1), std::end(vol1), label.begin())) {
+        trace_.diskIo("  command 12 buffer is not an EBCDIC VOL1 label - refused");
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    medium_->rewind();
+    TapeResult r = medium_->writeBlock(label.data(), 0, static_cast<int>(label.size()));
+    if (r == TapeResult::NotReady) return notReady(iob);
+    if (r == TapeResult::WriteProtected) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicWriteProtected);
+        return false;
+    }
+    if (r != TapeResult::Ok || medium_->writeTapeMark() != TapeResult::Ok ||
+        medium_->writeTapeMark() != TapeResult::Ok) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    medium_->rewind();
+    writesIssued_++;
+    controlOps_++;
+    trace_.diskIo("  command 12 wrote VOL1 and two filemarks, then rewound; {}", medium_->readPosition().toString());
     IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
     return true;
 }
