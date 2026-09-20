@@ -13,6 +13,7 @@ if ! out=$(cd "$here" && python3 test/station-multiplex.py 2>&1); then
     printf '%s\n' "$out"
     exit 1
 fi
+volume_name=$(basename "$SIM36_VOLUME")
 
 check_absent() {
     if printf '%s\n' "$out" | grep -qF "$2"; then
@@ -45,7 +46,7 @@ check "a per-station listener is reported as disabled, not silently dropped" \
 check "the title is centred on row 1" \
       "                                     SIM/36"
 check "the volume is shown by basename, with its size and its mode" \
-      "Drive 1: as36.img  200M overlay"
+      "Drive 1: $volume_name  200M overlay"
 check "the prompt defaults to the next available station and names the required notation" \
       "Connect to workstation . . .  0.0      (port.address)"
 check "the client finds the prompt as a real 5250 input field" \
