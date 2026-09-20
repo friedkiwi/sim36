@@ -14,11 +14,9 @@
 // 0x18/0x21 (their DIRECTION proved by which way the byte-mover copies); the
 // MIC halfword at iob+0x1E.  What is INFERRED: the exact per-condition
 // completion nibble and MIC for a tape mark, end of data and write-protect;
-// and the positioning command set as discrete guest opcodes, which the
-// Advanced/36 does not dispatch from iob+0x0A (it streams data reads/writes
-// and lets its label layer manage tape marks and position).  So this model
-// maps the guest's data commands onto readBlock/writeBlock; the backend's
-// SPACE / REWIND / WRITE FILEMARK primitives are the label layer's.
+// Command 0x16's labeled-dataset search and position are also verified from
+// NuTapeIo::tapFind.  The remaining positioning command mappings and exact
+// condition completions are still unsupported rather than inferred.
 #pragma once
 
 #include <cstdint>
@@ -47,6 +45,7 @@ public:
 
     // ---- tape-specific data-transfer fields ----
     static constexpr int kOffBlockLength = 0x10;   // halfword, 1..0x7FFF for the data commands (VERIFIED)
+    static constexpr int kOffReturnedLength = 0x12; // label bytes returned by tapLbls2 (VERIFIED)
     static constexpr int kOffCount0 = 0x14;        // halfword bounded by iob+0x10; role INFERRED, not written back
     static constexpr int kOffCount1 = 0x16;        // its companion; role INFERRED
     static constexpr int kOffMic = 0x1E;           // MIC halfword: the location is VERIFIED, the values INFERRED
@@ -58,6 +57,7 @@ public:
     static constexpr int kCommandActivate = 0x01;
     static constexpr int kCommandSetSession = 0x02;
     static constexpr int kCommandReadVolumeLabels = 0x13;
+    static constexpr int kCommandFindDataSet = 0x16;
     static constexpr int kCommandReadData = 0x17;      // the tape buffer is copied INTO the guest buffer
     static constexpr int kCommandReadDataAlt = 0x22;   // the 0x17/0x22 distinction is not recovered
     static constexpr int kCommandWriteData = 0x18;     // the guest buffer is copied INTO the tape buffer
@@ -71,10 +71,11 @@ public:
     static constexpr int kCompletionError = 4;       // a non-success class; 4 and 5 are written on the error arms
     static constexpr int kCompletionEndOfFile = 5;   // INFERRED: kept distinct from the plain error
 
-    // ---- MIC values (iob+0x1E): INFERRED placeholders drawn from the codes the error arms wrote ----
+    // ---- MIC values (iob+0x1E); dataset-not-found is verified, the rest remain inferred ----
     static constexpr int kMicInvalidCommand = 0x000A;
     static constexpr int kMicLength = 0x0025;
     static constexpr int kMicTapeMark = 0x0025;
+    static constexpr int kMicDataSetNotFound = 0x001B; // VERIFIED: tapFind EOD/not-found arm
     static constexpr int kMicWriteProtected = 0x000A;
 
     static const char* commandName(int command);
@@ -120,6 +121,7 @@ private:
     bool activate(int iob, int modifier);
     bool setSession(int iob, int modifier);
     bool readVolumeLabels(int iob, int modifier, int length, int bufferField);
+    bool findDataSet(int iob, int modifier, int length, int bufferField);
     bool control(int iob, int modifier);
     bool validLength(int iob, int length);
     bool notReady(int iob);

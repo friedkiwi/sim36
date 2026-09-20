@@ -18,6 +18,7 @@ const char* NuTaIob::commandName(int command)
         case kCommandActivate: return "activate";
         case kCommandSetSession: return "set session";
         case kCommandReadVolumeLabels: return "read volume labels";
+        case kCommandFindDataSet: return "find data set";
         case kCommandReadData: return "read data";
         case kCommandReadDataAlt: return "read data (alt)";
         case kCommandWriteData: return "write data";
@@ -84,20 +85,18 @@ bool VirtualTape::execute(int iob, uint8_t qByte)
         case NuTaIob::kCommandActivate: return activate(iob, modifier);
         case NuTaIob::kCommandSetSession: return setSession(iob, modifier);
         case NuTaIob::kCommandReadVolumeLabels: return readVolumeLabels(iob, modifier, length, bufferField);
+        case NuTaIob::kCommandFindDataSet: return findDataSet(iob, modifier, length, bufferField);
         case NuTaIob::kCommandReadData:
         case NuTaIob::kCommandReadDataAlt: return read(iob, command, length, bufferField);
         case NuTaIob::kCommandWriteData:
         case NuTaIob::kCommandWriteDataAlt: return write(iob, command, length, bufferField);
         case NuTaIob::kCommandControl: return control(iob, modifier);
         default:
-            // A command accepted as well-formed but whose tape operation this
-            // model has NOT pinned: the positioning opcodes are not dispatched
-            // from iob+0x0A in the layer that was read, so mapping one here
-            // would be a guess.  Refused and counted, loudly.
+            // A command accepted as well-formed but whose operation this
+            // model has not pinned from NuTapeIo.  Refused and counted loudly.
             unmappedCommands_++;
             trace_.diskIo("  command {:02X} is a valid tape IOB command but its operation is NOT MAPPED in this model - "
-                          "the A/36 SLIC tape layer read here dispatches only data read (17/22), data write (18/21) and "
-                          "control (10) from iob+0x0A; positioning is the label layer's. Refused rather than guessed. "
+                          "its NuTapeIo arm has not yet been established. Refused rather than guessed. "
                           "Request {} of its kind. docs/s36/tape-svc-integration.md",
                           command, unmappedCommands_);
             postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
@@ -170,6 +169,76 @@ bool VirtualTape::readVolumeLabels(int iob, int modifier, int length, int buffer
     trace_.diskIo("  command 13 rewound and returned the 80-byte VOL1 label; {}", medium_->readPosition().toString());
     IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
     return true;
+}
+
+bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField)
+{
+    // V4R4 NuTapeIo::tapFind (c23e4d60) accepts the FROMLIBR 16/03 request
+    // with a 0x1e0-byte work area.  It copies 17 bytes from the beginning of
+    // that area, rewinds, reads 80-byte label records, compares that key with
+    // HDR1+4, and spaces over label files until it finds the requested data
+    // set.  On success tapRdLbls consumes the remaining header labels and the
+    // closing mark, leaving the drive at the first data block.  tapLbls2
+    // stores the accumulated byte count at IOB+0x12 and moves the contiguous
+    // HDR1-onward label group into the guest work area.
+    if (modifier != 3 || length != 0x1E0) {
+        trace_.diskIo("  command 16 requires modifier 03 and length 480; got {:02X}/{}", modifier, length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+
+    std::vector<uint8_t> wanted(17);
+    if (!m_.readGuest24Range(bufferField, wanted.data(), static_cast<int>(wanted.size()))) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+
+    static constexpr uint8_t hdr1[] = {0xC8, 0xC4, 0xD9, 0xF1};
+    medium_->rewind();
+    bool matched = false;
+    int records = 0;
+    std::vector<uint8_t> labels;
+    for (;;) {
+        std::vector<uint8_t> block;
+        TapeResult r = medium_->readBlock(block);
+        if (r == TapeResult::Ok) {
+            records++;
+            readsIssued_++;
+            lastRead_ = block;
+            hasLastRead_ = true;
+            if (!matched && block.size() == 80 &&
+                std::equal(std::begin(hdr1), std::end(hdr1), block.begin()) &&
+                std::equal(wanted.begin(), wanted.end(), block.begin() + 4)) {
+                matched = true;
+            }
+            if (matched) labels.insert(labels.end(), block.begin(), block.end());
+            continue;
+        }
+        if (r == TapeResult::TapeMark) {
+            if (matched) {
+                if (labels.size() > static_cast<std::size_t>(length) ||
+                    !m_.writeGuest24Range(bufferField, labels.data(), static_cast<int>(labels.size()))) {
+                    postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+                    return false;
+                }
+                m_.writeHalf(iob + NuTaIob::kOffReturnedLength, static_cast<uint16_t>(labels.size()));
+                trace_.diskIo("  command 16 found the requested 17-byte HDR1 identifier after {} label record(s); {}",
+                              records, medium_->readPosition().toString());
+                IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+                return true;
+            }
+            continue;
+        }
+        if (r == TapeResult::NotReady) return notReady(iob);
+
+        trace_.diskIo("  command 16 did not find the requested HDR1 identifier: {} after {} record(s); {}",
+                      storage::tapeResultName(r), records, medium_->readPosition().toString());
+        // tapFind's 0x1b/0x1c physical end conditions converge on MIC 0x1b
+        // and completion 5.  Keep it distinct from an ordinary data-read
+        // tape mark; the larger FROMLIBR creation path is still under trace.
+        postError(iob, NuTaIob::kCompletionEndOfFile, NuTaIob::kMicDataSetNotFound);
+        return true;
+    }
 }
 
 // Read data, commands 0x17 and 0x22: the internal tape buffer is copied

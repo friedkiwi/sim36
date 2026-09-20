@@ -95,15 +95,14 @@ native requests without treating them as implemented:
 
 ```text
 01/00 length 880   initialise/rewind path
-02/03 length 880   reads the 80-byte VOL1 record into the translated buffer
-13/03 length 880   volume/label setup
+02/03 length 880   establishes the loaded tape session without moving media
+13/03 length 880   rewinds and returns the 80-byte VOL1 record
 16/03 length 480   find/open using a buffer beginning with DISCFILE and owner SIM36
 ```
 
-Returning success for `13` only advances when `02` has delivered the real
-VOL1 bytes.  Returning an invented result for `16` either takes the existing-
-file path or invokes SSP's error/storage-dump path; it does not establish the
-write operation.  Those diagnostic mappings are therefore not present in the
+Returning an invented result for `16` either takes the existing-file path or
+invokes SSP's error/storage-dump path; it does not establish the write
+operation.  Those early diagnostic mappings are therefore not present in the
 implementation.
 
 The local V4R4 SLIC corpus supplies the missing upper layer.  In
@@ -140,6 +139,34 @@ available so far do not assign semantics to IOB command `0x01`; the decoded
 SLIC dispatcher and its `tapeRemoved`/`readyTape` calls now establish that
 activation path independently.
 
+`NuTapeIo::tapFind` at `ffffffffc23e4d60` establishes command `16` in more
+detail.  For the observed modifier `03` it requires a 480-byte (`0x1e0`) work
+area, copies the first 17 bytes as the requested dataset identifier, rewinds,
+reads 80-byte label records, and compares that key with the 17-byte field at
+`HDR1+4`.  A match invokes the label reader for the remaining header records
+and consumes the closing tape mark, leaving the head at block zero of the
+dataset's data tape file.  Its `tapLbls2` continuation writes the accumulated
+label byte count to IOB `+0x12` and moves the contiguous label group beginning
+with the matched HDR1 into the guest work area.  A synthetic labeled tape
+driven through the real SVC 46 path now proves that the next guest read returns
+the chosen data block.
+
+The same decoded end-condition arm establishes MIC `0x001b` with completion
+low nibble `5` when the search reaches physical end without a match.  A
+VOL1-only synthetic tape still leads this SSP FROMLIBR path to request a
+storage dump, so that result is not treated as proof that the current blank
+tape organization is a guest-valid output volume.  The missing initialization
+or write-label step remains open.
+
+This organization is independently consistent with the local OS/400 V4R4
+SAVSYS analysis in the adjacent `syspass_research` tree: standard label
+records are 80-byte EBCDIC CP037, `HDR1` carries the 17-byte dataset ID at
+offset 4, and a dataset is represented as header-label file, data file, and
+trailer-label file separated by tape marks.  Those local decoded labels are
+evidence for the shared standard-label envelope only; they do not establish
+the System/36 `LIBRFILE` payload or the additional UHL records documented for
+SSP library save/restore.
+
 ## Operations required, and what is not yet known
 
 The upper dispatcher has an important split: commands below `0x10` bypass
@@ -163,13 +190,14 @@ and count/residual fields for each case.
 The following remain deliberately unsupported until established by the local
 decoded SSP/SLIC paths or a reproducible guest trace:
 
-- the complete side effects and output fields for commands `01`, `02`, `13`,
-  and `16` (the workflow roles above do not yet establish their full contract);
+- unobserved modifier variants and complete ancillary output fields for
+  commands `01`, `02`, `13`, and `16`;
 - the remaining command-to-rewind/spacing/filemark mappings in the
   `NuTapeIo` jump-table arms;
 - exact completion bytes and MICs for tape mark, EOD, BOT, write protection,
   and short/long blocks;
-- exact HDR1/HDR2/UHL1/UHL2/EOF1/EOF2 contents and the `LIBRFILE` data stream;
+- the System/36-specific UHL1/UHL2 fields and `LIBRFILE` data stream (the
+  standard VOL1/HDR1/HDR2/EOF1/EOF2 envelope is now established);
 - whether a block larger than the supplied buffer is rejected, partially
   returned, or continued through another chained IOB;
 - the full `GENERATE` and `RPGP` parameter/result contract on this volume.

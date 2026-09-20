@@ -11,6 +11,7 @@
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 
 #include <fmt/format.h>
 
@@ -582,6 +583,33 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                 drive.load(std::move(opened));
                 report("mount the cartridge on the drive", drive.hasCartridge(), sc);
 
+                // Add one standard-labeled synthetic dataset through the
+                // backend.  This keeps the SVC exercise independent of the
+                // private system volume while testing command 16's actual
+                // HDR1 search and positioning contract.
+                auto requireTape = [](TapeResult got, TapeResult wanted, const char* operation) {
+                    if (got != wanted)
+                        throw std::runtime_error(fmt::format("{}: expected {}, got {}", operation,
+                                                             storage::tapeResultName(wanted),
+                                                             storage::tapeResultName(got)));
+                };
+                std::vector<uint8_t> vol1;
+                requireTape(back->readBlock(vol1), TapeResult::Ok, "read initial VOL1");
+                std::vector<uint8_t> hdr1(80, 0x40), hdr2(80, 0x40);
+                const std::vector<uint8_t> data = {'D', 'A', 'T', 'A'};
+                const uint8_t hdr1Id[] = {0xC8, 0xC4, 0xD9, 0xF1};
+                const uint8_t dataSetId[] = {0xC4, 0xC9, 0xE2, 0xC3, 0xC6, 0xC9, 0xD3, 0xC5}; // DISCFILE
+                const uint8_t hdr2Id[] = {0xC8, 0xC4, 0xD9, 0xF2};
+                std::copy(std::begin(hdr1Id), std::end(hdr1Id), hdr1.begin());
+                std::copy(std::begin(dataSetId), std::end(dataSetId), hdr1.begin() + 4);
+                std::copy(std::begin(hdr2Id), std::end(hdr2Id), hdr2.begin());
+                requireTape(back->writeBlock(hdr1.data(), 0, static_cast<int>(hdr1.size())), TapeResult::Ok, "write HDR1");
+                requireTape(back->writeBlock(hdr2.data(), 0, static_cast<int>(hdr2.size())), TapeResult::Ok, "write HDR2");
+                requireTape(back->writeTapeMark(), TapeResult::Ok, "close header file");
+                requireTape(back->writeBlock(data.data(), 0, static_cast<int>(data.size())), TapeResult::Ok, "write data");
+                requireTape(back->writeTapeMark(), TapeResult::Ok, "close data file");
+                requireTape(back->writeTapeMark(), TapeResult::Ok, "write logical end mark");
+
                 back->rewind();
                 int c = issue(NuTaIob::kCommandReadData, 0, 0x100);
                 if (c < 0) {
@@ -609,6 +637,21 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     report("...it is the EBCDIC VOL1 label in the guest buffer",
                            st.readByte(buffer) == 0xE5 && st.readByte(buffer + 1) == 0xD6 && st.readByte(buffer + 2) == 0xD3 &&
                                st.readByte(buffer + 3) == 0xF1,
+                           sc);
+
+                    for (int i = 0; i < 17; i++)
+                        st.writeByte(buffer + i, i < static_cast<int>(std::size(dataSetId)) ? dataSetId[i] : 0x40);
+                    c = issue(NuTaIob::kCommandFindDataSet, 3, 0x1E0);
+                    report("native command 16 finds HDR1 and positions at the data file",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 1 &&
+                               back->readPosition().blockNumber == 0 &&
+                               st.readHalf(iob + NuTaIob::kOffReturnedLength) == 160 &&
+                               st.readByte(buffer) == 0xC8 && st.readByte(buffer + 3) == 0xF1,
+                           sc);
+                    c = issue(NuTaIob::kCommandReadData, 0, 0x100);
+                    report("...the next guest read returns the selected dataset's first block",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && st.readByte(buffer) == 'D' &&
+                               st.readByte(buffer + 3) == 'A',
                            sc);
 
                     c = issue(NuTaIob::kCommandReadData, 0, 0x100);

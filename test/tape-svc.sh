@@ -36,6 +36,8 @@ check "native command 13 reads the volume label" "native command 13 rewinds and 
 check "read posts complete (ECM 0x40)        " "SVC 46 read posts complete (iob+0x06 bit 0x40) PASS"
 check "the block lands in guest storage       " "the block reached guest storage (LastRead 80 bytes) PASS"
 check "it is the EBCDIC VOL1 label            " "it is the EBCDIC VOL1 label in the guest buffer PASS"
+check "native command 16 locates the dataset  " "native command 16 finds HDR1 and positions at the data file PASS"
+check "the selected dataset is readable       " "the next guest read returns the selected dataset's first block PASS"
 # A read on the tape mark is a distinct, non-success completion.
 check "the tape mark posts non-success        " "SVC 46 read on the tape mark posts non-success PASS"
 # A write through SVC 46 reaches the backend, and reads back verbatim.
@@ -47,7 +49,7 @@ check "the rejected record remains retryable   " "and remains positioned for a r
 check "an invalid command is refused          " "SVC 46 with an invalid command is refused  PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 16 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 18 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"
