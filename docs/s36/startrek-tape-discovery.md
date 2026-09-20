@@ -161,6 +161,34 @@ transient: `FROMLIBR` accepts dataset-not-found and immediately issues command
 `14/03` with its 320-byte label area.  Returning the internal condition alone,
 or only a three-byte signature, instead leads to an SSP error or storage dump.
 
+The local SLIC jump table maps command 14 to the `NuTapeIo::entry` arm at
+`c23e2ad0`.  That arm calls `tapLblCnt` and then `tapWrLbls1`; the latter writes
+the individual 80-byte labels and the closing filemark.  For the observed
+320-byte request these are EBCDIC `HDR1`, `HDR2`, `UHL1`, and `UHL2`, leaving
+the tape at the start of the data file.  The implementation accepts only this
+verified `14/03/320` standard-label form and refuses other layouts.
+
+The same jump table maps command 19 to `c23e2784`.  A real FROMLIBR export
+issues `19/00` with length 512 immediately after command 21 writes its final
+data block.  The arm writes the data-closing filemark, derives and emits the
+saved label group's `EOF1`, `EOF2`, `UTL1`, and `UTL2` records through
+`tapWrtLbls`, and writes the label-file closing mark.  The supported command-19
+form is deliberately limited to that observed active-dataset sequence.
+
+FROMLIBR next issues command `1B/00` with the same 512-byte work-area length.
+The jump table maps it to `c23e3cb4`; the decoded arm's first media operation
+is the tape-proxy tape-mark method, followed by driver/session finalization.
+It therefore adds the second consecutive terminal mark after command 19's
+trailer-label closing mark.  Only this observed active-dataset finalization
+form is supported.
+
+Finally, the observed export reactivates the tape and issues command `27/00`
+with length 512 and no data buffer.  Its jump-table arm is `c23e3964`; the
+accepted path calls tape-proxy vtable slot `0x198`, identified from the local
+proxy layout as unload.  This is the native flush boundary: the folder backend
+is persisted and the cartridge becomes not-ready without discarding the
+mounted medium object.
+
 The shipped `TAPEINIT` procedure supplies that initialization workflow.  Its
 standard-label form prompts for `TC`, label type `SL`, volume and owner IDs,
 expiration checking/clearing, optional erase, and final rewind/unload.  The

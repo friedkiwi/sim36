@@ -714,6 +714,75 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                                initializedMark2 == TapeResult::TapeMark,
                            sc);
 
+                    std::vector<uint8_t> guestLabels(320, 0x40);
+                    const uint8_t labelIds[4][4] = {
+                        {0xC8, 0xC4, 0xD9, 0xF1}, {0xC8, 0xC4, 0xD9, 0xF2},
+                        {0xE4, 0xC8, 0xD3, 0xF1}, {0xE4, 0xC8, 0xD3, 0xF2},
+                    };
+                    for (int record = 0; record < 4; record++) {
+                        std::copy(std::begin(labelIds[record]), std::end(labelIds[record]),
+                                  guestLabels.begin() + record * 80);
+                    }
+                    for (std::size_t i = 0; i < guestLabels.size(); i++)
+                        st.writeByte(buffer + static_cast<int>(i), guestLabels[i]);
+                    c = issue(NuTaIob::kCommandWriteHeaderLabels, 3, static_cast<int>(guestLabels.size()));
+                    report("native command 14 replaces the terminal mark with four header labels and a mark",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 2 &&
+                               back->readPosition().blockNumber == 0,
+                           sc);
+                    back->rewind();
+                    back->spaceFiles(1, spaced);
+                    bool labelsRoundTrip = true;
+                    for (int record = 0; record < 4; record++) {
+                        std::vector<uint8_t> actual;
+                        if (back->readBlock(actual) != TapeResult::Ok || actual.size() != 80 ||
+                            !std::equal(actual.begin(), actual.end(), guestLabels.begin() + record * 80))
+                            labelsRoundTrip = false;
+                    }
+                    report("...the four guest labels read back with their block boundaries",
+                           labelsRoundTrip && back->readBlock(initializedLabel) == TapeResult::TapeMark, sc);
+
+                    const std::vector<uint8_t> memberData = {'M', 'E', 'M', 'B', 'E', 'R'};
+                    requireTape(back->writeBlock(memberData.data(), 0, static_cast<int>(memberData.size())), TapeResult::Ok,
+                                "write synthetic member data");
+                    c = issue(NuTaIob::kCommandFinishDataSet, 0, 512);
+                    report("native command 19 closes data and writes the trailer-label file",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 4, sc);
+                    back->rewind();
+                    back->spaceFiles(2, spaced);
+                    std::vector<uint8_t> actualMember;
+                    bool trailerRoundTrip = back->readBlock(actualMember) == TapeResult::Ok && actualMember == memberData &&
+                        back->readBlock(initializedLabel) == TapeResult::TapeMark;
+                    std::vector<uint8_t> expectedIds = {0xC5, 0xD6, 0xC6, 0xF1, 0xC5, 0xD6, 0xC6, 0xF2,
+                                                        0xE4, 0xE3, 0xD3, 0xF1, 0xE4, 0xE3, 0xD3, 0xF2};
+                    for (int record = 0; record < 4; record++) {
+                        std::vector<uint8_t> actual;
+                        if (back->readBlock(actual) != TapeResult::Ok || actual.size() != 80 ||
+                            !std::equal(actual.begin(), actual.begin() + 4, expectedIds.begin() + record * 4))
+                            trailerRoundTrip = false;
+                    }
+                    report("...the data and four trailer labels retain their tape-file boundaries",
+                           trailerRoundTrip && back->readBlock(initializedLabel) == TapeResult::TapeMark, sc);
+                    c = issue(NuTaIob::kCommandFinalizeVolume, 0, 512);
+                    report("native command 1B writes the second terminal mark",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 5 &&
+                               back->readPosition().endOfData,
+                           sc);
+                    back->rewind();
+                    back->spaceFiles(3, spaced);
+                    for (int record = 0; record < 4; record++) back->readBlock(initializedLabel);
+                    TapeResult terminalMark1 = back->readBlock(initializedLabel);
+                    TapeResult terminalMark2 = back->readBlock(initializedLabel);
+                    report("...the finalized volume ends in two consecutive marks",
+                           terminalMark1 == TapeResult::TapeMark && terminalMark2 == TapeResult::TapeMark, sc);
+
+                    // Reload solely to exercise the native unload command;
+                    // the positioning checks above deliberately moved it.
+                    back->load();
+                    c = issue(NuTaIob::kCommandUnload, 0, 512);
+                    report("native command 27 unloads and flushes the tape",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && !back->loaded(), sc);
+
                     drive.unload();
                     c = issue(NuTaIob::kCommandReadData, 0, 0x100);
                     report("SVC 46 read on an empty drive answers not-ready",

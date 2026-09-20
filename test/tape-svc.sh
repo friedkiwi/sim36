@@ -50,9 +50,16 @@ check "the rejected record remains retryable   " "and remains positioned for a r
 check "an invalid command is refused          " "SVC 46 with an invalid command is refused  PASS"
 check "native command 12 initializes the tape " "native command 12 writes VOL1, two marks, and rewinds PASS"
 check "the initialized stream is readable     " "the initialized logical stream is readable PASS"
+check "native command 14 writes header labels" "native command 14 replaces the terminal mark with four header labels and a mark PASS"
+check "the guest labels retain their blocks   " "the four guest labels read back with their block boundaries PASS"
+check "native command 19 closes the data set  " "native command 19 closes data and writes the trailer-label file PASS"
+check "the trailer layout round-trips         " "the data and four trailer labels retain their tape-file boundaries PASS"
+check "native command 1B finalizes the volume" "native command 1B writes the second terminal mark PASS"
+check "the volume has two terminal marks      " "the finalized volume ends in two consecutive marks PASS"
+check "native command 27 unloads the tape     " "native command 27 unloads and flushes the tape PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 21 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 28 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"

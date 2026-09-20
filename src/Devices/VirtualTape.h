@@ -59,11 +59,15 @@ public:
     static constexpr int kCommandSetSession = 0x02;
     static constexpr int kCommandInitializeStandard = 0x12;
     static constexpr int kCommandReadVolumeLabels = 0x13;
+    static constexpr int kCommandWriteHeaderLabels = 0x14;
     static constexpr int kCommandFindDataSet = 0x16;
     static constexpr int kCommandReadData = 0x17;      // the tape buffer is copied INTO the guest buffer
     static constexpr int kCommandReadDataAlt = 0x22;   // the 0x17/0x22 distinction is not recovered
     static constexpr int kCommandWriteData = 0x18;     // the guest buffer is copied INTO the tape buffer
+    static constexpr int kCommandFinishDataSet = 0x19;
+    static constexpr int kCommandFinalizeVolume = 0x1B;
     static constexpr int kCommandWriteDataAlt = 0x21;
+    static constexpr int kCommandUnload = 0x27;
     static constexpr int kCommandControl = 0x10;       // with modifier 0x10: clear completion and return, no transfer
     static constexpr int kControlModifier = 0x10;
     static constexpr int kMaxBlockLength = 0x7FFF;
@@ -123,7 +127,11 @@ private:
     bool setSession(int iob, int modifier);
     bool initializeStandard(int iob, int modifier, int length, int bufferField);
     bool readVolumeLabels(int iob, int modifier, int length, int bufferField);
+    bool writeHeaderLabels(int iob, int modifier, int length, int bufferField);
     bool findDataSet(int iob, int modifier, int length, int bufferField);
+    bool finishDataSet(int iob, int modifier, int length);
+    bool finalizeVolume(int iob, int modifier, int length);
+    bool unloadCommand(int iob, int modifier, int length);
     bool control(int iob, int modifier);
     bool validLength(int iob, int length);
     bool notReady(int iob);
@@ -134,6 +142,7 @@ private:
     std::unique_ptr<storage::ITapeBackend> medium_;
     long long readsIssued_ = 0, writesIssued_ = 0, controlOps_ = 0, unmappedCommands_ = 0;
     std::vector<uint8_t> lastRead_;
+    std::vector<uint8_t> activeHeaderLabels_;
     bool hasLastRead_ = false;
 };
 

@@ -19,11 +19,15 @@ const char* NuTaIob::commandName(int command)
         case kCommandSetSession: return "set session";
         case kCommandInitializeStandard: return "initialize standard labels";
         case kCommandReadVolumeLabels: return "read volume labels";
+        case kCommandWriteHeaderLabels: return "write header labels";
         case kCommandFindDataSet: return "find data set";
         case kCommandReadData: return "read data";
         case kCommandReadDataAlt: return "read data (alt)";
         case kCommandWriteData: return "write data";
+        case kCommandFinishDataSet: return "finish data set";
+        case kCommandFinalizeVolume: return "finalize volume";
         case kCommandWriteDataAlt: return "write data (alt)";
+        case kCommandUnload: return "unload";
         case kCommandControl: return "control";
         default: return "unmapped";
     }
@@ -32,6 +36,7 @@ const char* NuTaIob::commandName(int command)
 void VirtualTape::load(std::unique_ptr<storage::ITapeBackend> medium)
 {
     unload();
+    activeHeaderLabels_.clear();
     medium_ = std::move(medium);
     if (medium_) medium_->load();
 }
@@ -41,6 +46,7 @@ bool VirtualTape::unload()
     if (!medium_) return false;
     medium_->unload();
     medium_.reset();
+    activeHeaderLabels_.clear();
     return true;
 }
 
@@ -87,11 +93,15 @@ bool VirtualTape::execute(int iob, uint8_t qByte)
         case NuTaIob::kCommandSetSession: return setSession(iob, modifier);
         case NuTaIob::kCommandInitializeStandard: return initializeStandard(iob, modifier, length, bufferField);
         case NuTaIob::kCommandReadVolumeLabels: return readVolumeLabels(iob, modifier, length, bufferField);
+        case NuTaIob::kCommandWriteHeaderLabels: return writeHeaderLabels(iob, modifier, length, bufferField);
         case NuTaIob::kCommandFindDataSet: return findDataSet(iob, modifier, length, bufferField);
         case NuTaIob::kCommandReadData:
         case NuTaIob::kCommandReadDataAlt: return read(iob, command, length, bufferField);
         case NuTaIob::kCommandWriteData:
         case NuTaIob::kCommandWriteDataAlt: return write(iob, command, length, bufferField);
+        case NuTaIob::kCommandFinishDataSet: return finishDataSet(iob, modifier, length);
+        case NuTaIob::kCommandFinalizeVolume: return finalizeVolume(iob, modifier, length);
+        case NuTaIob::kCommandUnload: return unloadCommand(iob, modifier, length);
         case NuTaIob::kCommandControl: return control(iob, modifier);
         default:
             // A command accepted as well-formed but whose operation this
@@ -212,6 +222,178 @@ bool VirtualTape::readVolumeLabels(int iob, int modifier, int length, int buffer
     hasLastRead_ = true;
     readsIssued_++;
     trace_.diskIo("  command 13 rewound and returned the 80-byte VOL1 label; {}", medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::writeHeaderLabels(int iob, int modifier, int length, int bufferField)
+{
+    // The native FROMLIBR create path reaches command 14 after tapFind has
+    // stopped beyond the two terminal marks.  Its V4R4 jump-table arm at
+    // c23e2ad0 validates the label count and calls tapWrLbls1, which writes
+    // the individual labels and the closing filemark.  The observed request
+    // is four standard 80-byte labels.  Expose precisely that form; other
+    // label counts and modifiers remain unsupported until established.
+    if (modifier != 3 || length != 320) {
+        trace_.diskIo("  command 14 requires modifier 03 and four 80-byte labels; got {:02X}/{}", modifier, length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    if (medium_->readOnly()) {
+        trace_.diskIo("  command 14 REFUSED - {} is write-protected", medium_->path());
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicWriteProtected);
+        return false;
+    }
+
+    std::vector<uint8_t> labels(static_cast<std::size_t>(length));
+    if (!m_.readGuest24Range(bufferField, labels.data(), length)) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    static constexpr uint8_t ids[4][4] = {
+        {0xC8, 0xC4, 0xD9, 0xF1}, // HDR1
+        {0xC8, 0xC4, 0xD9, 0xF2}, // HDR2
+        {0xE4, 0xC8, 0xD3, 0xF1}, // UHL1
+        {0xE4, 0xC8, 0xD3, 0xF2}, // UHL2
+    };
+    for (int record = 0; record < 4; record++) {
+        if (!std::equal(std::begin(ids[record]), std::end(ids[record]), labels.begin() + record * 80)) {
+            trace_.diskIo("  command 14 record {} is not the expected EBCDIC standard label - refused", record + 1);
+            postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+            return false;
+        }
+    }
+
+    int spaced = 0;
+    TapeResult r = medium_->spaceFiles(-1, spaced);
+    if ((r != TapeResult::Ok && r != TapeResult::TapeMark) || spaced != 1) {
+        trace_.diskIo("  command 14 could not back over the terminal filemark: {} after {} mark(s)",
+                      storage::tapeResultName(r), spaced);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    for (int record = 0; record < 4; record++) {
+        r = medium_->writeBlock(labels.data(), record * 80, 80);
+        if (r != TapeResult::Ok) {
+            trace_.diskIo("  command 14 label write {} stopped on {}", record + 1, storage::tapeResultName(r));
+            postError(iob, NuTaIob::kCompletionError,
+                      r == TapeResult::WriteProtected ? NuTaIob::kMicWriteProtected : NuTaIob::kMicInvalidCommand);
+            return false;
+        }
+        writesIssued_++;
+    }
+    r = medium_->writeTapeMark();
+    if (r != TapeResult::Ok) {
+        postError(iob, NuTaIob::kCompletionError,
+                  r == TapeResult::WriteProtected ? NuTaIob::kMicWriteProtected : NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    activeHeaderLabels_ = labels;
+    controlOps_++;
+    trace_.diskIo("  command 14 wrote HDR1/HDR2/UHL1/UHL2 and the closing filemark; {}",
+                  medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::finishDataSet(int iob, int modifier, int length)
+{
+    // Command 19 dispatches to the V4R4 c23e2784 arm.  In the observed
+    // FROMLIBR write sequence it follows the last command-21 data block with
+    // modifier 00 and a 512-byte work-buffer length.  The arm writes a mark,
+    // derives the trailer group from the labels retained by command 14,
+    // writes those 80-byte records through tapWrtLbls, and writes a closing
+    // mark.  Preserve the header fields while changing the standard label
+    // identifiers HDR->EOF and UHL->UTL.
+    if (modifier != 0 || length != 512 || activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  command 19 requires an active command-14 label group and request 00/512; got {:02X}/{}", modifier,
+                      length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    if (medium_->readOnly()) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicWriteProtected);
+        return false;
+    }
+
+    TapeResult r = medium_->writeTapeMark();
+    if (r != TapeResult::Ok) {
+        postError(iob, NuTaIob::kCompletionError,
+                  r == TapeResult::WriteProtected ? NuTaIob::kMicWriteProtected : NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    std::vector<uint8_t> trailers = activeHeaderLabels_;
+    static constexpr uint8_t eof[] = {0xC5, 0xD6, 0xC6}; // EOF
+    static constexpr uint8_t utl[] = {0xE4, 0xE3, 0xD3}; // UTL
+    std::copy(std::begin(eof), std::end(eof), trailers.begin());
+    std::copy(std::begin(eof), std::end(eof), trailers.begin() + 80);
+    std::copy(std::begin(utl), std::end(utl), trailers.begin() + 160);
+    std::copy(std::begin(utl), std::end(utl), trailers.begin() + 240);
+    for (int record = 0; record < 4; record++) {
+        r = medium_->writeBlock(trailers.data(), record * 80, 80);
+        if (r != TapeResult::Ok) {
+            postError(iob, NuTaIob::kCompletionError,
+                      r == TapeResult::WriteProtected ? NuTaIob::kMicWriteProtected : NuTaIob::kMicInvalidCommand);
+            return false;
+        }
+        writesIssued_++;
+    }
+    r = medium_->writeTapeMark();
+    if (r != TapeResult::Ok) {
+        postError(iob, NuTaIob::kCompletionError,
+                  r == TapeResult::WriteProtected ? NuTaIob::kMicWriteProtected : NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    controlOps_ += 2;
+    trace_.diskIo("  command 19 closed the data file and wrote EOF1/EOF2/UTL1/UTL2 plus a closing mark; {}",
+                  medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::finalizeVolume(int iob, int modifier, int length)
+{
+    // The observed FROMLIBR export follows command 19 with 1B/00 and the
+    // same 512-byte work-area length.  The local command jump table selects
+    // c23e3cb4; its first media operation is the proxy-vtable tape-mark
+    // method.  This supplies the second consecutive mark required at logical
+    // end of tape, after which the arm only finalizes the driver/session.
+    if (modifier != 0 || length != 512 || activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  command 1B requires an active completed data set and request 00/512; got {:02X}/{}", modifier,
+                      length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    TapeResult r = medium_->writeTapeMark();
+    if (r != TapeResult::Ok) {
+        postError(iob, NuTaIob::kCompletionError,
+                  r == TapeResult::WriteProtected ? NuTaIob::kMicWriteProtected : NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    activeHeaderLabels_.clear();
+    controlOps_++;
+    trace_.diskIo("  command 1B wrote the second terminal mark and finalized the tape session; {}",
+                  medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::unloadCommand(int iob, int modifier, int length)
+{
+    // After finalizing the exported volume, FROMLIBR reactivates the session
+    // and issues 27/00 with its 512-byte work area and a null data pointer.
+    // The V4R4 jump table maps command 27 to c23e3964; its accepted branch
+    // calls driver-vtable slot 0x198, the IoTapeProxy unload operation.
+    if (modifier != 0 || length != 512) {
+        trace_.diskIo("  command 27 requires the observed unload request 00/512; got {:02X}/{}", modifier, length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    const std::string path = medium_->path();
+    medium_->unload();
+    activeHeaderLabels_.clear();
+    controlOps_++;
+    trace_.diskIo("  command 27 unloaded and flushed {}; cartridge remains present but not ready", path);
     IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
     return true;
 }
