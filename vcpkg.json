@@ -10,6 +10,7 @@
     "nlohmann-json",
     "fmt",
     "cxxopts",
-    "doctest"
+    "doctest",
+    "boost-multiprecision"
   ]
 }

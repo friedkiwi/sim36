@@ -34,6 +34,7 @@ endif()
 find_package(replxx CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(boost_multiprecision CONFIG REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
 find_package(doctest CONFIG REQUIRED)
 find_package(minizip-ng CONFIG REQUIRED)
@@ -132,7 +133,7 @@ target_include_directories(sim36core PUBLIC src)
 target_link_libraries(sim36core
     PUBLIC  sim36_policy fmt::fmt nlohmann_json::nlohmann_json
             MINIZIP::minizip-ng ZLIB::ZLIB Threads::Threads
-    PRIVATE replxx::replxx)
+    PRIVATE replxx::replxx Boost::multiprecision)
 if(WIN32)
     target_link_libraries(sim36core PUBLIC ws2_32)
 endif()
