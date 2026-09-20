@@ -777,8 +777,8 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     const std::vector<uint8_t> memberData = {'M', 'E', 'M', 'B', 'E', 'R'};
                     requireTape(back->writeBlock(memberData.data(), 0, static_cast<int>(memberData.size())), TapeResult::Ok,
                                 "write synthetic member data");
-                    c = issue(NuTaIob::kCommandFinishDataSet, 0, 512);
-                    report("native command 19 closes data and writes the trailer-label file",
+                    c = issue(NuTaIob::kCommandFinishDataSet, 0, 768);
+                    report("native command 19 ignores the retained short-block length",
                            (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 4, sc);
                     back->rewind();
                     back->spaceFiles(2, spaced);
@@ -795,8 +795,8 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     }
                     report("...the data and four trailer labels retain their tape-file boundaries",
                            trailerRoundTrip && back->readBlock(initializedLabel) == TapeResult::TapeMark, sc);
-                    c = issue(NuTaIob::kCommandFinalizeVolume, 0, 512);
-                    report("native command 1B writes the second terminal mark",
+                    c = issue(NuTaIob::kCommandFinalizeVolume, 0, 768);
+                    report("native command 1B ignores the retained short-block length",
                            (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 5 &&
                                back->readPosition().endOfData,
                            sc);
@@ -811,8 +811,8 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     // Reload solely to exercise the native unload command;
                     // the positioning checks above deliberately moved it.
                     back->load();
-                    c = issue(NuTaIob::kCommandUnload, 0, 512);
-                    report("native command 27 unloads and flushes the tape",
+                    c = issue(NuTaIob::kCommandUnload, 0, 768);
+                    report("native command 27 ignores the retained short-block length",
                            (c & 0x0F) == NuTaIob::kCompletionOk && !back->loaded(), sc);
                     back->load();
                     c = issue(NuTaIob::kCommandUnload, 0, 4096);

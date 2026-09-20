@@ -168,14 +168,20 @@ the individual 80-byte labels and the closing filemark.  For the observed
 the tape at the start of the data file.  The implementation accepts only this
 verified `14/03/320` standard-label form and refuses other layouts.
 
-The same jump table maps command 19 to `c23e2784`.  A real FROMLIBR export
-issues `19/00` with length 512 immediately after command 21 writes its final
-data block.  The arm writes the data-closing filemark, derives and emits the
+The same jump table maps command 19 to `c23e2784`.  Real FROMLIBR exports
+issue `19/00` immediately after command 21 writes the final data block: the
+small procedure probe retained a 512-byte length, the STARTREK source export
+retained its 256-byte short-block length, and the complete-library export
+retained 768 bytes.  The decoded arm does not read the IOB length.  It writes
+the data-closing filemark, derives and emits the
 saved label group's `EOF1`, `EOF2`, `UTL1`, and `UTL2` records through
 `tapWrtLbls`, and writes the label-file closing mark.  The supported command-19
 form is deliberately limited to that observed active-dataset sequence.
 
-FROMLIBR next issues command `1B/00` with the same 512-byte work-area length.
+FROMLIBR next issues command `1B/00` with the retained work-area length: 512
+bytes in the small procedure probe, 256 bytes in the STARTREK source export,
+and 768 bytes in the complete-library export.  Its decoded arm likewise does
+not read the IOB length.
 The jump table maps it to `c23e3cb4`; the decoded arm's first media operation
 is the tape-proxy tape-mark method, followed by driver/session finalization.
 It therefore adds the second consecutive terminal mark after command 19's
@@ -183,7 +189,9 @@ trailer-label closing mark.  Only this observed active-dataset finalization
 form is supported.
 
 Finally, the observed export reactivates the tape and issues command `27/00`
-with length 512 and no data buffer.  Its jump-table arm is `c23e3964`; the
+with no data buffer, retaining the preceding 512-, 256-, or 768-byte work-area
+length in the observed exports.  Its jump-table arm is `c23e3964`; that arm
+does not read the IOB length, and the
 accepted path calls tape-proxy vtable slot `0x198`, identified from the local
 proxy layout as unload.  This is the native flush boundary: the folder backend
 is persisted and the cartridge becomes not-ready without discarding the

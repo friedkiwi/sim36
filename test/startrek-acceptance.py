@@ -19,7 +19,10 @@ from tn5250drive import Session  # noqa: E402
 
 def main():
     tape = os.environ["STARTREK_TAPE"]
+    current_tape = tape
+    current_tape_mode = "ro"
     library_ready = bool(os.environ.get("STARTREK_SKIP_INSTALL"))
+    active_library = "TRKSTB"
     port = int(os.environ.get("S36_PORT_BASE", "26300"))
     requested_volume = os.environ.get("STARTREK_PRIVATE_VOLUME")
     private_dir = None if requested_volume else tempfile.mkdtemp(
@@ -42,8 +45,8 @@ def main():
 
     def launch():
         machine_config = sim36env.default_config(
-            "startrek-machine.sim.in", tape=os.path.abspath(tape),
-            volume=private_volume, disk_mode="rw")
+            "startrek-machine.sim.in", tape=os.path.abspath(current_tape),
+            tape_mode=current_tape_mode, volume=private_volume, disk_mode="rw")
         configs.append(machine_config)
         child = subprocess.Popen(sim36env.command(machine_config), cwd=ROOT,
                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -94,7 +97,7 @@ def main():
         def sign_on(users=None):
             if users is None:
                 users = ((0, "YVANJ", None),
-                         (2, "YVANJ2", "TRKSTB" if library_ready else None))
+                         (2, "YVANJ2", active_library if library_ready else None))
             for station, user, library in users:
                 session = Session(port, name="W%d" % (station + 1)).connect(timeout=25)
                 sessions.append(session)
@@ -336,7 +339,69 @@ def main():
             raise AssertionError("STREK stopped in the emulator\n%s" %
                                  game_text[-12000:])
 
-        print("PASS: restored, compiled, and played STARTREK through native SSP tools")
+        export_tape = os.environ.get("STARTREK_EXPORT_TAPE")
+        if export_tape:
+            tape_tool = os.path.join(ROOT, "tools", "tape-folder.py")
+            subprocess.run([sys.executable, tape_tool, "init", export_tape,
+                            "--volume-id", "TRKOUT", "--owner", "SIM36",
+                            "--force"], check=True)
+            current_tape = export_tape
+            current_tape_mode = "rw"
+            restart_guest()
+            display = sessions[1]
+            export_mark = len(transcript)
+            submit("FROMLIBR ALL,LIBRARY,TRKLIB,TC,1,TRKOUT,TRKSTB,,,UNLOAD",
+                   "FROMLIBR procedure is running", 300)
+            export_trace = monitor_text(export_mark)
+            if "NOT MAPPED" in export_trace:
+                raise AssertionError("FROMLIBR used an unmapped tape command\n%s" %
+                                     export_trace[-12000:])
+            if os.environ.get("STARTREK_TRACE"):
+                for command in ("cmd=21", "cmd=19", "cmd=1B", "cmd=27"):
+                    if command not in export_trace:
+                        raise AssertionError("FROMLIBR trace omitted %s\n%s" %
+                                             (command, export_trace[-12000:]))
+            subprocess.run([sys.executable, tape_tool, "verify", export_tape],
+                           check=True)
+
+            current_tape_mode = "ro"
+            restart_guest()
+            display = sessions[1]
+            display.type_at(22, 3,
+                            "BLDLIBR TRKRT2,5000,,,TRKLIB,TC,,,,REWIND")
+            display.press("Enter")
+            display.wait_for_text("BLDLIBR procedure is running", timeout=120)
+            display.wait_for_text("Main System/36 help menu", timeout=600)
+
+            active_library = "TRKRT2"
+            restart_guest()
+            display = sessions[1]
+            # The complete-library payload includes the generated display
+            # member.  Recompile and relink the RPG source against that
+            # restored member; a successful run below proves both survived.
+            submit("RPGC STREK,TRKRT2,NODSM,CRT,NOXREF,0,NONEP,TRKRT2,,,,"
+                   "NOHALT,REPLACE,LINK,NOOBJECT,,GEN,40,,NOMRO",
+                   "RPGC procedure is running", 900)
+            display.type_at(22, 3, "STREK")
+            display.press("Enter")
+            display.wait_for_text("INTER-GALACTIC MEMORANDUM", timeout=120)
+            for _ in range(6):
+                generation = display.generation
+                display.press("Cmd7")
+                display.wait_for_change(timeout=60, since=generation)
+                display.settle(quiet=0.25, timeout=10)
+                with display.lock:
+                    if display.screen.contains("Main System/36 help menu"):
+                        break
+            else:
+                raise TimeoutError("restored STREK did not terminate\n%s" %
+                                   display.screen.render(fields=True))
+
+        if export_tape:
+            print("PASS: restored, compiled, played, and round-tripped STARTREK "
+                  "through native SSP tools")
+        else:
+            print("PASS: restored, compiled, and played STARTREK through native SSP tools")
     except Exception:
         for session in sessions:
             try:

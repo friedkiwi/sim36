@@ -300,13 +300,16 @@ bool VirtualTape::finishDataSet(int iob, int modifier, int length)
 {
     // Command 19 dispatches to the V4R4 c23e2784 arm.  In the observed
     // FROMLIBR write sequence it follows the last command-21 data block with
-    // modifier 00 and a 512-byte work-buffer length.  The arm writes a mark,
+    // modifier 00 and a work-buffer length that follows the final physical
+    // data block: 512 bytes for the probe member, 256 bytes for STARTREK's
+    // source export, and 768 bytes for the complete library.  The decoded arm
+    // does not test that IOB length.  The arm writes a mark,
     // derives the trailer group from the labels retained by command 14,
     // writes those 80-byte records through tapWrtLbls, and writes a closing
     // mark.  Preserve the header fields while changing the standard label
     // identifiers HDR->EOF and UHL->UTL.
-    if (modifier != 0 || length != 512 || activeHeaderLabels_.size() != 320) {
-        trace_.diskIo("  command 19 requires an active command-14 label group and request 00/512; got {:02X}/{}", modifier,
+    if (modifier != 0 || activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  command 19 requires modifier 00 and an active command-14 label group; got {:02X}/{}", modifier,
                       length);
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
@@ -354,12 +357,14 @@ bool VirtualTape::finishDataSet(int iob, int modifier, int length)
 bool VirtualTape::finalizeVolume(int iob, int modifier, int length)
 {
     // The observed FROMLIBR export follows command 19 with 1B/00 and the
-    // same 512-byte work-area length.  The local command jump table selects
+    // the same retained work-area length (512 in the procedure probe, 256 in
+    // the STARTREK source export, and 768 in the complete-library export).
+    // The local command jump table selects
     // c23e3cb4; its first media operation is the proxy-vtable tape-mark
     // method.  This supplies the second consecutive mark required at logical
     // end of tape, after which the arm only finalizes the driver/session.
-    if (modifier != 0 || length != 512 || activeHeaderLabels_.size() != 320) {
-        trace_.diskIo("  command 1B requires an active completed data set and request 00/512; got {:02X}/{}", modifier,
+    if (modifier != 0 || activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  command 1B requires modifier 00 and an active completed data set; got {:02X}/{}", modifier,
                       length);
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
@@ -384,10 +389,11 @@ bool VirtualTape::unloadCommand(int iob, int modifier, int length)
     // and issues 27/00 with its 512-byte work area and a null data pointer.
     // The V4R4 jump table maps command 27 to c23e3964; its accepted branch
     // calls driver-vtable slot 0x198, the IoTapeProxy unload operation.
-    // FROMLIBR supplies its 512-byte work area; BLDLIBR supplies the
-    // 4096-byte input buffer.  Neither is transferred by the unload arm.
-    if (modifier != 0 || (length != 512 && length != 4096)) {
-        trace_.diskIo("  command 27 requires an observed unload request 00/512 or 00/4096; got {:02X}/{}", modifier,
+    // FROMLIBR supplies its retained 256-, 512-, or 768-byte work area;
+    // BLDLIBR supplies the 4096-byte input buffer.  Neither is transferred by
+    // the unload arm.
+    if (modifier != 0) {
+        trace_.diskIo("  command 27 requires modifier 00; got {:02X}/{}", modifier,
                       length);
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
