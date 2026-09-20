@@ -26,6 +26,8 @@ def main():
 
     def collect():
         for line in proc.stdout:
+            if os.environ.get("S36_LIST_ECHO") == "1":
+                print(line, end="", flush=True)
             with changed:
                 transcript.append(line)
                 changed.notify_all()

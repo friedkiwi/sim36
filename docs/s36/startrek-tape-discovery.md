@@ -217,6 +217,28 @@ returned to the System/36 main menu without a processor check.  This proves
 the native labeled restore workflow; the disposable disk overlay was removed
 with the emulator process.
 
+The FROMLIBR payload is a `$MAINT` card stream.  Each physical record is 256
+bytes: a 120-byte CP037 card image followed by 136 CP037 `S` bytes.  Sixteen
+records form each 4096-byte tape block, with a short final block allowed.  The
+first exported record is a `// COPY LIBRARY-<type>,NAME-<member>` descriptor;
+the native export does not carry the self-unpacker's `FROM-READER` or
+`TO-FUNLIB` transport clauses.  The standard header group is byte-for-byte
+HDR1, HDR2, `UHL1LIBRFILER&` plus 66 `S` bytes, and UHL2 plus 76 `S` bytes;
+the trailer changes those identifiers to EOF1, EOF2, UTL1, and UTL2.
+
+`tools/build-startrek-tape.py` validates the pinned checkout and checksums,
+then maps the three upstream members to COPY descriptors retaining their
+verified `RECL-120`, `RECL-096`, and `RECL-080` values.  The remaining card
+sequence must match pinned `TREKLOAD.S36PROC` after stripping only its
+reader/FUNLIB endpoints.  A deterministic build contains 2,788 records,
+713,728 payload bytes, and 175 data blocks.  Its payload SHA-256 is
+`614da14ec03d906074654ed8d5cc0ef6c2fd8dba52478049f77d5a392b866d7a`; its
+canonical media-tree SHA-256 is
+`d745f025ed29894392cbfe01af2b6ea3cae317f5e5a8853591f577e5c2c5a87f`.
+An overlay-backed `BLDLIBR TRKSTB,5000,,,DISCFILE,TC,,,,REWIND` replay read all
+175 blocks, consumed the trailer labels, unloaded, and returned to MAIN
+without a processor check.
+
 The shipped `TAPEINIT` procedure supplies that initialization workflow.  Its
 standard-label form prompts for `TC`, label type `SL`, volume and owner IDs,
 expiration checking/clearing, optional erase, and final rewind/unload.  The
@@ -264,8 +286,6 @@ decoded SSP/SLIC paths or a reproducible guest trace:
   `NuTapeIo` jump-table arms;
 - exact completion bytes and MICs for tape mark, EOD, BOT, write protection,
   and short/long blocks;
-- the System/36-specific UHL1/UHL2 fields and `LIBRFILE` data stream (the
-  standard VOL1/HDR1/HDR2/EOF1/EOF2 envelope is now established);
 - whether a block larger than the supplied buffer is rejected, partially
   returned, or continued through another chained IOB;
 - the full `GENERATE` and `RPGP` parameter/result contract on this volume.

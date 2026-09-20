@@ -147,6 +147,67 @@ def render_vol1(volume_id, owner_id, access=" "):
     return bytes(record)
 
 
+def fixed_digits(value, name, length):
+    if not isinstance(value, str) or len(value) != length or not value.isascii() or not value.isdigit():
+        fail("%s must be exactly %d ASCII digits" % (name, length))
+    return value
+
+
+def render_s36_library_labels(data_set_id, block_length, record_length,
+                              creation_date, expiration_date, producer, system_code):
+    """Render the four-label group emitted by native SSP FROMLIBR.
+
+    Field positions and constants are evidence-backed by an overlay-backed
+    guest export; callers must provide dates explicitly so media construction
+    never depends on the host clock.
+    """
+    try:
+        encoded_id = data_set_id.encode("cp037", errors="strict")
+        producer.encode("cp037", errors="strict")
+        system_code.encode("cp037", errors="strict")
+    except UnicodeEncodeError as exc:
+        fail("S/36 label text is not representable in EBCDIC CP037: %s" % exc)
+    if not data_set_id or len(encoded_id) > 17:
+        fail("data set ID must be 1..17 CP037 bytes")
+    if len(producer.encode("cp037")) > 15:
+        fail("producer must be at most 15 CP037 bytes")
+    if len(system_code.encode("cp037")) > 13:
+        fail("system code must be at most 13 CP037 bytes")
+    fixed_digits(creation_date, "creation date", 5)
+    fixed_digits(expiration_date, "expiration date", 5)
+    if not 1 <= block_length <= MAX_BLOCK:
+        fail("block length must be in 1..%d" % MAX_BLOCK)
+    if not 1 <= record_length <= block_length:
+        fail("record length must be in 1..block length")
+
+    hdr1 = bytearray([EBCDIC_SPACE] * LABEL_LENGTH)
+    put_ebcdic(hdr1, 0, "HDR1", 4)
+    put_ebcdic(hdr1, 4, data_set_id, 17)
+    put_ebcdic(hdr1, 27, "0001", 4)
+    put_ebcdic(hdr1, 35, "000100", 6)
+    put_ebcdic(hdr1, 41, "0" + creation_date, 6)
+    put_ebcdic(hdr1, 47, "0" + expiration_date, 6)
+    put_ebcdic(hdr1, 53, "0000000", 7)
+    put_ebcdic(hdr1, 60, system_code, 13)
+
+    hdr2 = bytearray([EBCDIC_SPACE] * LABEL_LENGTH)
+    put_ebcdic(hdr2, 0, "HDR2", 4)
+    put_ebcdic(hdr2, 4, "F", 1)
+    put_ebcdic(hdr2, 5, "%05d" % block_length, 5)
+    put_ebcdic(hdr2, 10, "%05d" % record_length, 5)
+    put_ebcdic(hdr2, 16, "0", 1)
+    put_ebcdic(hdr2, 17, producer, 15)
+    put_ebcdic(hdr2, 38, "B", 1)
+
+    uhl1 = bytearray("UHL1LIBRFILER&".encode("cp037") + "S".encode("cp037") * 66)
+    uhl2 = bytearray("UHL2".encode("cp037") + "S".encode("cp037") * 76)
+    headers = [bytes(hdr1), bytes(hdr2), bytes(uhl1), bytes(uhl2)]
+    trailers = [bytearray(record) for record in headers]
+    for record, ident in zip(trailers, ("EOF1", "EOF2", "UTL1", "UTL2")):
+        put_ebcdic(record, 0, ident, 4)
+    return headers, [bytes(record) for record in trailers]
+
+
 def block_lengths(entry, where):
     count = integer(entry.get("blockCount"), where + ".blockCount", 0)
     if "blockLengths" in entry:
@@ -558,6 +619,48 @@ def command_import_text(args):
     print("imported %d record(s) as tape file %d" % (len(records), len(files)))
 
 
+def command_add_s36_library(args):
+    root, _, files = load_work(args.work_dir)
+    if len(files) != 2 or len(files[0]["blocks"]) != 1 or files[1]["blocks"]:
+        fail("add-s36-library requires a blank labeled workspace from init/unpack")
+    if label_id(files[0]["blocks"][0]) != "VOL1":
+        fail("add-s36-library requires VOL1 as its first tape file")
+    try:
+        data = Path(args.data_file).read_bytes()
+    except OSError as exc:
+        fail("%s: %s" % (args.data_file, exc.strerror or exc))
+    if not data:
+        fail("library data stream must not be empty")
+    if len(data) % args.record_length:
+        fail("library data is %d bytes, not a multiple of record length %d" %
+             (len(data), args.record_length))
+    headers, trailers = render_s36_library_labels(
+        args.data_set_id, args.block_length, args.record_length,
+        args.creation_date, args.expiration_date, args.producer, args.system_code)
+    blocks = [data[offset:offset + args.block_length]
+              for offset in range(0, len(data), args.block_length)]
+    authored = [files[0],
+                {"blocks": headers, "metadata": {"kind": "label", "recordFormat": "F",
+                                                    "recordLength": LABEL_LENGTH}},
+                {"blocks": blocks, "metadata": {"kind": "data", "recordFormat": "U",
+                                                   "recordLength": 0}},
+                {"blocks": trailers, "metadata": {"kind": "label", "recordFormat": "F",
+                                                     "recordLength": LABEL_LENGTH}},
+                {"blocks": [], "metadata": {"kind": "data", "recordFormat": "U",
+                                                "recordLength": 0}}]
+    temp_tape = Path(tempfile.mkdtemp(prefix="s36-library-tape-"))
+    shutil.rmtree(temp_tape)
+    try:
+        write_tape(temp_tape, root["volume"], authored)
+        command_unpack(argparse.Namespace(tape_dir=str(temp_tape),
+                                          work_dir=args.work_dir, force=True))
+    finally:
+        if temp_tape.exists():
+            shutil.rmtree(temp_tape)
+    print("added S/36 library data set %s: %d record(s), %d block(s)" %
+          (args.data_set_id, len(data) // args.record_length, len(blocks)))
+
+
 def command_labels(args):
     root, files, _ = load_tape(args.tape_dir, include_data=False)
     result = {"volume": root["volume"], "labelGroups": []}
@@ -619,6 +722,21 @@ def parser():
     command.add_argument("--records-per-block", type=int, default=1)
     command.add_argument("--encoding", default="utf-8")
     command.set_defaults(function=command_import_text)
+
+    command = sub.add_parser("add-s36-library",
+                             help="add one native SSP LIBRFILE standard-labeled data set")
+    command.add_argument("work_dir")
+    command.add_argument("data_file")
+    command.add_argument("--data-set-id", required=True)
+    command.add_argument("--block-length", type=int, default=4096,
+                         choices=range(1, MAX_BLOCK + 1), metavar="N")
+    command.add_argument("--record-length", type=int, default=256,
+                         choices=range(1, MAX_BLOCK + 1), metavar="N")
+    command.add_argument("--creation-date", required=True, metavar="YYDDD")
+    command.add_argument("--expiration-date", required=True, metavar="YYDDD")
+    command.add_argument("--producer", default="FROMLIBR/$MAINT")
+    command.add_argument("--system-code", default="IBM SYSTEM/36")
+    command.set_defaults(function=command_add_s36_library)
 
     command = sub.add_parser("labels", help="print labels decoded from EBCDIC bytes")
     command.add_argument("tape_dir")

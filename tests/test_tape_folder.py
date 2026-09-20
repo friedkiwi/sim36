@@ -162,6 +162,52 @@ class TapeFolderTests(unittest.TestCase):
                                "--record-length", "4", ok=False)
         self.assertIn("longer than record length", result.stderr)
 
+    def test_native_s36_library_label_authoring(self):
+        tape = self.temp / "blank-library"
+        work = self.temp / "library-work"
+        stream = self.temp / "library.bin"
+        self.run_tool("init", tape, "--volume-id", "TEST01", "--owner", "OWNER")
+        self.run_tool("unpack", tape, work)
+        stream.write_bytes(b"A" * 256 + b"B" * 256 + b"C" * 256)
+        self.run_tool("add-s36-library", work, stream,
+                      "--data-set-id", "DISCFILE",
+                      "--block-length", "512", "--record-length", "256",
+                      "--creation-date", "26263", "--expiration-date", "26264")
+        first = self.temp / "library-first"
+        second = self.temp / "library-second"
+        self.run_tool("pack", work, first)
+        self.run_tool("pack", work, second)
+        self.run_tool("verify", first)
+        self.assertEqual(self.tree_bytes(first), self.tree_bytes(second))
+
+        manifest = json.loads((first / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(5, len(manifest["files"]))
+        self.assertEqual([512, 256], manifest["files"][2]["blockLengths"])
+        self.assertEqual("DISCFILE", manifest["files"][1]["labels"]["hdr1"]["dataSetId"])
+        headers = (first / "0002.dat").read_bytes()
+        trailers = (first / "0004.dat").read_bytes()
+        self.assertEqual(320, len(headers))
+        self.assertEqual(b"HDR1", headers[:4].decode("cp037").encode("ascii"))
+        self.assertEqual("HDR2F0051200256 0FROMLIBR/$MAINT      B",
+                         headers[80:119].decode("cp037"))
+        self.assertEqual("UHL1LIBRFILER&" + "S" * 66,
+                         headers[160:240].decode("cp037"))
+        self.assertEqual("EOF1", trailers[:4].decode("cp037"))
+        self.assertEqual(headers[4:80], trailers[4:80])
+        self.assertEqual("UTL2", trailers[240:244].decode("cp037"))
+
+        bad = self.temp / "bad-library.bin"
+        bad.write_bytes(b"not-a-record")
+        fresh_tape = self.temp / "fresh"
+        fresh_work = self.temp / "fresh-work"
+        self.run_tool("init", fresh_tape, "--volume-id", "TEST01")
+        self.run_tool("unpack", fresh_tape, fresh_work)
+        result = self.run_tool("add-s36-library", fresh_work, bad,
+                               "--data-set-id", "DISCFILE",
+                               "--creation-date", "26263",
+                               "--expiration-date", "26264", ok=False)
+        self.assertIn("not a multiple", result.stderr)
+
     def test_corruption_is_rejected_with_diagnostics(self):
         original = self.temp / "original"
         self.run_tool("init", original, "--volume-id", "TEST01", "--owner", "OWNER")

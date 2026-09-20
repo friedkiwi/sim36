@@ -174,6 +174,8 @@ add_test(NAME parse_check
          COMMAND sh ${CMAKE_SOURCE_DIR}/test/parse-check.sh $<TARGET_FILE:sim36>)
 add_test(NAME tape_folder_tool
          COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_tape_folder.py)
+add_test(NAME startrek_media COMMAND sh ${CMAKE_SOURCE_DIR}/test/startrek-media.sh)
+set_tests_properties(startrek_media PROPERTIES SKIP_RETURN_CODE 77)
 # Differential tests against the reference emulator run only where it is
 # available (SIM36_REFERENCE); elsewhere they report "skipped" and pass.
 add_test(NAME config_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-parity.sh)

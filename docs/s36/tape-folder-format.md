@@ -100,6 +100,40 @@ fixed-column content.  An unrepresentable character or overlong record is an
 error; the tool never truncates.  The workspace replacement is atomic at the
 directory level.
 
+Author one native SSP `LIBRFILE` dataset in a blank labeled workspace:
+
+```sh
+tools/tape-folder.py add-s36-library /tmp/tape-work librfile.bin \
+  --data-set-id DISCFILE --block-length 4096 --record-length 256 \
+  --creation-date 26001 --expiration-date 99365
+```
+
+This writes the four-record HDR1/HDR2/UHL1/UHL2 group, blocks the supplied
+binary stream without changing its 256-byte records, writes the matching
+EOF1/EOF2/UTL1/UTL2 group, and preserves the terminal mark.  Its field layout
+is the byte-for-byte layout produced by native SSP FROMLIBR and accepted by
+BLDLIBR.  Dates are explicit `YYDDD` values so identical invocations remain
+deterministic.  This operation is general to System/36 library streams; it has
+no STARTREK member names or source rules.
+
+Build the pinned STARTREK tape without placing FUNLIB source in this tree:
+
+```sh
+FUNLIB_DIR=/path/to/FUNLIB \
+  tools/build-startrek-tape.py /tmp/startrek-tape
+tools/tape-folder.py verify /tmp/startrek-tape --reject-orphans
+```
+
+The checkout must be exactly commit
+`1d0d2ea221cdb7b22d611d8cef474ebd518fb70f`.  The builder verifies the commit
+and all four input checksums, decodes strict UTF-8, checks declared record
+lengths, converts to CP037, constructs the verified 256-byte `$MAINT` reader
+records, and calls the general tape tool for all media and label authoring. It
+never downloads or vendors FUNLIB.  The pinned RPG input contains one
+reported 97-byte line for `RECL-096`; it is preserved in the 120-byte reader
+card exactly as in `TREKLOAD.S36PROC`, rather than silently truncated on the
+host.
+
 Commands refuse to replace an existing output directory unless `--force` is
 given.  With `--force`, the new directory is fully built and verified beside
 the destination, the old destination is renamed aside, and only then is the
@@ -127,10 +161,12 @@ Run the media-independent suite with:
 ```sh
 python3 -m unittest -v tests/test_tape_folder.py
 ctest --test-dir build/linux -R tape_folder_tool --output-on-failure
+FUNLIB_DIR=/path/to/FUNLIB test/startrek-media.sh
 ```
 
 The folder format can faithfully represent arbitrary block and filemark
-streams, but it does not itself define SSP `LIBRFILE` contents.  HDR/EOF label
-authoring, SSP completion/MIC mapping, and guest tape commands remain governed
-by the evidence boundary in
+streams.  Its SSP library authoring intentionally supports only the verified
+single-dataset FROMLIBR/BLDLIBR form.  Other HDR/EOF variants, SSP
+completion/MIC mapping, and guest tape commands remain governed by the
+evidence boundary in
 [`startrek-tape-discovery.md`](startrek-tape-discovery.md).
