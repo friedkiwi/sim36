@@ -69,6 +69,11 @@ diskette / dsktread / dsktwrite       # inspect or drive the diskette
 tape status|vtoc|files|...            # inspect or drive the tape
 ```
 
+Folder-tape layout, validation, unpack/repack, extraction, and fixed-record
+EBCDIC import are documented in `docs/s36/tape-folder-format.md`.  The
+standard-library-only CLI is `tools/tape-folder.py`; its synthetic tests do not
+need an SSP volume.
+
 Fixed disks and diskettes are attached read-write when the mode is omitted.
 Use `ro` for media that must not be changed.
 

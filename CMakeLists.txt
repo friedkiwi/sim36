@@ -40,6 +40,7 @@ find_package(doctest CONFIG REQUIRED)
 find_package(minizip-ng CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)          # brought in by minizip-ng's zlib feature
 find_package(Threads REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # One interface target carries the warning and platform policy so every
 # target, including the tests, is built under the same rules.
@@ -169,6 +170,8 @@ add_test(NAME empty_command_file
          COMMAND sim36 -s ${CMAKE_SOURCE_DIR}/test/empty.sim)
 add_test(NAME parse_check
          COMMAND sh ${CMAKE_SOURCE_DIR}/test/parse-check.sh $<TARGET_FILE:sim36>)
+add_test(NAME tape_folder_tool
+         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_tape_folder.py)
 # Differential tests against the reference emulator run only where it is
 # available (SIM36_REFERENCE); elsewhere they report "skipped" and pass.
 add_test(NAME config_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-parity.sh)
