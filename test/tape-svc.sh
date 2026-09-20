@@ -29,6 +29,9 @@ echo "-- SVC 46 tape I/O through the control processor --"
 # The drive is mounted and the SVC actually reaches it.
 check "the cartridge mounts on the drive     " "mount the cartridge on the drive           PASS"
 check "SVC 46 read is dispatched to the tape  " "SVC 46 (Delayed) iob 000600 -> completed"
+check "native command 01 activates the drive   " "native command 01 activates the loaded tape PASS"
+check "native command 02 establishes a session " "native command 02/03 establishes its session without movement PASS"
+check "native command 13 reads the volume label" "native command 13 rewinds and reads VOL1"
 # A read moves a real block into guest storage and posts complete.
 check "read posts complete (ECM 0x40)        " "SVC 46 read posts complete (iob+0x06 bit 0x40) PASS"
 check "the block lands in guest storage       " "the block reached guest storage (LastRead 80 bytes) PASS"
@@ -44,7 +47,7 @@ check "the rejected record remains retryable   " "and remains positioned for a r
 check "an invalid command is refused          " "SVC 46 with an invalid command is refused  PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 13 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 16 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"

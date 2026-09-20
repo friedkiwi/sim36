@@ -15,6 +15,9 @@ using storage::TapeResult;
 const char* NuTaIob::commandName(int command)
 {
     switch (command) {
+        case kCommandActivate: return "activate";
+        case kCommandSetSession: return "set session";
+        case kCommandReadVolumeLabels: return "read volume labels";
         case kCommandReadData: return "read data";
         case kCommandReadDataAlt: return "read data (alt)";
         case kCommandWriteData: return "write data";
@@ -78,6 +81,9 @@ bool VirtualTape::execute(int iob, uint8_t qByte)
     }
 
     switch (command) {
+        case NuTaIob::kCommandActivate: return activate(iob, modifier);
+        case NuTaIob::kCommandSetSession: return setSession(iob, modifier);
+        case NuTaIob::kCommandReadVolumeLabels: return readVolumeLabels(iob, modifier, length, bufferField);
         case NuTaIob::kCommandReadData:
         case NuTaIob::kCommandReadDataAlt: return read(iob, command, length, bufferField);
         case NuTaIob::kCommandWriteData:
@@ -97,6 +103,73 @@ bool VirtualTape::execute(int iob, uint8_t qByte)
             postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
             return false;
     }
+}
+
+bool VirtualTape::activate(int iob, int modifier)
+{
+    // Commands below 0x10 bypass NuTapeIo's jump table.  Command 01 runs the
+    // tapeRemoved/readyTape activation path before completing.  FROMLIBR's
+    // observed request is modifier 00; other variants remain unsupported.
+    if (modifier != 0) {
+        trace_.diskIo("  command 01 modifier {:02X} has not been established - refused", modifier);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    trace_.diskIo("  command 01/00 activates the already-loaded tape session (V4R4 NuTapeIo c23e21e8)");
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::setSession(int iob, int modifier)
+{
+    // V4R4 NuTapeIo c23e33fc accepts 00, 01 and 03.  The native FROMLIBR
+    // path uses 03 and calls readiness/session handling, not a data mover.
+    if (modifier != 0 && modifier != 1 && modifier != 3) {
+        trace_.diskIo("  command 02 modifier {:02X} is not one of 00, 01, 03 - NuTapeIo error arm", modifier);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+    trace_.diskIo("  command 02/{:02X} establishes the loaded tape session without moving media", modifier);
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
+}
+
+bool VirtualTape::readVolumeLabels(int iob, int modifier, int length, int bufferField)
+{
+    // V4R4 command 13 is arm c23e359c.  It requires 0x370 bytes, runs the
+    // rewind driver method (vtable 0x190), then tapRdLbls.  The SSP request
+    // uses modifier 03.  Only the verified 80-byte VOL1 transfer is exposed;
+    // the remainder of the 0x370-byte work area is left untouched.
+    if (modifier != 3 || length != 0x370) {
+        trace_.diskIo("  command 13 requires modifier 03 and length 880; got {:02X}/{}", modifier, length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    std::vector<std::pair<int, int>> extents;
+    if (!m_.guest24Extents(bufferField, 80, true, extents)) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+
+    medium_->rewind();
+    std::vector<uint8_t> label;
+    TapeResult r = medium_->readBlock(label);
+    if (r != TapeResult::Ok || label.size() != 80 || label[0] != 0xE5 || label[1] != 0xD6 || label[2] != 0xD3 ||
+        label[3] != 0xF1) {
+        trace_.diskIo("  command 13 did not find an 80-byte EBCDIC VOL1 at load point ({})", storage::tapeResultName(r));
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicTapeMark);
+        return false;
+    }
+    if (!m_.writeGuest24Range(bufferField, label.data(), 80)) {
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+    lastRead_ = label;
+    hasLastRead_ = true;
+    readsIssued_++;
+    trace_.diskIo("  command 13 rewound and returned the 80-byte VOL1 label; {}", medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+    return true;
 }
 
 // Read data, commands 0x17 and 0x22: the internal tape buffer is copied

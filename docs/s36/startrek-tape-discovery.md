@@ -136,9 +136,21 @@ and uses different paths for reel/6157 and quarter-inch cartridge devices.
 The *System/36 Concepts and Programmer's Guide*, SC21-9019-5, identifies
 `FROMLIBR` output as a `LIBRFILE` and states that the 6157 uses IBM standard
 labels.  These sources establish the layer and dataset family, but the pages
-available so far do not assign semantics to IOB command `0x01`.
+available so far do not assign semantics to IOB command `0x01`; the decoded
+SLIC dispatcher and its `tapeRemoved`/`readyTape` calls now establish that
+activation path independently.
 
 ## Operations required, and what is not yet known
+
+The upper dispatcher has an important split: commands below `0x10` bypass
+the table. Command `01` enters activation/readiness handling; command `02`
+goes directly to `c23e33fc`, accepts modifiers 0, 1, and 3, and the observed
+`02/03` path performs session/readiness handling without a data-mover call.
+For commands `0x10` and above the table is indexed by `command - 0x10`.
+Consequently command `13` (not command 02) is arm `c23e359c`: it requires an
+880-byte work area, invokes rewind at driver-vtable offset `0x190`, and calls
+the label reader. The implementation now reproduces the observed `01/00`,
+`02/03`, and `13/03` FROMLIBR prefix and returns the verified 80-byte VOL1.
 
 The complete acceptance path requires the following backend primitives; these
 already exist independently of the guest IOB mapping: load/unload, rewind,

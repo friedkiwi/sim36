@@ -587,6 +587,21 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                 if (c < 0) {
                     fmt::print("  not booted - the CSP has no request block\n");
                 } else {
+                    c = issue(NuTaIob::kCommandActivate, 0, 0x370);
+                    report("native command 01 activates the loaded tape", (c & 0x0F) == NuTaIob::kCompletionOk, sc);
+                    storage::TapePosition beforeSession = back->readPosition();
+                    c = issue(NuTaIob::kCommandSetSession, 3, 0x370);
+                    report("native command 02/03 establishes its session without movement",
+                           (c & 0x0F) == NuTaIob::kCompletionOk &&
+                               beforeSession.toString() == back->readPosition().toString(),
+                           sc);
+                    back->spaceFiles(1, c);
+                    c = issue(NuTaIob::kCommandReadVolumeLabels, 3, 0x370);
+                    report("native command 13 rewinds and reads VOL1",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 0 &&
+                               back->readPosition().blockNumber == 1 && st.readByte(buffer) == 0xE5,
+                           sc);
+
                     report("SVC 46 read posts complete (iob+0x06 bit 0x40)",
                            (c & Ecm::kComplete) != 0 && (c & 0x0F) == NuTaIob::kCompletionOk, sc);
                     report("...the block reached guest storage (LastRead 80 bytes)",

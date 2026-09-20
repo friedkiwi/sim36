@@ -55,6 +55,9 @@ public:
     // ---- commands ----
     static constexpr int kCommandMin = 0x01;   // NuTapeIo::entry subtracts one before its unsigned range check
     static constexpr int kCommandMax = 0x31;   // VERIFIED: (command - 1) must be <= 48 decimal
+    static constexpr int kCommandActivate = 0x01;
+    static constexpr int kCommandSetSession = 0x02;
+    static constexpr int kCommandReadVolumeLabels = 0x13;
     static constexpr int kCommandReadData = 0x17;      // the tape buffer is copied INTO the guest buffer
     static constexpr int kCommandReadDataAlt = 0x22;   // the 0x17/0x22 distinction is not recovered
     static constexpr int kCommandWriteData = 0x18;     // the guest buffer is copied INTO the tape buffer
@@ -114,6 +117,9 @@ public:
 private:
     bool read(int iob, int command, int length, int bufferField);
     bool write(int iob, int command, int length, int bufferField);
+    bool activate(int iob, int modifier);
+    bool setSession(int iob, int modifier);
+    bool readVolumeLabels(int iob, int modifier, int length, int bufferField);
     bool control(int iob, int modifier);
     bool validLength(int iob, int length);
     bool notReady(int iob);
