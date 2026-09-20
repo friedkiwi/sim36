@@ -1,0 +1,13 @@
+attach disk0 @VOLUME@ @DISK_MODE@
+attach tape0 @TAPE@ ro
+set station 0.0 role console
+set station 0.1 role printer
+set station 0.1 device-code PB
+set station 0.1 output console
+set station 0.2 role display
+set station 0.2 device-code 11
+set station 0.2 listen 127.0.0.1:2302
+set station 0.3 listen 127.0.0.1:2303
+set station 0.4 listen 127.0.0.1:2304
+set station 0.5 listen 127.0.0.1:2305
+set station 0.6 listen 127.0.0.1:2306
