@@ -9,7 +9,10 @@ cd "$here"
 . test/probe-common.sh
 instantiate default-machine
 defaults=$(cd "$here" && printf 'save config stdout\nquit\n' | "$SIM36" -c "$TMP/default-machine.sim" 2>&1)
-out=$(cd "$here" && python3 test/station-multiplex.py 2>&1)
+if ! out=$(cd "$here" && python3 test/station-multiplex.py 2>&1); then
+    printf '%s\n' "$out"
+    exit 1
+fi
 
 check_absent() {
     if printf '%s\n' "$out" | grep -qF "$2"; then
