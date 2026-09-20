@@ -292,12 +292,22 @@ out.append("phase 4 bare confirmation Enter reached IPL OVERRIDES MENU: %s" %
            ("yes" if preipl_console.screen.contains("IPL OVERRIDES MENU") else "no"))
 preipl_console.type_into("Option", "2")
 preipl_console.press("Enter")
-preipl_console.wait_for_text("Main System/36 help menu", timeout=30)
-out.append("phase 4 option 2 received an SSP response: %s" %
+preipl_console.wait_for_text("PROGRAMS TO BE RUN DURING IPL", timeout=30)
+out.append("phase 4 option 2 displayed the IPL programs: %s" %
            ("yes" if preipl_console.screen.contains(
-               "Main System/36 help menu") else "no"))
-out.append("phase 4 option 2 left keyboard usable: %s" %
+               "PROGRAMS TO BE RUN DURING IPL") else "no"))
+out.append("phase 4 programs panel left keyboard usable: %s" %
            ("yes" if not preipl_console.screen.error else "no"))
+# The programs panel is informational with the shipped defaults.  Enter
+# accepts it and returns to the overrides menu; option 1 then exits overrides
+# and lets the attended IPL continue.
+preipl_console.press("Enter")
+preipl_console.wait_for_text("IPL OVERRIDES MENU", timeout=30)
+preipl_console.settle(quiet=0.75, timeout=10)
+preipl_console.type_into("Option", "1")
+preipl_console.press("Enter")
+preipl_console.wait_for_text("Main System/36 help menu", timeout=30)
+out.append("phase 4 option 1 completed attended IPL: yes")
 show("phase 4 completed attended IPL", preipl_console)
 preipl_console.press("Cmd3")
 preipl_console.wait_for_change(timeout=30)
