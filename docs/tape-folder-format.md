@@ -2,7 +2,7 @@
 
 SIM/36 represents a tape as a directory so its filemarks, block boundaries,
 and labels remain inspectable.  The emulator and the standard-library-only
-[`tools/tape-folder.py`](../../tools/tape-folder.py) utility share format
+[`tools/tape-folder.py`](../tools/tape-folder.py) utility share format
 identifier `s36-folder-tape`, version 1.
 
 ## Physical model
@@ -200,6 +200,34 @@ The acceptance scope is deliberately narrow: it establishes the tape IOB
 forms and SSP labeled-library organization recorded in
 [`startrek-tape-discovery.md`](startrek-tape-discovery.md).  Other tape command
 forms and label organizations remain refused until independently established.
+
+### Using the preserved local image
+
+The validated development copy is stored as
+`images/volumes/as36-startrek.img`.  The entire `images/` media area is ignored
+by Git, so this private image remains local and is not part of a clone,
+archive, commit, or CI artifact.  `images/startrek.sim` attaches it through an
+in-memory overlay, leaving the preserved installed copy unchanged:
+
+```sh
+build/sim36 -c images/startrek.sim
+```
+
+After the monitor reports that the guest is idle, connect a 5250 client:
+
+```sh
+tn5250 telnet://127.0.0.1:26300
+```
+
+Select station `0.2`, sign on as `YVANJ2` with library `TRKSTB` (no password
+is required by this test volume), and enter `STREK` on the MAIN command line.
+The display-format member, RPG program, and procedure are already compiled in
+that library.  Cmd7 exits the game; because combat may present another invited
+format first, press Cmd7 again until MAIN returns.
+
+Use `overlay` for ordinary play.  To deliberately retain guest changes, first
+make another private copy of `as36-startrek.img`, change the `attach disk0`
+line to that copy with mode `rw`, and never commit or distribute either image.
 
 The folder format can faithfully represent arbitrary block and filemark
 streams.  Its SSP library authoring intentionally supports only the verified

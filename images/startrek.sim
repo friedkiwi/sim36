@@ -1,0 +1,7 @@
+# Local STARTREK appliance.  The installed AS/36 copy is deliberately ignored
+# by Git and must exist at images/volumes/as36-startrek.img.
+do ../etc/sim36.sim
+set terminal multiplex listen 127.0.0.1:26300
+attach disk0 volumes/as36-startrek.img overlay
+set machine ipl-type unattend
+ipl

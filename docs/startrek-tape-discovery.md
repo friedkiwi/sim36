@@ -1,6 +1,6 @@
 # STARTREK tape acceptance: discovery record
 
-This is the evidence record for the tape-based STARTREK acceptance test.  It
+This document records the evidence for the tape-based STARTREK acceptance test.  It
 separates behaviour observed in SSP from behaviour that is still unknown.  In
 particular, an opcode is not implemented merely because its likely meaning is
 suggested by its position in a trace.

@@ -70,7 +70,7 @@ tape status|vtoc|files|...            # inspect or drive the tape
 ```
 
 Folder-tape layout, validation, unpack/repack, extraction, and fixed-record
-EBCDIC import are documented in `docs/s36/tape-folder-format.md`.  The
+EBCDIC import are documented in `docs/tape-folder-format.md`.  The
 standard-library-only CLI is `tools/tape-folder.py`; its synthetic tests do not
 need an SSP volume.
 

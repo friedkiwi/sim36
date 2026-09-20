@@ -181,7 +181,7 @@ set_tests_properties(startrek_acceptance PROPERTIES
     SKIP_RETURN_CODE 77
     TIMEOUT 2500
     ENVIRONMENT "SIM36=$<TARGET_FILE:sim36>"
-    RESOURCE_LOCK startrek_station_ports)
+    RESOURCE_LOCK sim36_station_ports)
 # Differential tests against the reference emulator run only where it is
 # available (SIM36_REFERENCE); elsewhere they report "skipped" and pass.
 add_test(NAME config_parity COMMAND sh ${CMAKE_SOURCE_DIR}/test/config-parity.sh)
