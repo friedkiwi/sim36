@@ -153,14 +153,13 @@ the chosen data block.
 
 The same decoded SLIC end-condition arm uses internal condition `0x001b` and
 completion low nibble `5` when the search reaches physical end without a
-match.  That internal condition is not the guest-visible MIC.  The locally
-extracted `#CATP` transient checks completion byte `45`, compares IOB bytes
-`+1d..+1e` with its constant `60 74`, and then requires byte `+1f` to be `34`.
-The native command-16 implementation therefore returns the verified
-three-byte `60 74 34` status tail for dataset-not-found.  This also corrects
-the earlier claim that the tape MIC was simply a halfword beginning at
-`+1e`: that is the SLIC-facing field, while the guest consumes the overlapping
-three-byte status representation.
+match.  That internal condition is not itself the guest-visible MIC.  Local
+SLIC routine `NuTapeMicSrcGenS` indexes its condition table (entry `0x001b` is
+`0x6236`) and generates two halfwords at IOB `+0x1c` and `+0x1e`: `7462` and
+`1b36`.  Returning that complete status was checked with the real `#CATP`
+transient: `FROMLIBR` accepts dataset-not-found and immediately issues command
+`14/03` with its 320-byte label area.  Returning the internal condition alone,
+or only a three-byte signature, instead leads to an SSP error or storage dump.
 
 The shipped `TAPEINIT` procedure supplies that initialization workflow.  Its
 standard-label form prompts for `TC`, label type `SL`, volume and owner IDs,

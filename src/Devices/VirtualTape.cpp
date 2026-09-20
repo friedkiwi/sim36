@@ -278,14 +278,12 @@ bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField
 
         trace_.diskIo("  command 16 did not find the requested HDR1 identifier: {} after {} record(s); {}",
                       storage::tapeResultName(r), records, medium_->readPosition().toString());
-        // The guest #CATP transient checks completion 45 and then compares
-        // IOB+1D..1F with 60 74 34 before accepting "dataset not found".
-        // This is the guest-visible encoding produced above the SLIC
-        // tapFind arm; the latter's internal 0x1b condition is not itself
-        // the System/36 MIC representation.
-        m_.writeByte(iob + NuTaIob::kOffMicPrefix, 0x60);
-        m_.writeByte(iob + NuTaIob::kOffMicPrefix + 1, 0x74);
-        m_.writeByte(iob + NuTaIob::kOffMicPrefix + 2, 0x34);
+        // NuTapeIo::tapFind returns internal condition 0x001b.  The decoded
+        // NuTapeMicSrcGenS routine maps it through the local SLIC table entry
+        // 0x6236 and generates the complete guest status below.  A real
+        // #CATP/FROMLIBR run accepts it and proceeds to command 0x14.
+        m_.writeHalf(iob + NuTaIob::kOffMicSource, 0x7462);
+        m_.writeHalf(iob + NuTaIob::kOffMic, 0x1B36);
         IoBlock::complete(m_, iob, NuTaIob::kCompletionEndOfFile);
         return true;
     }

@@ -664,9 +664,8 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     c = issue(NuTaIob::kCommandFindDataSet, 3, 0x1E0);
                     report("native command 16 reports the #CATP dataset-not-found status",
                            (c & 0x0F) == NuTaIob::kCompletionEndOfFile &&
-                               st.readByte(iob + NuTaIob::kOffMicPrefix) == 0x60 &&
-                               st.readByte(iob + NuTaIob::kOffMicPrefix + 1) == 0x74 &&
-                               st.readByte(iob + NuTaIob::kOffMicPrefix + 2) == 0x34,
+                               st.readHalf(iob + NuTaIob::kOffMicSource) == 0x7462 &&
+                               st.readHalf(iob + NuTaIob::kOffMic) == 0x1B36,
                            sc);
 
                     back->rewind();

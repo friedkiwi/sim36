@@ -48,8 +48,8 @@ public:
     static constexpr int kOffReturnedLength = 0x12; // label bytes returned by tapLbls2 (VERIFIED)
     static constexpr int kOffCount0 = 0x14;        // halfword bounded by iob+0x10; role INFERRED, not written back
     static constexpr int kOffCount1 = 0x16;        // its companion; role INFERRED
-    static constexpr int kOffMicPrefix = 0x1D;     // guest #CATP tests a two-byte prefix here (VERIFIED)
-    static constexpr int kOffMic = 0x1E;           // SLIC-facing MIC halfword; overlaps the guest status tail
+    static constexpr int kOffMicSource = 0x1C;     // generated source/type halfword (VERIFIED for condition 0x1b)
+    static constexpr int kOffMic = 0x1E;           // generated condition/detail halfword (VERIFIED for condition 0x1b)
     static constexpr int kOffDataFlag = 0x21;      // required non-zero for a data command; role INFERRED
 
     // ---- commands ----
