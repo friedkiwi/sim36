@@ -290,6 +290,7 @@ preipl_console.press("Enter")
 preipl_console.wait_for_text("IPL OVERRIDES MENU", timeout=30)
 out.append("phase 4 bare confirmation Enter reached IPL OVERRIDES MENU: %s" %
            ("yes" if preipl_console.screen.contains("IPL OVERRIDES MENU") else "no"))
+preipl_console.settle(quiet=0.75, timeout=10)
 preipl_console.type_into("Option", "2")
 preipl_console.press("Enter")
 preipl_console.wait_for_text("PROGRAMS TO BE RUN DURING IPL", timeout=30)
@@ -301,6 +302,7 @@ out.append("phase 4 programs panel left keyboard usable: %s" %
 # The programs panel is informational with the shipped defaults.  Enter
 # accepts it and returns to the overrides menu; option 1 then exits overrides
 # and lets the attended IPL continue.
+preipl_console.settle(quiet=0.75, timeout=10)
 preipl_console.press("Enter")
 preipl_console.wait_for_text("IPL OVERRIDES MENU", timeout=30)
 preipl_console.settle(quiet=0.75, timeout=10)
