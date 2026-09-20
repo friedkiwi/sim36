@@ -200,7 +200,10 @@ TEST_CASE("printer file output appends the guest byte stream verbatim")
 TEST_CASE("printer console output interprets SVC 26 SCS controls")
 {
     const uint8_t stream[] = {
+        0x2B, 0xC8, 0x03, 0x40, 0x01,             // set graphic error action
         0x34, 0xC4, 0x01,                         // position to line 1
+        0x2B, 0xC2, 0x02, 0x42,                   // set vertical format
+        0x0D, 0x0D,                               // CRs move left; neither is a blank line
         0xC8, 0xC9,                               // HI
         0x34, 0xC8, 0x03,                         // three spaces
         0xE3, 0xC8, 0xC5, 0xD9, 0xC5, 0x0D,     // THERE, end line
@@ -209,7 +212,9 @@ TEST_CASE("printer console output interprets SVC 26 SCS controls")
     };
     CHECK(sim36::host::PrinterBackend::renderConsoleDataStream(
               stream, 0, static_cast<int>(sizeof stream)) ==
-          std::vector<std::string>{"HI   THERE", "[form feed]", "BAD?"});
+          std::vector<std::string>{"[set graphic error action: 40 01]",
+                                   "[set vertical format: 42]",
+                                   "HI   THERE", "[page break]", "BAD?"});
 }
 
 TEST_CASE("ipl source: disk requests no reload; attended sets bit 0x80")

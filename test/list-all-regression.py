@@ -296,11 +296,11 @@ def main():
                     at = printed.find("printer " + printer_drain + ": " + expected_text)
                     if at < 0:
                         at = printed.find(expected_text)
-                    # SSP closes an entry with a form feed; the writer then
+                    # SSP closes an entry with a page break; the writer then
                     # ends or waits for more work without a printer Clear, so
                     # the emulator's end-of-job (a Clear) is optional here.
                     text_ended = at >= 0 and ("printer " + printer_drain + ": [end of job]" in printed[at:] or
-                                              "printer " + printer_drain + ": [form feed]" in printed[at:])
+                                              "printer " + printer_drain + ": [page break]" in printed[at:])
                 if match is not None:
                     records, output_bytes, jobs = map(int, match.groups())
                     if records > 1 and output_bytes > 3 and jobs > 0 and text_ended:

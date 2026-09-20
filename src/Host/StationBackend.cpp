@@ -714,6 +714,145 @@ constexpr int kFlowServerOriginated = 0x0001;        // bit 15
 constexpr uint8_t kFlagLastOfChain = 0x08;
 constexpr uint8_t kFlagFirstOfChain = 0x10;
 
+const char* scsFormatControlName(uint8_t operation)
+{
+    switch (operation) {
+        case 0xC1: return "set horizontal format";
+        case 0xC2: return "set vertical format";
+        case 0xC6: return "set line density";
+        case 0xC8: return "set graphic error action";
+        case 0xD1: return "set text orientation";
+        case 0xD2: return "set presentation format";
+        case 0xD4: return "begin underscore";
+        case 0xFE: return "load alternate character";
+        default: return nullptr;
+    }
+}
+
+std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int length,
+                                            std::string& line, bool& ideographic,
+                                            std::vector<uint8_t>& pending, bool finishStream)
+{
+    std::vector<uint8_t> bytes;
+    bytes.reserve(pending.size() + static_cast<std::size_t>(length));
+    bytes.insert(bytes.end(), pending.begin(), pending.end());
+    if (length > 0) bytes.insert(bytes.end(), data + offset, data + offset + length);
+    pending.clear();
+
+    std::vector<std::string> lines;
+    auto finishLine = [&] {
+        lines.push_back(line);
+        line.clear();
+    };
+    auto finishText = [&] {
+        if (!line.empty()) finishLine();
+    };
+    auto control = [&](const std::string& text) {
+        finishText();
+        lines.push_back(text);
+    };
+    auto retain = [&](std::size_t at) {
+        pending.assign(bytes.begin() + static_cast<std::ptrdiff_t>(at), bytes.end());
+    };
+
+    for (std::size_t at = 0; at < bytes.size(); ++at) {
+        const uint8_t byte = bytes[at];
+        switch (byte) {
+            case 0x0C: // form feed
+                control("[page break]");
+                break;
+            case 0x0D: // carriage return
+                // A carriage return moves to the left margin; it does not
+                // advance the paper.  SSP commonly puts one on each side of
+                // a vertical-position command, so an empty CR is not a blank
+                // printed line.
+                finishText();
+                break;
+            case 0x0E: // shift out: ideographic two-byte characters follow
+                ideographic = true;
+                break;
+            case 0x0F: // shift in
+                ideographic = false;
+                break;
+            case 0x34: { // SCS presentation position
+                if (at + 2 >= bytes.size()) {
+                    retain(at);
+                    at = bytes.size();
+                    break;
+                }
+                const uint8_t operation = bytes[++at];
+                const uint8_t argument = bytes[++at];
+                if (operation == 0xC8) // relative horizontal position
+                    line.append(argument, ' ');
+                else if (operation == 0xC4) // absolute vertical position
+                    finishText();
+                else
+                    control(fmt::format("[presentation position {:02X}: {:02X}]", operation, argument));
+                break;
+            }
+            case 0x2B: { // SCS format control: operation, length, parameters
+                if (at + 2 >= bytes.size()) {
+                    retain(at);
+                    at = bytes.size();
+                    break;
+                }
+                const uint8_t operation = bytes[at + 1];
+                const int fieldLength = bytes[at + 2]; // includes this length byte
+                if (fieldLength < 1) {
+                    control(fmt::format("[invalid format control {:02X}]", operation));
+                    at += 2;
+                    break;
+                }
+                if (at + 1 + static_cast<std::size_t>(fieldLength) >= bytes.size()) {
+                    retain(at);
+                    at = bytes.size();
+                    break;
+                }
+                const char* name = scsFormatControlName(operation);
+                std::string rendered = name != nullptr
+                    ? fmt::format("[{}", name)
+                    : fmt::format("[format control {:02X}", operation);
+                for (std::size_t parameter = at + 3;
+                     parameter <= at + 1 + static_cast<std::size_t>(fieldLength); ++parameter)
+                    rendered += fmt::format("{}{:02X}", parameter == at + 3 ? ": " : " ", bytes[parameter]);
+                rendered += ']';
+                control(rendered);
+                at += 1 + static_cast<std::size_t>(fieldLength);
+                break;
+            }
+            case 0xFF: // SVC 26's replacement for an invalid print byte
+                line.push_back('?');
+                break;
+            default:
+                if (ideographic) {
+                    // The console has no System/36 ideographic font.  A pair
+                    // split across Output Data records remains pending.
+                    if (at + 1 >= bytes.size()) {
+                        retain(at);
+                        at = bytes.size();
+                        break;
+                    }
+                    ++at;
+                    line.push_back('?');
+                } else if (byte < 0x40) {
+                    control(fmt::format("[control {:02X}]", byte));
+                } else {
+                    line += storage::Ebcdic::toAscii(&byte, 1);
+                }
+                break;
+        }
+    }
+
+    if (finishStream) {
+        if (!pending.empty()) {
+            control(fmt::format("[truncated control {:02X}]", pending.front()));
+            pending.clear();
+        }
+        finishText();
+    }
+    return lines;
+}
+
 }  // namespace
 
 PrinterBackend::~PrinterBackend()
@@ -771,7 +910,8 @@ std::vector<uint8_t> PrinterBackend::startupResponse(const std::string& code, co
 bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
 {
     if (output_ == "console") {
-        for (const std::string& line : renderConsoleDataStream(data, offset, length))
+        for (const std::string& line : renderConsoleBytes(data, offset, length, consoleLine_,
+                                                          consoleIdeographic_, consolePending_, false))
             fmt::print("{}: {}\n", label(), line);
         recordsSent_++;
         bytesSent_ += length;
@@ -801,69 +941,19 @@ bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
 
 std::vector<std::string> PrinterBackend::renderConsoleDataStream(const uint8_t* data, int offset, int length)
 {
-    std::vector<std::string> lines;
     std::string line;
     bool ideographic = false;
-
-    auto finishLine = [&] {
-        lines.push_back(line);
-        line.clear();
-    };
-
-    const int end = offset + length;
-    for (int at = offset; at < end; ++at) {
-        const uint8_t byte = data[at];
-        switch (byte) {
-            case 0x0C: // form feed
-                if (!line.empty()) finishLine();
-                lines.emplace_back("[form feed]");
-                break;
-            case 0x0D: // carriage return: SVC 26's end-of-print-line marker
-                finishLine();
-                break;
-            case 0x0E: // shift out: ideographic two-byte characters follow
-                ideographic = true;
-                break;
-            case 0x0F: // shift in
-                ideographic = false;
-                break;
-            case 0x34: { // SCS control introducer
-                if (at + 2 >= end) {
-                    line.push_back('?');
-                    break;
-                }
-                const uint8_t operation = data[++at];
-                const uint8_t argument = data[++at];
-                if (operation == 0xC8) // relative horizontal position
-                    line.append(argument, ' ');
-                // 0xC4 positions vertically.  A terminal has no physical
-                // forms, so the following CR/FF supplies its useful break.
-                break;
-            }
-            case 0xFF: // SVC 26's replacement for an invalid print byte
-                line.push_back('?');
-                break;
-            default:
-                if (ideographic) {
-                    // The console has no System/36 ideographic font.  Consume
-                    // one ward/point pair and show one explicit replacement.
-                    if (at + 1 < end) ++at;
-                    line.push_back('?');
-                } else if (byte < 0x40) {
-                    line.push_back('?');
-                } else {
-                    line += storage::Ebcdic::toAscii(&byte, 1);
-                }
-                break;
-        }
-    }
-    if (!line.empty()) finishLine();
-    return lines;
+    std::vector<uint8_t> pending;
+    return renderConsoleBytes(data, offset, length, line, ideographic, pending, true);
 }
 
 bool PrinterBackend::endJob()
 {
     if (output_ == "console") {
+        for (const std::string& line : renderConsoleBytes(nullptr, 0, 0, consoleLine_,
+                                                          consoleIdeographic_, consolePending_, true))
+            fmt::print("{}: {}\n", label(), line);
+        consoleIdeographic_ = false;
         fmt::print("{}: [end of job]\n", label());
         jobsEnded_++;
         return true;

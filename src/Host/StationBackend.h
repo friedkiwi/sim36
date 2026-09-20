@@ -364,6 +364,11 @@ private:
     std::string output_;
     std::string outputPath_;
     std::ofstream outputFile_;
+    // Console output is a stream: guest Output Data records can end in the
+    // middle of either a word or an SCS control sequence.
+    std::string consoleLine_;
+    bool consoleIdeographic_ = false;
+    std::vector<uint8_t> consolePending_;
 
     std::atomic<long long> startupResponsesSent_{0}, printCompletesReceived_{0}, jobsEnded_{0};
 };
