@@ -164,6 +164,43 @@ ctest --test-dir build/linux -R tape_folder_tool --output-on-failure
 FUNLIB_DIR=/path/to/FUNLIB test/startrek-media.sh
 ```
 
+## STARTREK acceptance test
+
+The complete acceptance test needs the private AS/36 system volume and a Git
+checkout of FUNLIB at commit
+`1d0d2ea221cdb7b22d611d8cef474ebd518fb70f`:
+
+```sh
+SIM36="$PWD/build/linux/sim36" \
+SIM36_VOLUME=/private/path/as36.img \
+FUNLIB_DIR=/tmp/FUNLIB \
+S36_PORT_BASE=26300 \
+test/startrek-acceptance.sh
+```
+
+The runner verifies the pinned commit and source checksums, creates a
+deterministic installation tape, and copies the AS/36 image into its private
+temporary directory.  It never writes the source image.  The driver restores
+three source/procedure members with BLDLIBR, compiles the display format and
+RPG source, drives a representative TN5250 game session, exports the complete
+guest library with FROMLIBR, unloads and structurally verifies the writable
+tape, reopens it read-only, restores it into a second unique library,
+recompiles, and runs the restored program.  A 40-minute outer timeout bounds
+the complete workflow.
+
+Outside the gated environment the test exits with CTest's skip status when
+either input is absent.  `STARTREK_TAPE`, `STARTREK_EXPORT_TAPE`, the disposable
+volume, generated media, and FUNLIB sources are never repository artifacts.
+CI obtains the AS/36 image through the existing `AS36_MEDIA_PAT` private-media
+checkout and checks out only the pinned public FUNLIB commit.  Neither input
+is uploaded.  Failure diagnostics are limited to text monitor/TN5250 traces;
+they contain no disk image data or credentials.
+
+The acceptance scope is deliberately narrow: it establishes the tape IOB
+forms and SSP labeled-library organization recorded in
+[`startrek-tape-discovery.md`](startrek-tape-discovery.md).  Other tape command
+forms and label organizations remain refused until independently established.
+
 The folder format can faithfully represent arbitrary block and filemark
 streams.  Its SSP library authoring intentionally supports only the verified
 single-dataset FROMLIBR/BLDLIBR form.  Other HDR/EOF variants, SSP

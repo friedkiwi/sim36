@@ -19,10 +19,18 @@ from tn5250drive import Session  # noqa: E402
 
 def main():
     tape = os.environ["STARTREK_TAPE"]
+    install_library = os.environ.get("STARTREK_LIBRARY", "TRKSTB")
+    restore_library = os.environ.get("STARTREK_RESTORE_LIBRARY", "TRKRT2")
+    for name, value in (("STARTREK_LIBRARY", install_library),
+                        ("STARTREK_RESTORE_LIBRARY", restore_library)):
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{0,7}", value):
+            raise ValueError("%s must be an uppercase System/36 library name" % name)
+    if install_library == restore_library:
+        raise ValueError("STARTREK_LIBRARY and STARTREK_RESTORE_LIBRARY must differ")
     current_tape = tape
     current_tape_mode = "ro"
     library_ready = bool(os.environ.get("STARTREK_SKIP_INSTALL"))
-    active_library = "TRKSTB"
+    active_library = install_library
     port = int(os.environ.get("S36_PORT_BASE", "26300"))
     requested_volume = os.environ.get("STARTREK_PRIVATE_VOLUME")
     private_dir = None if requested_volume else tempfile.mkdtemp(
@@ -130,7 +138,8 @@ def main():
 
         display = sessions[1]
         if not os.environ.get("STARTREK_SKIP_INSTALL"):
-            display.type_at(22, 3, "BLDLIBR TRKSTB,5000,,,DISCFILE,TC,,,,REWIND")
+            display.type_at(22, 3, "BLDLIBR %s,5000,,,DISCFILE,TC,,,,REWIND" %
+                            install_library)
             display.press("Enter")
             display.wait_for_text("BLDLIBR procedure is running", timeout=120)
             display.wait_for_text("Main System/36 help menu", timeout=600)
@@ -282,7 +291,8 @@ def main():
                                      (statement, text[-12000:]))
 
         if not os.environ.get("STARTREK_SKIP_INSTALL"):
-            submit("FORMAT CREATE,STREKFM,TRKSTB,STREKFM,TRKSTB,22,,HALT,NOPRINT",
+            submit("FORMAT CREATE,STREKFM,%s,STREKFM,%s,22,,HALT,NOPRINT" %
+                   (install_library, install_library),
                    "FORMAT procedure is running", 600)
             # The disposable volume persists the guest changes, while a fresh
             # emulator/SSP process resets transient scheduler and workstation job
@@ -290,8 +300,9 @@ def main():
             restart_guest()
             display = sessions[1]
         if not os.environ.get("STARTREK_SKIP_COMPILE"):
-            submit("RPGC STREK,TRKSTB,NODSM,CRT,NOXREF,0,NONEP,TRKSTB,,,,"
-                   "NOHALT,REPLACE,LINK,NOOBJECT,,GEN,40,,NOMRO",
+            submit("RPGC STREK,%s,NODSM,CRT,NOXREF,0,NONEP,%s,,,,"
+                   "NOHALT,REPLACE,LINK,NOOBJECT,,GEN,40,,NOMRO" %
+                   (install_library, install_library),
                    "RPGC procedure is running", 900)
         game_mark = len(transcript)
         display.type_at(22, 3, "STREK")
@@ -350,7 +361,8 @@ def main():
             restart_guest()
             display = sessions[1]
             export_mark = len(transcript)
-            submit("FROMLIBR ALL,LIBRARY,TRKLIB,TC,1,TRKOUT,TRKSTB,,,UNLOAD",
+            submit("FROMLIBR ALL,LIBRARY,TRKLIB,TC,1,TRKOUT,%s,,,UNLOAD" %
+                   install_library,
                    "FROMLIBR procedure is running", 300)
             export_trace = monitor_text(export_mark)
             if "NOT MAPPED" in export_trace:
@@ -367,20 +379,21 @@ def main():
             current_tape_mode = "ro"
             restart_guest()
             display = sessions[1]
-            display.type_at(22, 3,
-                            "BLDLIBR TRKRT2,5000,,,TRKLIB,TC,,,,REWIND")
+            display.type_at(22, 3, "BLDLIBR %s,5000,,,TRKLIB,TC,,,,REWIND" %
+                            restore_library)
             display.press("Enter")
             display.wait_for_text("BLDLIBR procedure is running", timeout=120)
             display.wait_for_text("Main System/36 help menu", timeout=600)
 
-            active_library = "TRKRT2"
+            active_library = restore_library
             restart_guest()
             display = sessions[1]
             # The complete-library payload includes the generated display
             # member.  Recompile and relink the RPG source against that
             # restored member; a successful run below proves both survived.
-            submit("RPGC STREK,TRKRT2,NODSM,CRT,NOXREF,0,NONEP,TRKRT2,,,,"
-                   "NOHALT,REPLACE,LINK,NOOBJECT,,GEN,40,,NOMRO",
+            submit("RPGC STREK,%s,NODSM,CRT,NOXREF,0,NONEP,%s,,,,"
+                   "NOHALT,REPLACE,LINK,NOOBJECT,,GEN,40,,NOMRO" %
+                   (restore_library, restore_library),
                    "RPGC procedure is running", 900)
             display.type_at(22, 3, "STREK")
             display.press("Enter")

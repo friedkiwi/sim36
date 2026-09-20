@@ -51,8 +51,25 @@ jobs:
         run: |
           gzip -dc .ci-as36-media/as36_cicd.img.gz > "$RUNNER_TEMP/as36_cicd.img"
           echo "SIM36_VOLUME=$RUNNER_TEMP/as36_cicd.img" >> "$GITHUB_ENV"
+      - name: Checkout pinned FUNLIB input
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/checkout@v4
+        with:
+          repository: jgeorge44/FUNLIB
+          ref: 1d0d2ea221cdb7b22d611d8cef474ebd518fb70f
+          path: .ci-funlib
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Select pinned FUNLIB input
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "FUNLIB_DIR=$GITHUB_WORKSPACE/.ci-funlib" >> "$GITHUB_ENV"
       - name: Test
         run: ctest --preset linux
+      - name: Remove non-vendored FUNLIB input
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          find .ci-funlib -depth -type f -delete 2>/dev/null || true
+          find .ci-funlib -depth -type d -empty -delete 2>/dev/null || true
       - name: Remove AS/36 test volume
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: rm -f "$RUNNER_TEMP/as36_cicd.img"
