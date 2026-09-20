@@ -97,6 +97,21 @@ given.  With `--force`, the new directory is fully built and verified beside
 the destination, the old destination is renamed aside, and only then is the
 new directory renamed into place.  A failed swap restores the old directory.
 
+The running simulator also exposes the backend's positioning primitives for
+diagnosis and operator-driven media preparation:
+
+```text
+tape position
+tape rewind
+tape space block <count>
+tape space file <count>
+tape mark [count]
+```
+
+Spacing counts may be negative.  Every command reports both the operation
+result and the resulting file/block position.  `tape mark` refuses a
+read-only mount and never silently converts a failed mark into success.
+
 ## Tests and limitations
 
 Run the media-independent suite with:

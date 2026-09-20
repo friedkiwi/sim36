@@ -71,6 +71,34 @@ check "unload dismounts and flushes             " "tape unloaded (writes flushed
 # The tally proves the manifest on disk is what the listing claimed.
 check "the manifest names blob 0002.dat         " "0002.dat"
 
+# Positioning and filemark commands report both the operation result and the
+# resulting head location.  Use a separate cartridge so this exercise cannot
+# alter the listing fixture above.
+cat > "$TMP/position.sim" <<EOF
+ipl pause
+tape init $TMP/pos POS001 TEST
+tape load $TMP/pos
+tape position
+tape space block 1
+tape space file 1
+tape rewind
+tape space file 1
+tape mark 2
+tape position
+tape unload
+tape load $TMP/pos ro
+tape mark
+quit
+EOF
+out=$($SIM36 -c "$TMP/default-machine.sim" -s "$TMP/position.sim" 2>&1)
+check "position reports load point               " "tape position: file 0 block 0 BOT"
+check "block spacing stops at a tape mark        " "tape space block 1: Ok, moved 1; file 0 block 1 @mark"
+check "file spacing crosses the mark             " "tape space file 1: Ok, moved 1; file 1 block 0 EOD"
+check "rewind reports the resulting BOT          " "tape rewind: Ok; file 0 block 0 BOT"
+check "mark writes consecutive filemarks         " "tape mark 2: Ok, wrote 2; file 3 block 0 EOD"
+check "position sees the consecutive marks       " "tape position: file 3 block 0 EOD"
+check "read-only filemark writes are refused     " "tape mark 1: WriteProtected, wrote 0"
+
 # The init helper actually created the folder and its manifest.
 [ -f "$TMP/tp/manifest.json" ] && ok "init created manifest.json on disk       " \
                                || bad "init created manifest.json on disk       " "(absent)"

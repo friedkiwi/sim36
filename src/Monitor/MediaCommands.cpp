@@ -293,7 +293,49 @@ void MonitorCli::tape(const std::vector<std::string>& a)
         tapeStatus();
         return;
     }
-    fmt::print("tape [load <dir> [ro] | unload | init <dir> <volid> [owner] | vtoc | files]\n");
+    storage::ITapeBackend* medium = drive.medium();
+    if (what == "position") {
+        if (!medium) { fmt::print("REFUSED: the tape drive is empty\n"); return; }
+        fmt::print("tape position: {}\n", medium->readPosition().toString());
+        return;
+    }
+    if (what == "rewind") {
+        if (!medium || !medium->loaded()) { fmt::print("REFUSED: the tape drive is not ready\n"); return; }
+        medium->rewind();
+        fmt::print("tape rewind: Ok; {}\n", medium->readPosition().toString());
+        return;
+    }
+    if (what == "space") {
+        if (a.size() != 4 || (toLower(a[2]) != "block" && toLower(a[2]) != "file")) {
+            fmt::print("tape space <block|file> <count>\n");
+            return;
+        }
+        if (!medium || !medium->loaded()) { fmt::print("REFUSED: the tape drive is not ready\n"); return; }
+        const int count = parseInt(a[3]);
+        int spaced = 0;
+        const bool files = toLower(a[2]) == "file";
+        TapeResult result = files ? medium->spaceFiles(count, spaced) : medium->spaceRecords(count, spaced);
+        fmt::print("tape space {} {}: {}, moved {}; {}\n", files ? "file" : "block", count,
+                   storage::tapeResultName(result), spaced, medium->readPosition().toString());
+        return;
+    }
+    if (what == "mark") {
+        if (a.size() > 3) { fmt::print("tape mark [count]\n"); return; }
+        if (!medium || !medium->loaded()) { fmt::print("REFUSED: the tape drive is not ready\n"); return; }
+        const int count = a.size() == 3 ? parseInt(a[2]) : 1;
+        if (count < 1) { fmt::print("REFUSED: tape mark count must be positive\n"); return; }
+        int written = 0;
+        TapeResult result = TapeResult::Ok;
+        for (; written < count; ++written) {
+            result = medium->writeTapeMark();
+            if (result != TapeResult::Ok) break;
+        }
+        fmt::print("tape mark {}: {}, wrote {}; {}\n", count, storage::tapeResultName(result), written,
+                   medium->readPosition().toString());
+        return;
+    }
+    fmt::print("tape [load <dir> [ro] | unload | init <dir> <volid> [owner] | status | position | rewind | "
+               "space <block|file> <count> | mark [count] | vtoc | files]\n");
 }
 
 void MonitorCli::tapeStatus()
