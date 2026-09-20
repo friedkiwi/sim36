@@ -249,8 +249,9 @@ std::vector<uint8_t> VirtualWorkstation::wrapWsdmTextAs5250(const uint8_t* data,
 }
 
 // Command hex FF, Invite. SSP invites a station and waits for it to have
-// something to say. DP mode carries no data stream; WP mode requires the
-// explicit D932 READ TEXT SCREEN which unlocks Controller Text Assist.
+// something to say.  RFC 1205 Invite reverses transport flow but does not
+// establish a terminal read operation; send the matching DP/WP read command
+// in a Put/Get so strict clients enable the appropriate input path.
 bool VirtualWorkstation::invite()
 {
     inviteOutstanding_ = true;
@@ -259,9 +260,9 @@ bool VirtualWorkstation::invite()
         trace_.ws("station {}: invited with D932 READ TEXT SCREEN", id());
         return backend_->sendSavedReadMode(0x21);
     }
-    activeReadMode_ = 1;
-    trace_.ws("station {}: invited", id());
-    return backend_->setInputEnabled(true);
+    activeReadMode_ = 0x20;
+    trace_.ws("station {}: invited with READ MDT FIELDS", id());
+    return backend_->sendSavedReadMode(0x20);
 }
 
 // Withdraw an invite.  RFC 1205 section 4.2: the server sends Cancel Invite

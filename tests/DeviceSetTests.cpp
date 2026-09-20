@@ -128,6 +128,78 @@ TEST_CASE("workstation: an A7 response survives until the same IOB's C1 status "
     CHECK(state.readByte(tub + 0x16) == 0x01);
 }
 
+TEST_CASE("workstation: reading retained fields retires their one-shot C1 status")
+{
+    EmptyVolume volume;
+    machine::MachineState state(64 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+
+    host::WorkstationBackend terminal("127.0.0.1", 0, "test station", &trace, [] {});
+    terminal.attachConsole();
+    configuration::StationConfig config;
+    config.address = 1;
+    devices::VirtualWorkstation station(config, terminal, trace, false);
+    devices.addStation(station);
+
+    constexpr int tub = 0x1000;
+    constexpr int putData = 0x2000;
+    constexpr int readData = 0x2100;
+    constexpr int putIob = 0x3000;
+    constexpr int readIob = 0x3100;
+    constexpr int requestBlock = 0x3800;
+    state.writeHalf(tub, devices::WorkStationIob::kUnitBlockEyecatcher);
+    state.writeByte(tub + devices::WorkStationIob::kOffUnitAddress, 0x01);
+    state.writeByte(tub + devices::WorkStationIob::kOffClass, 0xC1);
+    state.writeByte(putIob + devices::WorkStationIob::kOffClass,
+                    devices::WorkStationIob::kClassWorkStation);
+    state.writeByte(putIob + devices::WorkStationIob::kOffCommand,
+                    devices::WorkStationIob::kCmdPutWithInvite);
+    state.writeByte(putIob + devices::WorkStationIob::kOffUnitAddress, 0x01);
+    state.writeAddr24(putIob + devices::WorkStationIob::kOffDataBuffer, putData);
+    state.writeHalf(putIob + devices::WorkStationIob::kOffLength, 4);
+    state.writeAddr24(putIob + devices::WorkStationIob::kOffUnitBlock, tub);
+    state.writeByte(putData + 0, 0x04);
+    state.writeByte(putData + 1, 0x11);
+    state.writeByte(putData + 2, 0x00);
+    state.writeByte(putData + 3, 0x00);
+
+    processors::controlstorage::SvcRequest request;
+    request.r = 0x43;
+    request.requestBlock = requestBlock;
+    processors::controlstorage::RequestBlock::writeXr1(state, requestBlock, putIob);
+    REQUIRE(devices.deviceSvc(request));
+
+    terminal.injectInput(host::WorkstationRecord(
+        host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None,
+        std::vector<uint8_t>{0x17, 0x02, 0xF1, 0xC2, 0xC1, 0xE2, 0xC9, 0xC3}));
+    REQUIRE(devices.tryDeliverInputStatus(tub));
+    int completedIob = 0;
+    REQUIRE(devices.tryCompletePendingInput(completedIob));
+    CHECK(completedIob == putIob);
+
+    state.writeByte(readIob + devices::WorkStationIob::kOffClass,
+                    devices::WorkStationIob::kClassWorkStation);
+    state.writeByte(readIob + devices::WorkStationIob::kOffCommand, 0x42);
+    state.writeByte(readIob + devices::WorkStationIob::kOffUnitAddress, 0x01);
+    state.writeAddr24(readIob + devices::WorkStationIob::kOffDataBuffer, readData);
+    state.writeHalf(readIob + devices::WorkStationIob::kOffLength, 5);
+    state.writeAddr24(readIob + devices::WorkStationIob::kOffUnitBlock, tub);
+    processors::controlstorage::RequestBlock::writeXr1(state, requestBlock, readIob);
+    REQUIRE(devices.deviceSvc(request));
+    REQUIRE(devices.tryCompletePendingInput(completedIob));
+    CHECK(completedIob == readIob);
+    CHECK(state.readByte(readData) == 0xC2);
+    CHECK(state.readByte(readData + 4) == 0xC3);
+
+    // The response has now been consumed.  Reusing the original C1 output
+    // block must wait for a new terminal AID instead of replaying Enter.
+    processors::controlstorage::RequestBlock::writeXr1(state, requestBlock, putIob);
+    REQUIRE(devices.deviceSvc(request));
+    CHECK(devices.isPending(putIob));
+}
+
 TEST_CASE("workstation: command 27 unwraps an SSP saved-screen envelope as RFC 1205 restore")
 {
     EmptyVolume volume;

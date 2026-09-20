@@ -254,6 +254,9 @@ public:
     bool pendingInputHasFields() const;
     // Return cursor/AID from the head record once, without dequeuing it.
     bool tryTakeInputStatus(uint16_t& cursor, uint8_t& aid);
+    // Take an out-of-band RFC 1205 Attention/System Request control.  These
+    // are not cursor/AID input and must never occupy the input-field park.
+    bool tryTakeUnsolicitedRequest(WorkstationRecordFlags& flags);
     bool tryReceive(WorkstationRecord& record);
     bool tryTakeSaveScreen(std::vector<uint8_t>& body);
     // Harness entry point: the monitor's `wsinput` exercises the receive
@@ -277,6 +280,7 @@ private:
     std::deque<WorkstationRecord> inbound_;
     std::deque<WorkstationRecord> saveResponses_;
     std::deque<DiagnosticRecord> history_;
+    WorkstationRecordFlags unsolicitedRequest_ = WorkstationRecordFlags::None;
     bool headStatusTaken_ = false;
     long long historySequence_ = 0;
     std::atomic<bool> inputEnabled_{false};

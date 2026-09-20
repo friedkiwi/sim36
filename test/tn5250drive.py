@@ -1064,11 +1064,11 @@ class Session(object):
         return self.frame(0x00, bytes(body))
 
     @staticmethod
-    def frame(opcode, body):
+    def frame(opcode, body, flags=0):
         """Wrap a 5250 body in the RFC 1205 logical record header."""
         length = 10 + len(body)
         record = bytes([length >> 8, length & 0xFF, 0x12, 0xA0,
-                        0x00, 0x00, 0x04, 0x00, 0x00, opcode]) + body
+                        0x00, 0x00, 0x04, flags & 0xFF, 0x00, opcode]) + body
         wire = record.replace(b"\xff", b"\xff\xff") + bytes([IAC, EOR])
         return record, wire
 
@@ -1095,6 +1095,12 @@ class Session(object):
                 f._pending = None
                 f.mdt = False
         return record
+
+    def attention(self, system_request=False):
+        """Send an out-of-band 5250 Attention or System Request control."""
+        flag = 0x04 if system_request else 0x40
+        record, wire = self.frame(0x00, b"", flags=flag)
+        return self.send_record(record, wire)
 
     def arm_auto_answer(self, aid="Enter", limit=0):
         """Answer invited Put/Gets from the reader thread, immediately.
@@ -1128,6 +1134,8 @@ tn5250drive script commands (one per line; # starts a comment):
   type <label> = <value>     type into the field with that caption
   typeat <row> <col> <value> type into the field covering that position
   press <AID>                Enter / F1..F24 / Help / Clear / RollUp ...
+  attention                  send the out-of-band 5250 Attention key
+  sysreq                     send the out-of-band 5250 System Request key
   expect <text>              fail unless the screen contains <text>
   screen                     print the screen with a ruler
   fields                     print the derived field table
@@ -1189,6 +1197,10 @@ def run_script(lines, sessions=None, out=sys.stdout):
                           line.split(None, 3)[3].strip('"'))
         elif verb == "press":
             cur().press(parts[1] if len(parts) > 1 else "Enter")
+        elif verb == "attention":
+            cur().attention()
+        elif verb == "sysreq":
+            cur().attention(system_request=True)
         elif verb == "expect":
             want = line[len("expect"):].strip().strip('"')
             if not cur().screen.contains(want):

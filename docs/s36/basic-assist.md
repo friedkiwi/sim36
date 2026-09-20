@@ -336,6 +336,30 @@ in place without changing SP.  The same live stream proves that SSP emits
 numeric opcode `98` for source `<`; this corrected the relational table and
 restored the mixed branch output seen on native SLIC.
 
+The unbounded form is also the workstation Attention regression.  Attention
+is an out-of-band RFC 1205 `NoOperation` with flag `40`, not an AID record.
+It is kept out of the field-input park and delivered through the native
+`TU+8E=F2`/internal-condition path, which SSP classifies as request `8202` and
+routes to `#CPT2`.  This command verifies that a running BASIC job opens the
+SSP `INQUIRY OPTIONS` panel:
+
+System Request is the other ordinary operator key on this out-of-band path:
+RFC flag `04` maps to controller function `F0` and SSP request `8000`/`#CPT3`.
+The RFC `Test Request` and `Help in error state` bits are diagnostic/error
+controls with distinct guest routes; they are not aliases for Attention.
+Enter, command/PF keys, Clear, Help, Roll and Record Backspace remain normal
+5250 AIDs.  Reset is local terminal state and sends no guest key.  In the
+stock `tn5250` client Attention is Ctrl-A (or Escape then uppercase A), and
+System Request is Ctrl-C (or Escape then uppercase S).
+
+```sh
+env SIM36="$PWD/build/sim36" \
+  SIM36_VOLUME="$PWD/images/volumes/as36.img" S36_PORT_BASE=24440 \
+  S36_BASIC_COMMAND=1 S36_BASIC_ATTENTION=1 \
+  S36_BASIC_STATEMENT_FILE="$PWD/test/basic-attention-lines.txt" \
+  python3 test/ipl-main-session.py --basic-research
+```
+
 A representative trace excerpt is:
 
 ```text

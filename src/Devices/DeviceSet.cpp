@@ -573,6 +573,13 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
         }
     }
 
+    // Read Input Fields consumes the retained terminal response.  Its earlier
+    // AID status may have driven the command router directly, without a C1
+    // output-completion pass.  Retire that one-shot status here so a later
+    // put from the program that was just launched cannot mistake the launch
+    // Enter for fresh input (BASIC otherwise reads an empty first command).
+    inputResponseStatus_.erase(pending->slot->unitAddress());
+
     // Read Input Fields is a second action with a second control field
     // response: it starts from a cleared action status, sets the modify data
     // tag when field bytes are present, then clears AID-present and the AID

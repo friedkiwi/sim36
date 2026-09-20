@@ -201,6 +201,11 @@ def main():
             except TimeoutError:
                 pass
             print(w2.screen.render("=== W2 BASIC AFTER DEFAULTS ===", fields=True))
+            if not w2.screen.contains("BAS-0001 BASIC"):
+                raise AssertionError(
+                    "BASIC startup did not remain at the initial BAS-0001 prompt")
+            if w2.screen.contains("BAS-1100"):
+                raise AssertionError("BASIC startup replayed the launch Enter as an empty command")
 
             # A restored keyboard is not sufficient for a strict TN5250
             # client.  The C1 response wait must also reverse the RFC 1205
@@ -209,11 +214,12 @@ def main():
             # Enter.  The research driver historically allowed that input and
             # therefore masked the missing adapter transition.
             basic_records = w2.records[basic_submit_record_mark:]
-            if not any(len(record) >= 10 and record[9] == 0x01
+            if not any(len(record) >= 14 and record[9] == 0x03 and
+                       record[10:14] == bytes([0x04, 0x52, 0x00, 0x00])
                        for record in basic_records):
                 raise AssertionError(
-                    "BASIC prompt restored the keyboard without an RFC Invite")
-            print("BASIC C1 response wait emitted RFC Invite: yes")
+                    "BASIC prompt restored the keyboard without a Put/Get Read-MDT request")
+            print("BASIC C1 response wait emitted Put/Get Read-MDT: yes")
 
             # Let the job initiation settle, then decode the station-to-job
             # association the guest published on W2's TU (TU+60 owning job
@@ -304,6 +310,29 @@ def main():
                         os.environ.get("S36_BASIC_STATEMENT_WAIT", "5")))
                     try:
                         w2.wait_for_change(timeout=60, since=generation)
+                        if (os.environ.get("S36_BASIC_ATTENTION") == "1" and
+                                statement_index == len(direct_statements) - 1):
+                            time.sleep(float(os.environ.get("S36_BASIC_ATTENTION_DELAY", "1")))
+                            w2.attention()
+                            try:
+                                w2.wait_for_text("INQUIRY OPTIONS", timeout=float(
+                                    os.environ.get("S36_BASIC_ATTENTION_TIMEOUT", "60")))
+                            except TimeoutError as exc:
+                                print("=== BASIC ATTENTION TRACE ===", file=sys.stderr)
+                                print("".join(transcript[mark:]), file=sys.stderr)
+                                raise AssertionError(
+                                    "Attention did not open INQUIRY OPTIONS") from exc
+                            w2.settle(quiet=0.75, timeout=10)
+                            print(w2.screen.render(
+                                "=== W2 AFTER BASIC ATTENTION ===", fields=True))
+                            if not w2.screen.contains("Current Interrupted Job"):
+                                raise AssertionError(
+                                    "Attention did not identify the interrupted BASIC job")
+                            if not w2.screen.contains("Resume current interrupted job"):
+                                raise AssertionError(
+                                    "Attention did not display the inquiry options")
+                            print("RESEARCH RESULT: BASIC Attention opened INQUIRY OPTIONS")
+                            return 0
                         w2.settle(quiet=0.75, timeout=10)
                     except TimeoutError:
                         pass

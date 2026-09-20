@@ -1,0 +1,3 @@
+10 IF (RND < 0.5) THEN PRINT "/"; ELSE PRINT "\";
+20 GOTO 10
+GO

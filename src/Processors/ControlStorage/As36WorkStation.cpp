@@ -394,18 +394,23 @@ bool As36ControlStorageProcessor::postPowerOnInternalCondition(const std::string
     trace_.csp("{}: nupoic00 ACE {:04X} -> task {:04X}; condition {:06X}, event 0000, flags C8, returned XR1 {:06X}, saved "
                "XR2 000000",
                call, ace, tb, kPowerOnInternalCondition, kPowerOnInternalCondition);
+    // This is an asynchronous controller interrupt, not a supervisor call
+    // made by the currently dispatched task.  The interrupted program may
+    // have task switching disabled in its PMR (BASIC does while it emits a
+    // display stream).  SLIC crosses back into the dispatcher before it
+    // posts nupoic00; model that boundary before completeToTask tries to run
+    // the newly readied, higher-priority command router.
+    enableDispatching(call, "power-on internal-condition interrupt");
     bool ok = completeToTask(ace, 0, call);
-    if (ok && resumeFromMonitor) {
-        restoreRegisters(currentRequestBlock_);
-        enableDispatching(call, "power-on internal-condition resume");
-    }
+    if (ok && resumeFromMonitor) restoreRegisters(currentRequestBlock_);
     return ok;
 }
 
 bool As36ControlStorageProcessor::deliverWorkStationControllerFunction(int tub, uint8_t function, bool storeByte,
                                                                       bool postInterrupt, const std::string& call,
-                                                                      bool resumeFromMonitor)
+                                                                      bool resumeFromMonitor, bool* postedGuestWork)
 {
+    if (postedGuestWork != nullptr) *postedGuestWork = false;
     if (tub == 0 || m_.readHalf(tub) != WorkStationIob::kUnitBlockEyecatcher) {
         trace_.csp("{}: {:06X} is not a terminal unit block", call, tub);
         return false;
@@ -414,7 +419,19 @@ bool As36ControlStorageProcessor::deliverWorkStationControllerFunction(int tub, 
         m_.writeByte(tub + UnitBlock::kOffConfigured, function);
         trace_.csp("{}: wspostcp controller response {:02X} -> TU {:06X}+8E", call, function, tub);
     }
-    return !postInterrupt || postPowerOnInternalCondition(call + " nupoic00", resumeFromMonitor);
+    if (!postInterrupt) return true;
+
+    // nupoic00 is also legal while task 0009 is running: in that case the
+    // ACE stays on its complete queue until its next event wait.  Distinguish
+    // that accepted-but-deferred post from one which actually made guest work
+    // runnable, so the host event pump does not force a dispatch from the
+    // task's stale saved IAR.
+    const int target = findTaskById(0x0009, 0);
+    const bool wasWaiting = target != 0 && (m_.readByte(target + TaskBlock::kOffStat2) & kWaitEvent) != 0;
+    const bool accepted = postPowerOnInternalCondition(call + " nupoic00", resumeFromMonitor);
+    if (postedGuestWork != nullptr && accepted && wasWaiting)
+        *postedGuestWork = (m_.readByte(target + TaskBlock::kOffStat2) & kWaitEvent) == 0;
+    return accepted;
 }
 
 bool As36ControlStorageProcessor::setWorkStationOcActive(int tub, bool active, const std::string& call)

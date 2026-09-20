@@ -75,3 +75,34 @@ TEST_CASE("workstation: Text Assist family tables do not falsely enter WP mode")
     REQUIRE(station.outputData(audit.data(), 0, static_cast<int>(audit.size())));
     CHECK(station.inviteReadMode() == devices::PutWithInviteReadMode::ReadInputFields20);
 }
+
+TEST_CASE("workstation: DP invite establishes Read MDT and control keys bypass field input")
+{
+    monitor::Tracer trace;
+    host::WorkstationBackend terminal("127.0.0.1", 0, "test station", &trace, [] {});
+    terminal.attachConsole();
+    configuration::StationConfig config;
+    devices::VirtualWorkstation station(config, terminal, trace, false);
+
+    REQUIRE(station.invite());
+    auto history = terminal.captureDiagnosticHistory();
+    REQUIRE(!history.empty());
+    CHECK(history.back().opcode == host::WorkstationOpcode::PutGet);
+    CHECK(history.back().data == std::vector<uint8_t>{0x04, 0x52, 0x00, 0x00});
+    CHECK(station.activeReadMode() == 0x20);
+
+    terminal.injectInput(host::WorkstationRecord(
+        host::WorkstationOpcode::NoOperation, host::WorkstationRecordFlags::Attention, {}));
+    CHECK(terminal.attentionPending());
+    CHECK(terminal.pendingInput() == 0);
+    host::WorkstationRecordFlags flags;
+    REQUIRE(terminal.tryTakeUnsolicitedRequest(flags));
+    CHECK(flags == host::WorkstationRecordFlags::Attention);
+    CHECK_FALSE(terminal.tryTakeUnsolicitedRequest(flags));
+
+    terminal.injectInput(host::WorkstationRecord(
+        host::WorkstationOpcode::NoOperation, host::WorkstationRecordFlags::SystemRequest, {}));
+    CHECK(terminal.pendingInput() == 0);
+    REQUIRE(terminal.tryTakeUnsolicitedRequest(flags));
+    CHECK(flags == host::WorkstationRecordFlags::SystemRequest);
+}

@@ -67,7 +67,8 @@ public:
     // response byte to the unit block's +0x8E, then optionally raise the
     // internal condition.
     bool deliverWorkStationControllerFunction(int tub, uint8_t function, bool storeByte, bool postInterrupt,
-                                              const std::string& call, bool resumeFromMonitor = true);
+                                              const std::string& call, bool resumeFromMonitor = true,
+                                              bool* postedGuestWork = nullptr);
     // Monitor-only control of the OC active bit a command task reads.
     bool setWorkStationOcActive(int tub, bool active, const std::string& call);
 

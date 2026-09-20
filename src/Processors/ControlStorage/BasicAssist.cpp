@@ -94,7 +94,19 @@ public:
                 return result;
             }
         }
-        return fatal(fmt::format("BASIC instruction limit reached at internal IP {:04X}", ip_));
+        // The real extended-control-store interpreter is interruptible between
+        // bursts.  A tight BASIC loop can otherwise keep this synchronous host
+        // call forever, preventing the appliance event pump from observing an
+        // Attention key (and turning this guard into a false BASIC failure).
+        // Publish the complete guest-visible interpreter state and re-execute
+        // this XFER after the MSP has had an architected preemption point.
+        if (!commit()) return storageError("committing BASIC state at a burst boundary");
+        restoreTaskFlags();
+        context_.setRequestHalf(RequestBlock::kOffIar, context_.sourceIar());
+        context_.trace().basicAssist(
+            "BASIC burst yield IP={:04X} SP={:04X} control={:04X}; resume XFER at {:04X}",
+            ip_, sp_, controlPointer_, context_.sourceIar());
+        return AssistResult::complete();
     }
 
 private:

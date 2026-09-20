@@ -220,6 +220,33 @@ TEST_CASE("NuBasic cached and unresolved transfers preserve resumable state")
     CHECK(state.readHalf(request + RequestBlock::kOffXr2Low) == 0x3456);
 }
 
+TEST_CASE("NuBasic tight loops yield at an interruptible XFER burst boundary")
+{
+    machine::MachineState state(64 * 1024);
+    monitor::Tracer trace;
+    constexpr int request = 0x1000;
+    constexpr int task = 0x0F00;
+    constexpr int control = 0x2000;
+    constexpr uint16_t xfer = 0x3FCA;
+    seedBasicExit(state, request, control);
+    state.writeByte(task + 4, 0x0F);
+    state.writeHalf(request + RequestBlock::kOffIar, 0x3FCD);
+
+    // Opcode 30's cached target is itself, so no ordinary BASIC exit can
+    // provide the appliance event pump with a scheduling boundary.
+    const uint8_t loop[] = {0x30, 0x80, 0x30, 0x00};
+    state.write(0x3000, loop, sizeof loop);
+
+    BasicAssist basic;
+    AssistContext context(state, trace, task, request, 0x02, 0x00, xfer);
+    REQUIRE(basic.execute(context).status == AssistStatus::Completed);
+    CHECK(state.readHalf(control + 19) == 0x3000);
+    CHECK(state.readHalf(control + 25) == 0x4000);
+    CHECK(state.readHalf(control + 31) == 0x4200);
+    CHECK(state.readHalf(request + RequestBlock::kOffIar) == xfer);
+    CHECK(state.readByte(task + 4) == 0x05);
+}
+
 TEST_CASE("NuBasic control return uses the displacement-mode unresolved continuation")
 {
     machine::MachineState state(64 * 1024);

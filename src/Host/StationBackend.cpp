@@ -342,6 +342,7 @@ void WorkstationBackend::clearForPowerOff()
     std::lock_guard<std::mutex> lock(gate_);
     inbound_.clear();
     saveResponses_.clear();
+    unsolicitedRequest_ = WorkstationRecordFlags::None;
     headStatusTaken_ = false;
     inputEnabled_ = false;
 }
@@ -435,6 +436,7 @@ void WorkstationBackend::resetForMachine()
         std::lock_guard<std::mutex> lock(gate_);
         inbound_.clear();
         saveResponses_.clear();
+        unsolicitedRequest_ = WorkstationRecordFlags::None;
         history_.clear();
         historySequence_ = 0;
         headStatusTaken_ = false;
@@ -458,32 +460,62 @@ void WorkstationBackend::enqueue(const WorkstationRecord& r)
     // body can be thousands of bytes long, but it is not cursor/AID input
     // and must never raise input attention.
     const uint8_t attentionKeys = flagsByte(WorkstationRecordFlags::Attention | WorkstationRecordFlags::SystemRequest);
-    if (!saveResponse && ((flagsByte(r.flags) & attentionKeys) != 0 || r.data.size() >= 3)) raiseAttention();
+    const uint8_t unsolicited = static_cast<uint8_t>(flagsByte(r.flags) & attentionKeys);
+    const bool raisesAttention = !saveResponse && (unsolicited != 0 || r.data.size() >= 3);
     bool overran = false;
     {
         std::lock_guard<std::mutex> lock(gate_);
-        std::deque<WorkstationRecord>& queue = saveResponse ? saveResponses_ : inbound_;
-        int limit = saveResponse ? kSaveResponseLimit : kInboundLimit;
-        while (static_cast<int>(queue.size()) >= limit) {
-            queue.pop_front();
-            if (!saveResponse) headStatusTaken_ = false;
-            recordsDropped_++;
-            overran = true;
+        if (unsolicited != 0) {
+            overran = unsolicitedRequest_ != WorkstationRecordFlags::None;
+            unsolicitedRequest_ = static_cast<WorkstationRecordFlags>(unsolicited);
+            appendDiagnosticLocked("in", "accepted-control", r.opcode, r.flags, r.data.data(), 0,
+                                   static_cast<int>(r.data.size()));
+            recordsReceived_++;
+            bytesReceived_ += static_cast<long long>(r.data.size());
+        } else {
+            std::deque<WorkstationRecord>& queue = saveResponse ? saveResponses_ : inbound_;
+            int limit = saveResponse ? kSaveResponseLimit : kInboundLimit;
+            while (static_cast<int>(queue.size()) >= limit) {
+                queue.pop_front();
+                if (!saveResponse) headStatusTaken_ = false;
+                recordsDropped_++;
+                overran = true;
+            }
+            queue.push_back(r);
+            appendDiagnosticLocked("in", "accepted", r.opcode, r.flags, r.data.data(), 0,
+                                   static_cast<int>(r.data.size()));
+            recordsReceived_++;
+            bytesReceived_ += static_cast<long long>(r.data.size());
         }
-        queue.push_back(r);
-        appendDiagnosticLocked("in", "accepted", r.opcode, r.flags, r.data.data(), 0, static_cast<int>(r.data.size()));
-        recordsReceived_++;
-        bytesReceived_ += static_cast<long long>(r.data.size());
     }
-    if (overran)
+    if (overran && unsolicited != 0)
+        trace_->ws("{}: unsolicited control slot overwritten by newer {}", label(), flagsName(r.flags));
+    else if (overran)
         trace_->ws("{}: park slot overwritten - a newer response arrived before the guest read the previous one, which "
                    "A/36 also discards (the park is one AID byte plus one cursor halfword, last writer wins)",
                    label());
     trace_->ws("{}: record in  {}", label(), r.toString());
-    // Save-Screen responses deliberately do not raise SSP input attention,
-    // but they still complete a pending native device operation and must
-    // wake a machine parked in its event wait.
-    signalMachine();
+    // Publish the queued record/control before raising its latch.  The guest
+    // thread may poll immediately at a preemption point; exposing the latch
+    // first lets it observe and discard an attention whose control is not yet
+    // visible.  Save-Screen responses do not raise input attention but still
+    // wake their pending native operation.
+    if (raisesAttention)
+        raiseAttention();
+    else
+        signalMachine();
+}
+
+bool WorkstationBackend::tryTakeUnsolicitedRequest(WorkstationRecordFlags& flags)
+{
+    std::lock_guard<std::mutex> lock(gate_);
+    if (unsolicitedRequest_ == WorkstationRecordFlags::None) {
+        flags = WorkstationRecordFlags::None;
+        return false;
+    }
+    flags = unsolicitedRequest_;
+    unsolicitedRequest_ = WorkstationRecordFlags::None;
+    return true;
 }
 
 bool WorkstationBackend::setInputEnabled(bool enabled)

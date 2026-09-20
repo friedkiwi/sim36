@@ -458,6 +458,35 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
         // and sign-on rather than inheriting a session whose display no
         // longer exists.
         if (s.takePowerOffPending()) any = powerOffStation(csp, s) || any;
+        // Attention and System Request are out-of-band RFC 1205 controls,
+        // not AID/field responses and not device-present edges.  The guest's
+        // #CPTC classifier consumes F2 as request 8202 (#CPT2 Attention-key
+        // processor) and F0 as request 8000 (#CPT3 System Request).
+        const int requestTub = s.tubAddress != 0
+                                   ? s.tubAddress
+                                   : csp.resolveConfiguredTubByUnit((s.port() << 4) | s.address());
+        host::WorkstationRecordFlags requestFlags;
+        if (!s.isPrinter() && s.ready() && requestTub != 0 &&
+            s.backend().tryTakeUnsolicitedRequest(requestFlags)) {
+            const bool systemRequest = host::hasFlag(requestFlags, host::WorkstationRecordFlags::SystemRequest);
+            const uint8_t function = systemRequest ? 0xF0 : 0xF2;
+            const char* name = systemRequest ? "System Request" : "Attention";
+            const bool machineWasStopped = m_.msp().stopped();
+            s.takeAttentionPending();
+            bool postedGuestWork = false;
+            const bool delivered = csp.deliverWorkStationControllerFunction(
+                requestTub, function, true, true, "station " + s.id() + " " + name, false, &postedGuestWork);
+            fmt::print("station {}: {} key -> TU {:06X} function {:02X} ({})\n", s.id(), name, requestTub,
+                       function, delivered ? "delivered" : "not delivered");
+            // completeToTask performs an immediate priority dispatch when
+            // task 0009 was waiting.  When it was already running, nupoic00
+            // merely queues the condition for its next wait and must not
+            // force a redispatch from its stale saved IAR.  Only a machine
+            // whose no-task exit left the MSP stopped needs the outer event
+            // pump to clear that host stop latch.
+            any = (postedGuestWork && machineWasStopped) || any;
+            continue;
+        }
         // A response has two independently consumed halves.  Its AID and
         // cursor first pass through the status path into the unit block.
         // Its fields remain queued until a guest Read Input Fields owns an
