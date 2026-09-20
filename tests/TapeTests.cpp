@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Storage/FolderTapeBackend.h"
+#include "Storage/TapeBackend.h"
 
 using namespace sim36;
 
@@ -118,4 +119,41 @@ TEST_CASE("folder tape rejects malformed media before load")
         CHECK(tape.open(reason) == nullptr);
         CHECK(reason.find("decoded labels do not match") != std::string::npos);
     }
+}
+
+TEST_CASE("saved tape positions restore exactly")
+{
+    TapeFolder tape;
+    std::string reason;
+    auto writable = storage::FolderTapeBackend::open(tape.path.string(), false, reason);
+    REQUIRE(writable != nullptr);
+    writable->load();
+
+    int spaced = 0;
+    REQUIRE(writable->spaceFiles(1, spaced) == storage::TapeResult::Ok);
+    const uint8_t one[] = {1, 2, 3};
+    const uint8_t two[] = {4, 5};
+    REQUIRE(writable->writeBlock(one, 0, 3) == storage::TapeResult::Ok);
+    REQUIRE(writable->writeBlock(two, 0, 2) == storage::TapeResult::Ok);
+    REQUIRE(writable->writeTapeMark() == storage::TapeResult::Ok);
+    writable->unload();
+
+    auto medium = storage::FolderTapeBackend::open(tape.path.string(), true, reason);
+    REQUIRE(medium != nullptr);
+    medium->load();
+
+    auto verifyRestore = [&](const storage::TapePosition& wanted) {
+        INFO(wanted.toString());
+        REQUIRE(storage::restoreTapePosition(*medium, wanted, reason));
+        CHECK(medium->readPosition().toString() == wanted.toString());
+    };
+
+    verifyRestore({0, 0, false, true, false});
+    verifyRestore({1, 1, false, false, false});
+    verifyRestore({1, 2, true, false, false});
+    verifyRestore({2, 0, false, false, true});
+
+    storage::TapePosition impossible{3, 0, false, false, true};
+    CHECK_FALSE(storage::restoreTapePosition(*medium, impossible, reason));
+    CHECK(reason.find("cannot restore tape file 3") != std::string::npos);
 }

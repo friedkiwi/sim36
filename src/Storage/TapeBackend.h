@@ -124,4 +124,8 @@ public:
     virtual TapePosition readPosition() const = 0;
 };
 
+// Reconstruct an exact saved position using only portable tape primitives.
+// A different or truncated cartridge must not be accepted as restored.
+bool restoreTapePosition(ITapeBackend& tape, const TapePosition& wanted, std::string& reason);
+
 }  // namespace sim36::storage

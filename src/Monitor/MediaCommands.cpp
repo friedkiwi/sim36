@@ -619,6 +619,16 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                         if (st.readByte(buffer + static_cast<int>(i)) != payload[i]) same = false;
                     report("SVC 46 read back returns the written record verbatim", same, sc);
 
+                    back->rewind();
+                    back->spaceFiles(1, spaced);
+                    for (std::size_t i = 0; i < payload.size(); i++) st.writeByte(buffer + static_cast<int>(i), 0xA5);
+                    storage::TapePosition beforeLong = back->readPosition();
+                    c = issue(NuTaIob::kCommandReadData, 0, static_cast<int>(payload.size() - 1));
+                    storage::TapePosition afterLong = back->readPosition();
+                    report("an overlength block is rejected without changing guest data",
+                           (c & 0x0F) == NuTaIob::kCompletionError && st.readByte(buffer) == 0xA5, sc);
+                    report("...and remains positioned for a retry", beforeLong.toString() == afterLong.toString(), sc);
+
                     c = issue(0x32, 0, 0x100);
                     report("SVC 46 with an invalid command is refused", (c & 0x0F) == NuTaIob::kCompletionError, sc);
 

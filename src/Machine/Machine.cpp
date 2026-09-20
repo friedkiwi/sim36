@@ -344,12 +344,17 @@ bool Machine::restoreCheckpoint(const monitor::MachineSnapshot::RuntimeState& s,
                                    saved.hasLastOutput ? &saved.lastOutput : nullptr);
     }
 
-    if (s.hasTapePosition && devices_->tape.medium() != nullptr) {
+    if (s.hasTapePosition) {
+        if (devices_->tape.medium() == nullptr) {
+            failure = "cannot restore checkpoint tape position: no tape is mounted";
+            return false;
+        }
         storage::ITapeBackend* tape = devices_->tape.medium();
-        tape->rewind();
-        int spaced;
-        for (int i = 0; i < s.tapePosition.fileNumber; i++) tape->spaceFiles(1, spaced);
-        if (s.tapePosition.blockNumber != 0) tape->spaceRecords(s.tapePosition.blockNumber, spaced);
+        std::string tapeFailure;
+        if (!storage::restoreTapePosition(*tape, s.tapePosition, tapeFailure)) {
+            failure = "cannot restore checkpoint tape position: " + tapeFailure;
+            return false;
+        }
     }
     failure.clear();
     return true;

@@ -123,7 +123,20 @@ bool VirtualTape::read(int iob, int command, int length, int bufferField)
         return true;
     }
 
-    int n = std::min(static_cast<int>(block.size()), length);
+    if (block.size() > static_cast<std::size_t>(length)) {
+        // readBlock() advances on success.  No established native behaviour
+        // permits a successful truncated record, so put it back and refuse
+        // without touching guest data.
+        int spaced = 0;
+        TapeResult back = medium_->spaceRecords(-1, spaced);
+        trace_.diskIo("  {}-byte tape block exceeds the {}-byte guest buffer; no bytes transferred, rollback {} after {} "
+                      "record(s). docs/s36/tape-svc-integration.md",
+                      block.size(), length, storage::tapeResultName(back), spaced);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+
+    int n = static_cast<int>(block.size());
     std::vector<std::pair<int, int>> extents;
     if (!m_.guest24Extents(bufferField, n, true, extents)) {
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);

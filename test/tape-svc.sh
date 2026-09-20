@@ -38,11 +38,13 @@ check "the tape mark posts non-success        " "SVC 46 read on the tape mark po
 # A write through SVC 46 reaches the backend, and reads back verbatim.
 check "write posts complete                   " "SVC 46 write posts complete                PASS"
 check "the written record reads back verbatim " "SVC 46 read back returns the written record verbatim PASS"
+check "an overlength record is not truncated    " "an overlength block is rejected without changing guest data PASS"
+check "the rejected record remains retryable   " "and remains positioned for a retry"
 # Status edges: a bad command is refused, an empty drive answers not-ready.
 check "an invalid command is refused          " "SVC 46 with an invalid command is refused  PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 11 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 13 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"
