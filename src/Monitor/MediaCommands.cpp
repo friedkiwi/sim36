@@ -595,19 +595,36 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                 };
                 std::vector<uint8_t> vol1;
                 requireTape(back->readBlock(vol1), TapeResult::Ok, "read initial VOL1");
-                std::vector<uint8_t> hdr1(80, 0x40), hdr2(80, 0x40);
+                std::vector<uint8_t> hdr1(80, 0x40), hdr2(80, 0x40), uhl1(80, 0x40), uhl2(80, 0x40);
                 const std::vector<uint8_t> data = {'D', 'A', 'T', 'A'};
                 const uint8_t hdr1Id[] = {0xC8, 0xC4, 0xD9, 0xF1};
                 const uint8_t dataSetId[] = {0xC4, 0xC9, 0xE2, 0xC3, 0xC6, 0xC9, 0xD3, 0xC5}; // DISCFILE
                 const uint8_t hdr2Id[] = {0xC8, 0xC4, 0xD9, 0xF2};
+                const uint8_t uhl1Id[] = {0xE4, 0xC8, 0xD3, 0xF1};
+                const uint8_t uhl2Id[] = {0xE4, 0xC8, 0xD3, 0xF2};
                 std::copy(std::begin(hdr1Id), std::end(hdr1Id), hdr1.begin());
                 std::copy(std::begin(dataSetId), std::end(dataSetId), hdr1.begin() + 4);
                 std::copy(std::begin(hdr2Id), std::end(hdr2Id), hdr2.begin());
+                std::copy(std::begin(uhl1Id), std::end(uhl1Id), uhl1.begin());
+                std::copy(std::begin(uhl2Id), std::end(uhl2Id), uhl2.begin());
                 requireTape(back->writeBlock(hdr1.data(), 0, static_cast<int>(hdr1.size())), TapeResult::Ok, "write HDR1");
                 requireTape(back->writeBlock(hdr2.data(), 0, static_cast<int>(hdr2.size())), TapeResult::Ok, "write HDR2");
+                requireTape(back->writeBlock(uhl1.data(), 0, static_cast<int>(uhl1.size())), TapeResult::Ok, "write UHL1");
+                requireTape(back->writeBlock(uhl2.data(), 0, static_cast<int>(uhl2.size())), TapeResult::Ok, "write UHL2");
                 requireTape(back->writeTapeMark(), TapeResult::Ok, "close header file");
                 requireTape(back->writeBlock(data.data(), 0, static_cast<int>(data.size())), TapeResult::Ok, "write data");
                 requireTape(back->writeTapeMark(), TapeResult::Ok, "close data file");
+                std::vector<std::vector<uint8_t>> trailers = {hdr1, hdr2, uhl1, uhl2};
+                const uint8_t trailerIds[4][4] = {
+                    {0xC5, 0xD6, 0xC6, 0xF1}, {0xC5, 0xD6, 0xC6, 0xF2},
+                    {0xE4, 0xE3, 0xD3, 0xF1}, {0xE4, 0xE3, 0xD3, 0xF2},
+                };
+                for (int record = 0; record < 4; record++) {
+                    std::copy(std::begin(trailerIds[record]), std::end(trailerIds[record]), trailers[record].begin());
+                    requireTape(back->writeBlock(trailers[record].data(), 0, static_cast<int>(trailers[record].size())),
+                                TapeResult::Ok, "write trailer label");
+                }
+                requireTape(back->writeTapeMark(), TapeResult::Ok, "close trailer file");
                 requireTape(back->writeTapeMark(), TapeResult::Ok, "write logical end mark");
 
                 back->rewind();
@@ -645,13 +662,29 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     report("native command 16 finds HDR1 and positions at the data file",
                            (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 1 &&
                                back->readPosition().blockNumber == 0 &&
-                               st.readHalf(iob + NuTaIob::kOffReturnedLength) == 160 &&
+                               st.readHalf(iob + NuTaIob::kOffReturnedLength) == 320 &&
                                st.readByte(buffer) == 0xC8 && st.readByte(buffer + 3) == 0xF1,
                            sc);
                     c = issue(NuTaIob::kCommandReadData, 0, 0x100);
                     report("...the next guest read returns the selected dataset's first block",
                            (c & 0x0F) == NuTaIob::kCompletionOk && st.readByte(buffer) == 'D' &&
                                st.readByte(buffer + 3) == 'A',
+                           sc);
+
+                    int spaced = 0;
+                    back->spaceRecords(-1, spaced);
+                    c = issue(NuTaIob::kCommandReadDataAlt, 0, 0x100);
+                    report("native command 22 returns the actual transferred byte count",
+                           (c & 0x0F) == NuTaIob::kCompletionOk &&
+                               st.readHalf(iob + NuTaIob::kOffReturnedLength) == data.size(),
+                           sc);
+
+                    c = issue(NuTaIob::kCommandReadDataAlt, 0, 0x100);
+                    report("native command 22 validates and consumes the trailer-label file",
+                           (c & 0x0F) == NuTaIob::kCompletionEndOfDataSet &&
+                               st.readHalf(iob + NuTaIob::kOffReturnedLength) == 0 &&
+                               back->readPosition().fileNumber == 3 && back->readPosition().blockNumber == 0 &&
+                               back->readPosition().atTapeMark,
                            sc);
 
                     c = issue(NuTaIob::kCommandReadData, 0, 0x100);
@@ -669,7 +702,6 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                            sc);
 
                     back->rewind();
-                    int spaced = 0;
                     back->spaceFiles(1, spaced);
                     const std::string payloadText = "STAGE2-SVC46-TAPE";
                     std::vector<uint8_t> payload(payloadText.begin(), payloadText.end());
@@ -781,6 +813,10 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     back->load();
                     c = issue(NuTaIob::kCommandUnload, 0, 512);
                     report("native command 27 unloads and flushes the tape",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && !back->loaded(), sc);
+                    back->load();
+                    c = issue(NuTaIob::kCommandUnload, 0, 4096);
+                    report("native command 27 accepts BLDLIBR's 4096-byte work area",
                            (c & 0x0F) == NuTaIob::kCompletionOk && !back->loaded(), sc);
 
                     drive.unload();

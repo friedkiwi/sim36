@@ -99,6 +99,7 @@ def main():
                     command("watch " + watch.strip())
         statement = os.environ.get("S36_LIST_COMMAND", "LISTLIBR ALL,SOURCE,#LIBRARY,USER,NOPAGE")
         expected_screen = os.environ.get("S36_LIST_EXPECT_SCREEN", "BASICSMP")
+        expected_after = os.environ.get("S36_LIST_EXPECT_AFTER", "")
         expected_monitor = os.environ.get("S36_LIST_EXPECT_MONITOR", "")
         rejected = tuple(value for value in os.environ.get("S36_LIST_REJECT", "").split("|") if value)
         if os.environ.get("S36_LIST_CATALOG_MENU") == "1":
@@ -147,6 +148,33 @@ def main():
                 print("".join(lines[max(0, hit - 120):hit + 20]), file=sys.stderr)
                 raise AssertionError("LIST ALL stopped on a processor check")
             if saw_listing:
+                if expected_after:
+                    after_deadline = time.monotonic() + float(os.environ.get("S36_LIST_AFTER_TIMEOUT", "300"))
+                    after_debug_due = time.monotonic() + float(
+                        os.environ.get("S36_LIST_AFTER_COMMAND_DELAY", "30"))
+                    after_debug_sent = False
+                    while time.monotonic() < after_deadline:
+                        with session.lock:
+                            if session.screen.contains(expected_after):
+                                break
+                        with changed:
+                            after_text = "".join(transcript[check_mark:])
+                        if "CHECK [" in after_text or "storage protection" in after_text:
+                            with changed:
+                                after_tail = "".join(transcript[-200:])
+                            raise AssertionError("command stopped before reaching %r\n%s\n%s" %
+                                                 (expected_after, session.screen.render(fields=True), after_tail))
+                        if not after_debug_sent and time.monotonic() >= after_debug_due:
+                            for debug_command in os.environ.get("S36_LIST_AFTER_COMMANDS", "").split("|"):
+                                if debug_command.strip():
+                                    command(debug_command.strip())
+                            after_debug_sent = True
+                        time.sleep(0.1)
+                    else:
+                        with changed:
+                            after_tail = "".join(transcript[-200:])
+                        raise TimeoutError("command did not subsequently reach %r\n%s\n%s" %
+                                           (expected_after, session.screen.render(fields=True), after_tail))
                 time.sleep(float(os.environ.get("S36_LIST_SETTLE", "30")))
                 with changed:
                     text = "".join(transcript[check_mark:])

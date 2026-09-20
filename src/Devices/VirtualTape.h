@@ -45,7 +45,7 @@ public:
 
     // ---- tape-specific data-transfer fields ----
     static constexpr int kOffBlockLength = 0x10;   // halfword, 1..0x7FFF for the data commands (VERIFIED)
-    static constexpr int kOffReturnedLength = 0x12; // label bytes returned by tapLbls2 (VERIFIED)
+    static constexpr int kOffReturnedLength = 0x12; // label/read bytes returned (VERIFIED for commands 16 and 22)
     static constexpr int kOffCount0 = 0x14;        // halfword bounded by iob+0x10; role INFERRED, not written back
     static constexpr int kOffCount1 = 0x16;        // its companion; role INFERRED
     static constexpr int kOffMicSource = 0x1C;     // generated source/type halfword (VERIFIED for condition 0x1b)
@@ -74,6 +74,7 @@ public:
 
     // ---- completion low nibbles (posted at iob+0x06 with the 0x40 bit) ----
     static constexpr int kCompletionOk = 0;          // VERIFIED
+    static constexpr int kCompletionEndOfDataSet = 2; // VERIFIED: command 22/tapEofHan after valid trailer labels
     static constexpr int kCompletionError = 4;       // a non-success class; 4 and 5 are written on the error arms
     static constexpr int kCompletionEndOfFile = 5;   // INFERRED: kept distinct from the plain error
 
@@ -129,6 +130,7 @@ private:
     bool readVolumeLabels(int iob, int modifier, int length, int bufferField);
     bool writeHeaderLabels(int iob, int modifier, int length, int bufferField);
     bool findDataSet(int iob, int modifier, int length, int bufferField);
+    bool finishReadDataSet(int iob);
     bool finishDataSet(int iob, int modifier, int length);
     bool finalizeVolume(int iob, int modifier, int length);
     bool unloadCommand(int iob, int modifier, int length);

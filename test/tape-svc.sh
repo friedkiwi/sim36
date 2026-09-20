@@ -38,6 +38,8 @@ check "the block lands in guest storage       " "the block reached guest storage
 check "it is the EBCDIC VOL1 label            " "it is the EBCDIC VOL1 label in the guest buffer PASS"
 check "native command 16 locates the dataset  " "native command 16 finds HDR1 and positions at the data file PASS"
 check "the selected dataset is readable       " "the next guest read returns the selected dataset's first block PASS"
+check "command 22 returns its transfer count  " "native command 22 returns the actual transferred byte count PASS"
+check "command 22 consumes trailer labels     " "native command 22 validates and consumes the trailer-label file PASS"
 # A read on the tape mark is a distinct, non-success completion.
 check "the tape mark posts non-success        " "SVC 46 read on the tape mark posts non-success PASS"
 check "dataset-not-found has guest status     " "native command 16 reports the #CATP dataset-not-found status PASS"
@@ -57,9 +59,10 @@ check "the trailer layout round-trips         " "the data and four trailer label
 check "native command 1B finalizes the volume" "native command 1B writes the second terminal mark PASS"
 check "the volume has two terminal marks      " "the finalized volume ends in two consecutive marks PASS"
 check "native command 27 unloads the tape     " "native command 27 unloads and flushes the tape PASS"
+check "command 27 accepts the restore buffer " "native command 27 accepts BLDLIBR's 4096-byte work area PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 28 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 31 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"

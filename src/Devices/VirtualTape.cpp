@@ -384,8 +384,11 @@ bool VirtualTape::unloadCommand(int iob, int modifier, int length)
     // and issues 27/00 with its 512-byte work area and a null data pointer.
     // The V4R4 jump table maps command 27 to c23e3964; its accepted branch
     // calls driver-vtable slot 0x198, the IoTapeProxy unload operation.
-    if (modifier != 0 || length != 512) {
-        trace_.diskIo("  command 27 requires the observed unload request 00/512; got {:02X}/{}", modifier, length);
+    // FROMLIBR supplies its 512-byte work area; BLDLIBR supplies the
+    // 4096-byte input buffer.  Neither is transferred by the unload arm.
+    if (modifier != 0 || (length != 512 && length != 4096)) {
+        trace_.diskIo("  command 27 requires an observed unload request 00/512 or 00/4096; got {:02X}/{}", modifier,
+                      length);
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
     }
@@ -449,6 +452,7 @@ bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField
                     return false;
                 }
                 m_.writeHalf(iob + NuTaIob::kOffReturnedLength, static_cast<uint16_t>(labels.size()));
+                activeHeaderLabels_ = labels;
                 trace_.diskIo("  command 16 found the requested 17-byte HDR1 identifier after {} label record(s); {}",
                               records, medium_->readPosition().toString());
                 IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
@@ -471,9 +475,65 @@ bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField
     }
 }
 
+bool VirtualTape::finishReadDataSet(int iob)
+{
+    // Command 22's c23e23ec arm maps the driver's filemark condition 1C to
+    // tapRdLbls and then tapEofHan.  The latter compares the trailer group
+    // with the header group saved by tapFind and, for command 22, writes
+    // completion nibble 2 at IOB+06.  A native BLDLIBR trace establishes
+    // that the filemark preceding EOF1 is already consumed when this path
+    // begins.  Consume the four 80-byte trailers and their closing mark so
+    // the next tape operation starts at the following file.
+    if (activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  command 22 reached a data filemark without the four labels retained by command 16 - refused");
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+
+    std::vector<uint8_t> expected = activeHeaderLabels_;
+    static constexpr uint8_t eof[] = {0xC5, 0xD6, 0xC6}; // EOF
+    static constexpr uint8_t utl[] = {0xE4, 0xE3, 0xD3}; // UTL
+    std::copy(std::begin(eof), std::end(eof), expected.begin());
+    std::copy(std::begin(eof), std::end(eof), expected.begin() + 80);
+    std::copy(std::begin(utl), std::end(utl), expected.begin() + 160);
+    std::copy(std::begin(utl), std::end(utl), expected.begin() + 240);
+
+    for (int record = 0; record < 4; record++) {
+        std::vector<uint8_t> actual;
+        TapeResult r = medium_->readBlock(actual);
+        if (r == TapeResult::NotReady) return notReady(iob);
+        if (r != TapeResult::Ok || actual.size() != 80 ||
+            !std::equal(actual.begin(), actual.end(), expected.begin() + record * 80)) {
+            trace_.diskIo("  command 22 trailer record {} did not match its retained header: {} / {} byte(s)",
+                          record + 1, storage::tapeResultName(r), actual.size());
+            postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+            return false;
+        }
+        readsIssued_++;
+        lastRead_ = actual;
+        hasLastRead_ = true;
+    }
+    std::vector<uint8_t> ignored;
+    TapeResult r = medium_->readBlock(ignored);
+    if (r != TapeResult::TapeMark) {
+        trace_.diskIo("  command 22 trailer-label file lacks its closing mark: {}", storage::tapeResultName(r));
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+        return false;
+    }
+
+    m_.writeHalf(iob + NuTaIob::kOffReturnedLength, 0);
+    activeHeaderLabels_.clear();
+    controlOps_++;
+    trace_.diskIo("  command 22 consumed matching EOF1/EOF2/UTL1/UTL2 and their closing mark; completion {:02X}; {}",
+                  Ecm::kComplete | NuTaIob::kCompletionEndOfDataSet, medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, NuTaIob::kCompletionEndOfDataSet);
+    return true;
+}
+
 // Read data, commands 0x17 and 0x22: the internal tape buffer is copied
-// INTO the guest data buffer, a direction that is VERIFIED.  What
-// distinguishes 0x17 from 0x22 is not recovered, so they map identically.
+// INTO the guest data buffer, a direction that is VERIFIED.  Command 22 also
+// reports its transferred length and handles a standard labeled data-file
+// boundary through finishReadDataSet(); command 17 has neither contract.
 bool VirtualTape::read(int iob, int command, int length, int bufferField)
 {
     if (!validLength(iob, length)) return false;
@@ -481,6 +541,9 @@ bool VirtualTape::read(int iob, int command, int length, int bufferField)
     std::vector<uint8_t> block;
     TapeResult r = medium_->readBlock(block);
     if (r == TapeResult::NotReady) return notReady(iob);
+
+    if (r == TapeResult::TapeMark && command == NuTaIob::kCommandReadDataAlt)
+        return finishReadDataSet(iob);
 
     if (r != TapeResult::Ok) {
         // A tape mark or end of data: a normal condition the guest MUST be
@@ -524,6 +587,14 @@ bool VirtualTape::read(int iob, int command, int length, int bufferField)
     lastRead_ = block;
     hasLastRead_ = true;
     readsIssued_++;
+
+    // Command 22's c23e23ec arm writes the requested length here for a full
+    // block, or requested length minus the driver's residual for a short
+    // block.  $MAINT consumes this count; leaving the cleared field at zero
+    // makes a successful transfer look empty.  Command 17 has a different
+    // arm and its corresponding output contract remains unestablished.
+    if (command == NuTaIob::kCommandReadDataAlt)
+        m_.writeHalf(iob + NuTaIob::kOffReturnedLength, static_cast<uint16_t>(n));
 
     // iob+0x14/0x16 are present (bounded by the block length) but their
     // exact role (residual, bytes moved, current offset) is INFERRED, and

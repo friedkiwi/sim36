@@ -188,6 +188,34 @@ accepted path calls tape-proxy vtable slot `0x198`, identified from the local
 proxy layout as unload.  This is the native flush boundary: the folder backend
 is persisted and the cartridge becomes not-ready without discarding the
 mounted medium object.
+The restore workflow issues the same command with modifier 00 and its
+4096-byte input work area; the unload arm transfers neither buffer, and both
+observed lengths are accepted.
+
+The restore side reads `LIBRFILE` data with command 22.  Its SLIC arm at
+`c23e23ec` stores the transferred byte count at IOB `+0x12`: the requested
+length for a full block, or requested length minus the driver residual for a
+short block.  `$MAINT` uses that count when consuming the input buffer, so the
+emulator now returns the actual block length there.  Command 17 uses a
+different arm and no unverified ancillary-field behavior is assigned to it.
+When command 22 encounters the data-closing mark, internal status `1c`
+branches through `tapRdLbls` to `tapEofHan`: it consumes EOF1, EOF2, UTL1,
+UTL2 and their closing mark, compares them with the header group retained by
+`tapFind`, clears the returned byte count, and posts completion nibble 2.
+The emulator implements only that verified four-label standard-label form;
+malformed or mismatched trailers are refused.
+
+An overlay-backed acceptance replay against the guest-created `DISCFILE`
+volume completed with:
+
+    BLDLIBR TRKRS9,100,,,DISCFILE,TC,,,,REWIND
+
+The trace showed command 22 transfers of 4096, 4096, and 512 bytes, followed
+by completion `42` after the four matching trailer labels and their mark.  A
+subsequent command 27/00 with length 4096 unloaded the tape, and BLDLIBR
+returned to the System/36 main menu without a processor check.  This proves
+the native labeled restore workflow; the disposable disk overlay was removed
+with the emulator process.
 
 The shipped `TAPEINIT` procedure supplies that initialization workflow.  Its
 standard-label form prompts for `TC`, label type `SL`, volume and owner IDs,
