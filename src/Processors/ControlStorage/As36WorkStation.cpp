@@ -332,6 +332,14 @@ bool As36ControlStorageProcessor::completePendingM36WorkStationTransfer(const st
 
 // The lent display has gone away: the unit block and its OC persist, the
 // transfer binding does not, so the next client on this unit is a new lend.
+//
+// NuXpfDsp5250::handlePoweredOff (V4R4 c17943c0) clears NuActiveWs+F8 and
+// +F0 after returning sense 081C0100.  In the hosted machine the surrounding
+// OS/400 transfer/session path also ends the old M36 workstation session.  We
+// have no OS/400 WSDM between the TN5250 socket and SSP, so reflect that
+// boundary in SSP's existing session-mode latch.  This is deliberately not a
+// fabricated #SVWSR completion (+2B.04): the failed A7 still runs the guest's
+// normal job cleanup, retaining its JCB and clearing its owning task.
 bool As36ControlStorageProcessor::endM36WorkStationTransfer(int tub, const std::string& call)
 {
     if (tub == 0 || transferredWorkStations_.erase(tub) == 0) return false;
@@ -339,8 +347,15 @@ bool As36ControlStorageProcessor::endM36WorkStationTransfer(int tub, const std::
         transferredWorkStationTub_ = 0;
         transferredAutoSignOn_ = false;
     }
+    uint8_t oldSessionFlags = m_.readByte(tub + UnitBlock::kOffSessionFlags);
+    uint8_t newSessionFlags = static_cast<uint8_t>(oldSessionFlags & ~UnitBlock::kFlagSessionActive);
+    m_.writeByte(tub + UnitBlock::kOffSessionFlags, newSessionFlags);
     trace_.csp("{}: allowXpfToUseDevice - TU {:06X} transfer binding released; the next session is a new TFRM36 lend", call,
                tub);
+    if (newSessionFlags != oldSessionFlags)
+        trace_.csp("{}: powered-off M36 session ended - TU {:06X}+75 {:02X}->{:02X}; the next F7 takes #CPT3's fresh-session "
+                   "path",
+                   call, tub, oldSessionFlags, newSessionFlags);
     return true;
 }
 

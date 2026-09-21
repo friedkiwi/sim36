@@ -35,6 +35,10 @@ public:
     static constexpr int kOffInputWorkspacePointer = 0x43;
     static constexpr int kOffActiveSessionPointer = 0x8F;
     static constexpr int kActiveSessionPointerRightmost = 0x91;
+    // #CPT3 tests this SSP session-mode bit before deciding whether a new
+    // power-on is allowed to enter #CPTS and paint SIGN ON.
+    static constexpr int kOffSessionFlags = 0x75;
+    static constexpr uint8_t kFlagSessionActive = 0x10;
     static constexpr int kOffPointerEnding95 = 0x93;
     static constexpr int kPointerEnding95Rightmost = 0x95;
     // Pointer to the station-entry table, +0x95..+0x97, deliberately

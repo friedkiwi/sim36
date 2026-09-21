@@ -391,13 +391,12 @@ bool DeviceSet::tryDeliverInputStatus(int unitBlock)
 }
 
 // The terminal behind a unit was switched off while the controller still
-// owned a guest request against it.  Ending the session tears the native
-// display down; from then on every command to that unit is rejected with
-// the "device not attached" control field (+2 = 0x28, +6/+7 = 02 03), which
-// is the decoded shape of the same condition and is used for the retained
-// operation as well.  There is no watchdog, no poll and no invite timeout: a
-// station that stops answering stays outstanding until something tears it
-// down, which is what a socket close is here.
+// owned a guest request against it.  The live operation receives the
+// physical power-off sense record; from then on every later command to that
+// unit is rejected with the distinct "device not attached" control field
+// (+2 = 0x28, +6/+7 = 02 03).  There is no watchdog, no poll and no invite
+// timeout: a station that stops answering stays outstanding until something
+// tears it down, which is what a socket close is here.
 bool DeviceSet::tryFailPendingOperationForUnit(int unitAddress, int& failedIob, std::string& what)
 {
     unitAddress &= 0xFF;
@@ -438,11 +437,31 @@ bool DeviceSet::tryFailPendingOperationForUnit(int unitAddress, int& failedIob, 
 
     inputResponseStatus_.erase(unitAddress);
     inputStagingPages_.erase(unitAddress);
-    writeDeviceNotAttached(failedIob);
-    trace_.ws("  unit {:02X} powered off: retained {} IOB {:06X} FAILED - TU+13=28, +17/18=02 03 (device not attached), "
+    writeDisplayPoweredOff(failedIob);
+    trace_.ws("  unit {:02X} powered off: retained {} IOB {:06X} FAILED - TU+13=22, +1A=80 (display powered off), "
               "class C0, completion 41",
               unitAddress, what, failedIob);
     return true;
+}
+
+// NuXpfDsp5250::handlePoweredOff (V4R4 c17943c0) maps sense 081C0100
+// through NuWsMap::getSense.  The switch selects map+0828, whose seven-byte
+// record is 22 00 00 00 80 00 00.  NuDev5250 installs that record at
+// WSCF+02, +06..09 and +0B..0C; wsavstat then copies WSCF+02..0D to
+// TU+13..1E.  This is the response to the operation which was live when the
+// physical display went away.  It is distinct from the 28/02/03 response
+// wscmd gives a later command after NuActiveWs+F8 has been cleared.
+void DeviceSet::writeDisplayPoweredOff(int iob)
+{
+    int tub = WorkStationIob::resolveUnitBlock(m_, iob);
+    if (tub > 0 && m_.readHalf(tub) == WorkStationIob::kUnitBlockEyecatcher) {
+        m_.writeByte(tub + 0x12, m_.readByte(tub + 0x0B));
+        for (int n = 0x13; n <= 0x1E; n++) m_.writeByte(tub + n, 0);
+        m_.writeByte(tub + 0x13, 0x22);
+        m_.writeByte(tub + 0x1A, 0x80);
+        m_.writeByte(tub + WorkStationIob::kOffClass, static_cast<uint8_t>(WorkStationIob::kClassWorkStation));
+    }
+    IoBlock::complete(m_, iob, 1);
 }
 
 // The rejection as the status save lands it in the unit block: echoed

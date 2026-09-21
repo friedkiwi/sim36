@@ -705,8 +705,8 @@ bool MonitorCli::powerOffStation(As36ControlStorageProcessor& csp, devices::Virt
     csp.deactivateWorkStationUnit(unit);
     const bool released = csp.endM36WorkStationTransfer(tub, call);
     wsPresented_.erase(s.id());
-    fmt::print("station {}: client gone - display powered off; {} retained operation(s) failed with status 02/03 "
-               "(device not attached){}\n", s.id(), failed,
+    fmt::print("station {}: client gone - display powered off; {} retained operation(s) failed with powered-off status "
+               "22/80{}\n", s.id(), failed,
                released ? fmt::format("; TU {:06X} transfer released, the next client is a new power-on", tub) : "");
     return posted;
 }

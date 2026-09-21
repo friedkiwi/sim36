@@ -290,6 +290,7 @@ private:
     void writeCapturedHalf(const std::vector<int>& destination, int offset, uint16_t value);
     bool resolveBuffer(int bufferField, int& addr);
     void writeDeviceNotAttached(int iob);
+    void writeDisplayPoweredOff(int iob);
     void completeScreenSave(int iob, PendingScreenSave& pending);
     static std::string hexPreview(const std::vector<uint8_t>& d, int len, int max);
     static std::string ebcdicPreview(const std::vector<uint8_t>& d, int len, int max);
