@@ -213,7 +213,10 @@ void ConsoleDisplay::apply(const uint8_t* data, int offset0, int length)
                 attr = data[i];
                 poke(attrRow, attrCol, attr);
                 i += 1;
-                col_++;
+                if (++col_ > kCols) {
+                    col_ = 1;
+                    if (++row_ > kRows) row_ = 1;
+                }
             }
             int len = 0;
             if (i + 1 < end) {
@@ -396,6 +399,14 @@ std::vector<uint8_t> ConsoleDisplay::expandModifiedInput(const std::vector<uint8
                 screen_[static_cast<std::size_t>((start + n) % static_cast<int>(screen_.size()))] =
                     response[i + static_cast<std::size_t>(n)] == 0 ? static_cast<uint8_t>(0x40)
                                                                   : response[i + static_cast<std::size_t>(n)];
+            // A zero-length bypass SBA names an unchanged badge/profile
+            // field and retains its value.  A zero-length ordinary input
+            // field is different: the terminal returned an empty modified
+            // field, so Read Input Fields materializes its full width as
+            // blanks.  FSEDIT's 50-byte option field is the concrete case.
+            if (take == 0 && !f->bypass())
+                for (int n = 0; n < f->length; n++)
+                    screen_[static_cast<std::size_t>((start + n) % static_cast<int>(screen_.size()))] = 0x40;
             // TN5250 clients suppress the trailing null/blank cells of a
             // modified field.  Once at least one byte was returned, the
             // unsent tail is the field's blank padding, not the null-filled
@@ -407,7 +418,7 @@ std::vector<uint8_t> ConsoleDisplay::expandModifiedInput(const std::vector<uint8
             // the same reason: a null is an empty display cell, not a valid
             // utility-control-statement character.
             //
-            // Keep a zero-length SBA unchanged.  Real clients also name
+            // Keep a zero-length bypass SBA unchanged.  Real clients name
             // unmodified bypass fields that way, and their existing content
             // must survive (the case covered above).
             if (take > 0)

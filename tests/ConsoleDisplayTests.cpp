@@ -93,6 +93,32 @@ TEST_CASE("console display: truncated modified fields are blank padded")
     CHECK(slice(expanded, 3, 8) == roundTrip("SYSTEM  "));
 }
 
+TEST_CASE("console display: FSEDIT wraparound and empty MDT input fields")
+{
+    host::ConsoleDisplay display(0, false);
+    const std::vector<uint8_t> format = {
+        // The field attribute occupies row 1 column 80.  FSEDIT defines its
+        // source-line fields this way so their first data cell is row 2
+        // column 1.
+        0x11, 0x01, 0x50,
+        0x1D, 0x48, 0x20, 0x20, 0x00, 0x03,
+        0xC1, 0xC2, 0xC3,
+    };
+    display.apply(format.data(), 0, static_cast<int>(format.size()));
+
+    const std::vector<uint8_t> input = display.buildInput(0xF1);
+    REQUIRE(input.size() == 6);
+    CHECK(slice(input, 3, 3) == roundTrip("ABC"));
+
+    // Unlike the zero-length bypass SBA above, an empty ordinary MDT field
+    // means that the field itself is empty.  FSEDIT returns its option field
+    // in precisely this form on Page Down.
+    const std::vector<uint8_t> emptyReply = {0x02, 0x01, 0xF5, 0x11, 0x02, 0x01};
+    const std::vector<uint8_t> expanded = display.expandModifiedInput(emptyReply);
+    REQUIRE(expanded.size() == 6);
+    CHECK(slice(expanded, 3, 3) == roundTrip("   "));
+}
+
 TEST_CASE("console display: omitted null-filled input fields are returned as blanks")
 {
     host::ConsoleDisplay display(0, false);
