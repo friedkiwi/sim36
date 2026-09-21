@@ -196,10 +196,9 @@ checkout and checks out only the pinned public FUNLIB commit.  Neither input
 is uploaded.  Failure diagnostics are limited to text monitor/TN5250 traces;
 they contain no disk image data or credentials.
 
-The acceptance scope is deliberately narrow: it establishes the tape IOB
-forms and SSP labeled-library organization recorded in
-[`startrek-tape-discovery.md`](startrek-tape-discovery.md).  Other tape command
-forms and label organizations remain refused until independently established.
+The acceptance scope is deliberately narrow: it covers the tape operations
+used by this SSP labeled-library workflow. Other tape command forms and label
+organizations are not supported.
 
 ### Using the preserved local image
 
@@ -231,7 +230,5 @@ line to that copy with mode `rw`, and never commit or distribute either image.
 
 The folder format can faithfully represent arbitrary block and filemark
 streams.  Its SSP library authoring intentionally supports only the verified
-single-dataset FROMLIBR/BLDLIBR form.  Other HDR/EOF variants, SSP
-completion/MIC mapping, and guest tape commands remain governed by the
-evidence boundary in
-[`startrek-tape-discovery.md`](startrek-tape-discovery.md).
+single-dataset FROMLIBR/BLDLIBR form. Other HDR/EOF variants and guest tape
+commands are not supported.
