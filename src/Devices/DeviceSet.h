@@ -143,6 +143,7 @@ public:
         std::vector<int> inputStagingPairs;
         std::vector<int> inputResponseStatus;
         std::vector<int> pendingC1Pairs;
+        std::vector<int> pendingPutWithInviteTriples;
         std::vector<int> controllerInvites;
         std::vector<int> printerOutputs;
         std::vector<int> pendingActivationUnits;
@@ -203,6 +204,7 @@ public:
     int pendingPutWithInviteCount() const { return pendingPutWithInvites_.size(); }
     int countPendingPutWithInvitesForUnit(int unitAddress) const;
     bool hasPendingInputForUnit(int unitAddress) const;
+    bool hasPendingInputForUnitBlock(int unitBlock) const;
     int pendingScreenSaveCount() const { return pendingScreenSaves_.size(); }
     int pendingAction0ActivationCount() const { return static_cast<int>(pendingAction0ActivationUnits_.size()); }
 
@@ -253,6 +255,7 @@ public:
 private:
     struct PendingInputRead {
         WorkStationSlot* slot = nullptr;
+        int unitBlock = 0;
         uint8_t command = 0;
         int bufferField = 0;
         std::vector<int> destination;
@@ -267,6 +270,18 @@ private:
         uint8_t savedReadMode = 0;
         std::vector<int> destination;
         int capacity = 0;
+    };
+    struct InputResponseStatus {
+        int unitBlock = 0;
+        std::vector<uint8_t> bytes;
+    };
+    struct PendingC1Completion {
+        int unit = 0;
+        int unitBlock = 0;
+    };
+    struct PendingPutWithInvite {
+        WorkStationSlot* slot = nullptr;
+        int unitBlock = 0;
     };
 
     bool declineUnmodelled(int iob, uint8_t r, const char* what);
@@ -313,13 +328,13 @@ private:
     // The response-side control field remains controller-owned until SSP
     // re-enters the output path with class C1, which copies it to the unit
     // block and consumes it.
-    SlotMap<int, std::vector<uint8_t>> inputResponseStatus_;
+    SlotMap<int, InputResponseStatus> inputResponseStatus_;
     // A response-side C1 SVC is a wait when the controller has no return
     // control field yet.  It owns the SVC-43 element until a response.
-    SlotMap<int, int> pendingC1Completions_;
+    SlotMap<int, PendingC1Completion> pendingC1Completions_;
     // A7 is one atomic write/read operation that retains its action until
     // the terminal response arrives; it is not a PUT completed at send time.
-    SlotMap<int, WorkStationSlot*> pendingPutWithInvites_;
+    SlotMap<int, PendingPutWithInvite> pendingPutWithInvites_;
     std::vector<int> pendingPrinterOutputs_;   // IOBs, in order of issue
     SlotMap<int, PendingScreenSave> pendingScreenSaves_;
     // Guest unit-FF requests remain pending while their all-stations invite

@@ -345,6 +345,7 @@ std::string renderPendingFields(const devices::DeviceSet::PendingCheckpoint& d)
     o += "InputStagingPairs=" + intsText(d.inputStagingPairs) + "\n";
     o += "InputResponseStatus=" + intsText(d.inputResponseStatus) + "\n";
     o += "PendingC1Pairs=" + intsText(d.pendingC1Pairs) + "\n";
+    o += "PendingPutWithInviteTriples=" + intsText(d.pendingPutWithInviteTriples) + "\n";
     o += "ControllerInvites=" + intsText(d.controllerInvites) + "\n";
     o += "PendingActivationUnits=" + intsText(d.pendingActivationUnits) + "\n";
     o += "ActivatedUnits=" + intsText(d.activatedUnits) + "\n";

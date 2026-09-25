@@ -136,6 +136,7 @@ DeviceSet::PendingCheckpoint DeviceSet::capturePendingCheckpoint() const
         const PendingInputRead& p = *pendingInputReads_.find(key);
         s.inputReadPairs.push_back(key);
         s.inputReadPairs.push_back(p.slot->unitAddress());
+        s.inputReadPairs.push_back(p.unitBlock);
         s.inputReadPairs.push_back(p.command);
         s.inputReadPairs.push_back(p.bufferField);
         s.inputReadPairs.push_back(p.capacity);
@@ -150,12 +151,21 @@ DeviceSet::PendingCheckpoint DeviceSet::capturePendingCheckpoint() const
     for (const auto& key : inputResponseStatus_.keys()) {
         const auto& status = *inputResponseStatus_.find(key);
         s.inputResponseStatus.push_back(key);
-        s.inputResponseStatus.push_back(static_cast<int>(status.size()));
-        for (uint8_t b : status) s.inputResponseStatus.push_back(b);
+        s.inputResponseStatus.push_back(status.unitBlock);
+        s.inputResponseStatus.push_back(static_cast<int>(status.bytes.size()));
+        for (uint8_t b : status.bytes) s.inputResponseStatus.push_back(b);
     }
     for (const auto& key : pendingC1Completions_.keys()) {
         s.pendingC1Pairs.push_back(key);
-        s.pendingC1Pairs.push_back(*pendingC1Completions_.find(key));
+        const PendingC1Completion& pending = *pendingC1Completions_.find(key);
+        s.pendingC1Pairs.push_back(pending.unit);
+        s.pendingC1Pairs.push_back(pending.unitBlock);
+    }
+    for (const auto& key : pendingPutWithInvites_.keys()) {
+        const PendingPutWithInvite& pending = *pendingPutWithInvites_.find(key);
+        s.pendingPutWithInviteTriples.push_back(key);
+        s.pendingPutWithInviteTriples.push_back(pending.slot->unitAddress());
+        s.pendingPutWithInviteTriples.push_back(pending.unitBlock);
     }
     for (WorkStationSlot* slot : workStations_.slots()) {
         if (slot->nativeActive()) s.nativeActiveUnits.push_back(slot->unitAddress());
@@ -176,12 +186,12 @@ bool DeviceSet::restorePendingCheckpoint(const PendingCheckpoint& s, std::string
     failure.clear();
     const auto& pairs = s.inputReadPairs;
     for (std::size_t i = 0; i < pairs.size();) {
-        if (i + 7 > pairs.size()) {
+        if (i + 8 > pairs.size()) {
             failure = "truncated pending workstation read checkpoint";
             return false;
         }
-        int count = pairs[i + 6];
-        if (count < 0 || i + 7 + static_cast<std::size_t>(count) > pairs.size()) {
+        int count = pairs[i + 7];
+        if (count < 0 || i + 8 + static_cast<std::size_t>(count) > pairs.size()) {
             failure = "invalid captured buffer in pending workstation read checkpoint";
             return false;
         }
@@ -192,14 +202,15 @@ bool DeviceSet::restorePendingCheckpoint(const PendingCheckpoint& s, std::string
         }
         PendingInputRead p;
         p.slot = slot;
-        p.command = static_cast<uint8_t>(pairs[i + 2]);
-        p.bufferField = pairs[i + 3];
-        p.capacity = pairs[i + 4];
-        p.stagingBlockDisplacement = pairs[i + 5];
-        p.destination.assign(pairs.begin() + static_cast<std::ptrdiff_t>(i) + 7,
-                             pairs.begin() + static_cast<std::ptrdiff_t>(i) + 7 + count);
+        p.unitBlock = pairs[i + 2];
+        p.command = static_cast<uint8_t>(pairs[i + 3]);
+        p.bufferField = pairs[i + 4];
+        p.capacity = pairs[i + 5];
+        p.stagingBlockDisplacement = pairs[i + 6];
+        p.destination.assign(pairs.begin() + static_cast<std::ptrdiff_t>(i) + 8,
+                             pairs.begin() + static_cast<std::ptrdiff_t>(i) + 8 + count);
         pendingInputReads_.set(pairs[i], std::move(p));
-        i += 7 + static_cast<std::size_t>(count);
+        i += 8 + static_cast<std::size_t>(count);
     }
     if (s.inputStagingPairs.size() % 2 != 0) {
         failure = "invalid workstation input staging checkpoint";
@@ -209,21 +220,34 @@ bool DeviceSet::restorePendingCheckpoint(const PendingCheckpoint& s, std::string
         inputStagingPages_.set(s.inputStagingPairs[i], s.inputStagingPairs[i + 1]);
     const auto& rs = s.inputResponseStatus;
     for (std::size_t i = 0; i < rs.size();) {
-        if (i + 2 > rs.size() || rs[i + 1] != 12 || i + 14 > rs.size()) {
+        if (i + 3 > rs.size() || rs[i + 2] != 12 || i + 15 > rs.size()) {
             failure = "invalid workstation response-status checkpoint";
             return false;
         }
         std::vector<uint8_t> status(12);
-        for (int n = 0; n < 12; n++) status[static_cast<std::size_t>(n)] = static_cast<uint8_t>(rs[i + 2 + static_cast<std::size_t>(n)]);
-        inputResponseStatus_.set(rs[i], std::move(status));
-        i += 14;
+        for (int n = 0; n < 12; n++) status[static_cast<std::size_t>(n)] = static_cast<uint8_t>(rs[i + 3 + static_cast<std::size_t>(n)]);
+        inputResponseStatus_.set(rs[i], InputResponseStatus{rs[i + 1], std::move(status)});
+        i += 15;
     }
-    if (s.pendingC1Pairs.size() % 2 != 0) {
+    if (s.pendingC1Pairs.size() % 3 != 0) {
         failure = "invalid pending workstation C1 checkpoint";
         return false;
     }
-    for (std::size_t i = 0; i < s.pendingC1Pairs.size(); i += 2)
-        pendingC1Completions_.set(s.pendingC1Pairs[i], s.pendingC1Pairs[i + 1]);
+    for (std::size_t i = 0; i < s.pendingC1Pairs.size(); i += 3)
+        pendingC1Completions_.set(s.pendingC1Pairs[i], PendingC1Completion{s.pendingC1Pairs[i + 1], s.pendingC1Pairs[i + 2]});
+    if (s.pendingPutWithInviteTriples.size() % 3 != 0) {
+        failure = "invalid pending workstation PUT-with-invite checkpoint";
+        return false;
+    }
+    for (std::size_t i = 0; i < s.pendingPutWithInviteTriples.size(); i += 3) {
+        WorkStationSlot* slot = workStations_.find(s.pendingPutWithInviteTriples[i + 1]);
+        if (slot == nullptr) {
+            failure = "checkpoint pending PUT-with-invite names absent workstation unit";
+            return false;
+        }
+        pendingPutWithInvites_.set(s.pendingPutWithInviteTriples[i],
+                                   PendingPutWithInvite{slot, s.pendingPutWithInviteTriples[i + 2]});
+    }
     for (int x : s.controllerInvites) pendingControllerInvites_.insert(x);
     pendingPrinterOutputs_ = s.printerOutputs;
     for (int x : s.pendingActivationUnits) pendingAction0ActivationUnits_.insert(x);
@@ -243,7 +267,7 @@ int DeviceSet::countPendingPutWithInvitesForUnit(int unitAddress) const
 {
     int count = 0;
     for (const auto& key : pendingPutWithInvites_.keys())
-        if ((*pendingPutWithInvites_.find(key))->unitAddress() == (unitAddress & 0xFF)) count++;
+        if (pendingPutWithInvites_.find(key)->slot->unitAddress() == (unitAddress & 0xFF)) count++;
     return count;
 }
 
@@ -257,15 +281,39 @@ bool DeviceSet::hasPendingInputForUnit(int unitAddress) const
             return true;
     }
     for (const auto& key : pendingPutWithInvites_.keys()) {
-        WorkStationSlot* const* pending = pendingPutWithInvites_.find(key);
-        if (pending != nullptr && *pending != nullptr && (*pending)->unitAddress() == unit &&
-            (*pending)->backend()->inviteResponsePending())
+        const PendingPutWithInvite* pending = pendingPutWithInvites_.find(key);
+        if (pending != nullptr && pending->slot != nullptr && pending->slot->unitAddress() == unit &&
+            pending->slot->backend()->inviteResponsePending())
             return true;
     }
     for (const auto& key : pendingC1Completions_.keys()) {
-        const int* pendingUnit = pendingC1Completions_.find(key);
-        WorkStationSlot* slot = pendingUnit == nullptr ? nullptr : workStations_.find(*pendingUnit);
-        if (pendingUnit != nullptr && *pendingUnit == unit && slot != nullptr && slot->backend()->pendingInput() > 0)
+        const PendingC1Completion* pending = pendingC1Completions_.find(key);
+        WorkStationSlot* slot = pending == nullptr ? nullptr : workStations_.find(pending->unit);
+        if (pending != nullptr && pending->unit == unit && slot != nullptr && slot->backend()->pendingInput() > 0)
+            return true;
+    }
+    return false;
+}
+
+bool DeviceSet::hasPendingInputForUnitBlock(int unitBlock) const
+{
+    for (const auto& key : pendingInputReads_.keys()) {
+        const PendingInputRead* pending = pendingInputReads_.find(key);
+        if (pending != nullptr && pending->unitBlock == unitBlock && pending->slot != nullptr &&
+            pending->slot->backend()->pendingInput() > 0)
+            return true;
+    }
+    for (const auto& key : pendingPutWithInvites_.keys()) {
+        const PendingPutWithInvite* pending = pendingPutWithInvites_.find(key);
+        if (pending != nullptr && pending->unitBlock == unitBlock && pending->slot != nullptr &&
+            pending->slot->backend()->inviteResponsePending())
+            return true;
+    }
+    for (const auto& key : pendingC1Completions_.keys()) {
+        const PendingC1Completion* pending = pendingC1Completions_.find(key);
+        WorkStationSlot* slot = pending == nullptr ? nullptr : workStations_.find(pending->unit);
+        if (pending != nullptr && pending->unitBlock == unitBlock && slot != nullptr &&
+            slot->backend()->pendingInput() > 0)
             return true;
     }
     return false;
@@ -331,7 +379,7 @@ bool DeviceSet::tryFindPendingInput(int& iob)
         }
     }
     for (auto& p : pendingPutWithInvites_.items()) {
-        if ((*p.second)->backend()->inviteResponsePending()) {
+        if (p.second->slot->backend()->inviteResponsePending()) {
             iob = p.first;
             return true;
         }
@@ -382,7 +430,7 @@ bool DeviceSet::tryDeliverInputStatus(int unitBlock)
     responseStatus[2] = static_cast<uint8_t>(cursor >> 8);
     responseStatus[3] = static_cast<uint8_t>(cursor);
     for (int n = 0; n < 12; n++) m_.writeByte(unitBlock + kOffActionStatus + n, responseStatus[static_cast<std::size_t>(n)]);
-    inputResponseStatus_.set(unit, responseStatus);
+    inputResponseStatus_.set(unit, InputResponseStatus{unitBlock, responseStatus});
     uint8_t unitClass = m_.readByte(unitBlock + WorkStationIob::kOffClass);
     if (unitClass != 0xC0) {
         // The arm taken when the unit block's class is not C0: two stores.
@@ -420,7 +468,7 @@ bool DeviceSet::tryFailPendingOperationForUnit(int unitAddress, int& failedIob, 
     failedIob = 0;
     what.clear();
     for (auto& p : pendingPutWithInvites_.items()) {
-        if ((*p.second)->unitAddress() != unitAddress) continue;
+        if (p.second->slot->unitAddress() != unitAddress) continue;
         failedIob = p.first;
         what = "PUT-with-invite (A7)";
         pendingPutWithInvites_.erase(p.first);
@@ -436,7 +484,7 @@ bool DeviceSet::tryFailPendingOperationForUnit(int unitAddress, int& failedIob, 
         }
     if (failedIob == 0)
         for (auto& p : pendingC1Completions_.items()) {
-            if (*p.second != unitAddress) continue;
+            if (p.second->unit != unitAddress) continue;
             failedIob = p.first;
             what = "class-C1 response wait";
             pendingC1Completions_.erase(p.first);
@@ -514,10 +562,10 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
         return true;
     }
     for (auto& p : pendingC1Completions_.items()) {
-        const std::vector<uint8_t>* status = inputResponseStatus_.find(*p.second);
-        if (status == nullptr) continue;
-        int unit = *p.second;
-        applyC1Response(p.first, *status);
+        const InputResponseStatus* status = inputResponseStatus_.find(p.second->unit);
+        if (status == nullptr || status->unitBlock != p.second->unitBlock) continue;
+        int unit = p.second->unit;
+        applyC1Response(p.first, status->bytes);
         inputResponseStatus_.erase(unit);
         pendingC1Completions_.erase(p.first);
         IoBlock::complete(m_, p.first, 0);
@@ -534,7 +582,9 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
     // Removing it from the wire queue is essential: one response completes
     // exactly one A7.
     for (auto& p : pendingPutWithInvites_.items()) {
-        WorkStationSlot* slot = *p.second;
+        WorkStationSlot* slot = p.second->slot;
+        const InputResponseStatus* status = inputResponseStatus_.find(slot->unitAddress());
+        if (status == nullptr || status->unitBlock != p.second->unitBlock) continue;
         if (!slot->backend()->tryCompleteInviteResponse()) continue;
         // Keep the control field through this action's following C1 pass.
         // Completing the retained A7 and importing its response status are
@@ -552,6 +602,8 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
     int selected = 0;
     PendingInputRead* pending = nullptr;
     for (auto& p : pendingInputReads_.items()) {
+        const InputResponseStatus* status = inputResponseStatus_.find(p.second->slot->unitAddress());
+        if (status == nullptr || status->unitBlock != p.second->unitBlock) continue;
         if (p.second->slot->backend()->pendingInput() == 0) continue;
         int cmd = p.second->command;
         if (cmd != 0x32 && cmd != 0x42) {
@@ -999,9 +1051,10 @@ bool DeviceSet::beginOutputRequest(int iob, bool withInvite, bool& phaseResult)
 
     if (cls == WorkStationIob::kClassWorkStation + 1) {
         int unit = WorkStationIob::unitAddress(m_, iob);
-        const std::vector<uint8_t>* responseStatus = inputResponseStatus_.find(unit);
-        if (responseStatus != nullptr) {
-            applyC1Response(iob, *responseStatus);
+        const int unitBlock = WorkStationIob::resolveUnitBlock(m_, iob);
+        const InputResponseStatus* responseStatus = inputResponseStatus_.find(unit);
+        if (responseStatus != nullptr && responseStatus->unitBlock == unitBlock) {
+            applyC1Response(iob, responseStatus->bytes);
             inputResponseStatus_.erase(unit);
             trace_.ws("  class C1 response completion -> wssmfrt; wscmdend/wsavstat imported and consumed one input WSCF");
             IoBlock::complete(m_, iob, 0);
@@ -1010,7 +1063,7 @@ bool DeviceSet::beginOutputRequest(int iob, bool withInvite, bool& phaseResult)
         }
         uint8_t oldCompletion = m_.readByte(iob + Ecm::kOffCompletion);
         m_.writeByte(iob + Ecm::kOffCompletion, Ecm::arm(oldCompletion));
-        pendingC1Completions_.set(iob, unit);
+        pendingC1Completions_.set(iob, PendingC1Completion{unit, unitBlock});
         // At the local-controller seam a keyboard-restoring PUT and the
         // following controller wait are separate operations.  TN5250 needs
         // the equivalent RFC 1205 Invite record: a strict client will display
@@ -1155,6 +1208,7 @@ bool DeviceSet::readInputFields(int iob, WorkStationSlot& slot)
     // free to reuse the TU/IOB fields while the action is pending.
     PendingInputRead pending;
     pending.slot = &slot;
+    pending.unitBlock = WorkStationIob::resolveUnitBlock(m_, iob);
     pending.command = static_cast<uint8_t>(WorkStationIob::command(m_, iob));
     pending.bufferField = bufferField;
     pending.destination = destination;
@@ -1399,7 +1453,7 @@ bool DeviceSet::outputData(int iob, WorkStationSlot& slot, bool withInvite)
         uint8_t oldCompletion = m_.readByte(iob + Ecm::kOffCompletion);
         uint8_t armedCompletion = Ecm::arm(oldCompletion);
         m_.writeByte(iob + Ecm::kOffCompletion, armedCompletion);
-        pendingPutWithInvites_.set(iob, &slot);
+        pendingPutWithInvites_.set(iob, PendingPutWithInvite{&slot, WorkStationIob::resolveUnitBlock(m_, iob)});
         trace_.ws("  PUT-with-invite PENDING: ECM+6 {:02X}->{:02X}, retained IOB {:06X}/SVC-43 ACE until a real terminal "
                   "response; no output completion is posted at send time",
                   oldCompletion, armedCompletion, iob);

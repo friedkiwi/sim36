@@ -111,6 +111,8 @@ TEST_CASE("workstation: an A7 response survives until the same IOB's C1 status "
                                                  std::vector<uint8_t>{0x01, 0x01, 0xF1}));
     CHECK(devices.hasPendingInputForUnit(0x01));
     CHECK_FALSE(devices.hasPendingInputForUnit(0x02));
+    CHECK(devices.hasPendingInputForUnitBlock(tub));
+    CHECK_FALSE(devices.hasPendingInputForUnitBlock(tub + 0x100));
     REQUIRE(devices.tryDeliverInputStatus(tub));
     int completedIob = 0;
     REQUIRE(devices.tryCompletePendingInput(completedIob));
@@ -126,6 +128,72 @@ TEST_CASE("workstation: an A7 response survives until the same IOB's C1 status "
     CHECK(state.readByte(tub + 0x14) == 0xF1);
     CHECK(state.readByte(tub + 0x15) == 0x01);
     CHECK(state.readByte(tub + 0x16) == 0x01);
+}
+
+TEST_CASE("workstation: a response completes only the operation issued on its exact TU alias")
+{
+    EmptyVolume volume;
+    machine::MachineState state(64 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+
+    host::WorkstationBackend terminal("127.0.0.1", 0, "test station", &trace, [] {});
+    terminal.attachConsole();
+    configuration::StationConfig config;
+    config.address = 1;
+    devices::VirtualWorkstation station(config, terminal, trace, false);
+    devices.addStation(station);
+
+    constexpr int configuredTub = 0x1000;
+    constexpr int replacementTub = 0x1100;
+    constexpr int data = 0x2000;
+    constexpr int configuredIob = 0x3000;
+    constexpr int replacementIob = 0x3100;
+    constexpr int requestBlock = 0x3800;
+    state.writeByte(data + 0, 0x04);
+    state.writeByte(data + 1, 0x11);
+    state.writeByte(data + 2, 0x00);
+    state.writeByte(data + 3, 0x00);
+    for (int tub : {configuredTub, replacementTub}) {
+        state.writeHalf(tub, devices::WorkStationIob::kUnitBlockEyecatcher);
+        state.writeByte(tub + devices::WorkStationIob::kOffUnitAddress, 0x01);
+        state.writeByte(tub + devices::WorkStationIob::kOffClass, 0xC1);
+    }
+    for (const auto& operation : {std::pair{configuredIob, configuredTub},
+                                  std::pair{replacementIob, replacementTub}}) {
+        const int iob = operation.first;
+        state.writeByte(iob + devices::WorkStationIob::kOffClass,
+                        devices::WorkStationIob::kClassWorkStation);
+        state.writeByte(iob + devices::WorkStationIob::kOffCommand,
+                        devices::WorkStationIob::kCmdPutWithInvite);
+        state.writeByte(iob + devices::WorkStationIob::kOffUnitAddress, 0x01);
+        state.writeAddr24(iob + devices::WorkStationIob::kOffDataBuffer, data);
+        state.writeHalf(iob + devices::WorkStationIob::kOffLength, 4);
+        state.writeAddr24(iob + devices::WorkStationIob::kOffUnitBlock, operation.second);
+        processors::controlstorage::RequestBlock::writeXr1(state, requestBlock, iob);
+        processors::controlstorage::SvcRequest request;
+        request.r = 0x43;
+        request.requestBlock = requestBlock;
+        REQUIRE(devices.deviceSvc(request));
+    }
+    REQUIRE(devices.pendingPutWithInviteCount() == 2);
+    const devices::DeviceSet::PendingCheckpoint checkpoint = devices.capturePendingCheckpoint();
+    std::string restoreFailure;
+    const bool restored = devices.restorePendingCheckpoint(checkpoint, restoreFailure);
+    CAPTURE(restoreFailure);
+    REQUIRE(restored);
+    REQUIRE(devices.pendingPutWithInviteCount() == 2);
+
+    terminal.injectInput(host::WorkstationRecord(
+        host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None,
+        std::vector<uint8_t>{0x17, 0x03, 0xF1}));
+    REQUIRE(devices.tryDeliverInputStatus(replacementTub));
+    int completedIob = 0;
+    REQUIRE(devices.tryCompletePendingInput(completedIob));
+    CHECK(completedIob == replacementIob);
+    CHECK(devices.isPending(configuredIob));
+    CHECK_FALSE(devices.isPending(replacementIob));
 }
 
 TEST_CASE("workstation: reading retained fields retires their one-shot C1 status")

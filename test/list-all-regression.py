@@ -90,6 +90,20 @@ def main():
         target = os.environ.get("S36_LIST_STATION", "W2").upper()
         session = sessions[target]
 
+        if os.environ.get("S36_LIST_STOP_SYSTEM") == "1":
+            # STOP SYSTEM is a system-console command, not a MAIN procedure.
+            # Enter console mode first, just as an operator on a real 5250
+            # does, so the stop is not owned by the interactive job which is
+            # about to run the maintenance procedure.
+            session.attention(system_request=True)
+            session.wait_for_text("SYSTEM", timeout=30)
+            session.type_at(23, 6, "STOP SYSTEM")
+            session.press("Enter")
+            session.wait_for_text("STOP SYSTEM command has completed", timeout=180)
+            session.attention(system_request=True)
+            session.press("Enter")
+            session.wait_for_text("Main System/36 help menu", timeout=30)
+
         mark = len(transcript)
         command("wait idle 30")
         wait_monitor("wait: guest is idle after", timeout=35, after=mark)

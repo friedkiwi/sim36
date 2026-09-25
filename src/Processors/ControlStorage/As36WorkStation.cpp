@@ -38,8 +38,7 @@ bool As36ControlStorageProcessor::observePendingDeviceInput()
 bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock)
 {
     if (unitBlock == 0 || m_.readHalf(unitBlock) != WorkStationIob::kUnitBlockEyecatcher) return false;
-    const int unit = m_.readByte(unitBlock + WorkStationIob::kOffUnitAddress);
-    const bool completesRetainedRead = devices_.hasPendingInputForUnit(unit);
+    const bool completesRetainedRead = devices_.hasPendingInputForUnitBlock(unitBlock);
     if (!devices_.tryDeliverInputStatus(unitBlock)) return false;
 
     // A response to an already-retained Put/Get or Read Input Fields has an

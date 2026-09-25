@@ -20,7 +20,7 @@ namespace sim36::monitor {
 
 class MachineSnapshot {
 public:
-    static constexpr int kVersion = 22;   // 22: printer paper selection
+    static constexpr int kVersion = 23;   // 23: exact workstation TU ownership in pending I/O
 
     struct StationState {
         std::string id;
