@@ -146,7 +146,7 @@ class TapeFolderTests(unittest.TestCase):
         self.run_tool("init", tape, "--volume-id", "TEST01", "--owner", "OWNER")
         self.run_tool("unpack", tape, work)
         source = self.temp / "source.txt"
-        source.write_text("ABC\nD\n", encoding="utf-8", newline="\n")
+        source.write_bytes(b"ABC\nD\n")
         self.run_tool("import-text", work, source, "--record-length", "4",
                       "--records-per-block", "2")
         packed = self.temp / "text-tape"
