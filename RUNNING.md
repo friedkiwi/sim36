@@ -161,11 +161,12 @@ set station 0.3 listen 127.0.0.1:2403          # a per-station listener
 
 Printers have one output attachment. They can keep their own TN5250 listener,
 write decoded output to the monitor console, or append the exact guest byte
-stream to a file:
+stream to a file. The `printer` role implies the emulator's PB printer
+personality; old command files that explicitly say `device-code PB` remain
+accepted, but the extra setting is unnecessary:
 
 ```
 set station 0.4 role printer
-set station 0.4 device-code PB
 set station 0.4 output tn5250
 set station 0.4 listen 127.0.0.1:2404
 set station 0.4 output console

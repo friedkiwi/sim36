@@ -218,14 +218,17 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
         } else if (at(1, "machine") && pos == 3 && at(2, "ipl-source")) {
             words({"disk", "diskette", "tape"});
         } else if (at(1, "station") && pos == 3) {
-            words({"role", "device-code", "listen", "output", "signon-at-ipl"});
+            words({"role", "device-code", "listen", "output", "paper", "signon-at-ipl"});
         } else if (at(1, "station") && pos == 4 && at(3, "role")) {
             words({"console", "display", "printer"});
         } else if (at(1, "station") && pos == 4 && at(3, "signon-at-ipl")) {
             words({"on", "off"});
         } else if (at(1, "station") && pos == 4 && at(3, "output")) {
-            words({"console", "file", "tn5250"});
-        } else if (at(1, "station") && pos == 5 && at(3, "output") && at(4, "file")) {
+            words({"console", "file", "pdfout", "tn5250", "txtout"});
+        } else if (at(1, "station") && pos == 4 && at(3, "paper")) {
+            words({"blue", "gray", "green", "orange", "white"});
+        } else if (at(1, "station") && pos == 5 && at(3, "output") &&
+                   (at(4, "file") || at(4, "pdfout") || at(4, "txtout"))) {
             out.paths = true;
         } else if (at(1, "terminal") && pos == 2) {
             words({"multiplex"});

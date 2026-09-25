@@ -150,7 +150,7 @@ TEST_CASE("config: obsolete load_source aliases IPL source and cannot conflict")
     fs::remove(path);
 }
 
-TEST_CASE("config: printers need a printer device code")
+TEST_CASE("config: the printer role implies the single PB virtual printer personality")
 {
     EmulatorConfig c;
     c.volumePath = "x.img";
@@ -158,19 +158,23 @@ TEST_CASE("config: printers need a printer device code")
     StationConfig p;
     p.port = 1; p.address = 0; p.role = "printer";
     c.stations.push_back(p);
-    CHECK_THROWS_AS(c.validate("t"), ConfigError);
+    CHECK_NOTHROW(c.validate("t"));
+    CHECK(c.stations.back().deviceCode == "PB");
     c.stations.back().deviceCode = "11";
     c.stations.back().deviceCodeGiven = true;
     CHECK_THROWS_AS(c.validate("t"), ConfigError);   // a display's code
-    c.stations.back().deviceCode = "PB";
+    c.stations.back().deviceCode = "PD";
+    CHECK_THROWS_AS(c.validate("t"), ConfigError);   // an unemulated printer personality
+    c.stations.back().deviceCode = "pb";             // legacy explicit PB remains accepted
     CHECK_NOTHROW(c.validate("t"));
+    CHECK(c.stations.back().deviceCode == "PB");
 }
 
 TEST_CASE("config: a printer has exactly one host output attachment")
 {
     sim36::monitor::SimulatorSession session;
     session.execute("set station 1.0 role printer");
-    session.execute("set station 1.0 device-code PB");
+    CHECK(session.definition().findStation(1, 0)->deviceCode == "PB");
     session.execute("set station 1.0 output console");
     CHECK(session.definition().findStation(1, 0)->listenPort == 0);
     CHECK_THROWS(session.execute("set station 1.0 listen 127.0.0.1:2399"));
@@ -201,7 +205,7 @@ TEST_CASE("the display multiplexer uses only port.address station ids")
     sim36::monitor::SimulatorSession session;
     session.execute("set station 0.0 role console");
     session.execute("set station 0.1 role printer");
-    session.execute("set station 0.1 device-code PB");
+    CHECK(session.definition().findStation(0, 1)->deviceCode == "PB");
     session.execute("set station 0.1 output console");
     session.execute("set station 0.2 role display");
     std::vector<sim36::host::MultiplexStationView> stations = session.multiplexStations();
@@ -352,10 +356,13 @@ TEST_CASE("renderer: replay is sorted by station and puts the endpoint before en
     EmulatorConfig c;
     StationConfig s2; s2.port = 0; s2.address = 2;
     StationConfig s0; s0.port = 0; s0.address = 0; s0.role = "console";
-    c.stations = {s2, s0};
+    StationConfig printer; printer.port = 0; printer.address = 1; printer.role = "printer";
+    printer.deviceCode = "PB";
+    c.stations = {s2, printer, s0};
     std::string replay = ConfigurationRenderer::renderReplay(c);
     CHECK(replay.find("set terminal multiplex listen 127.0.0.1:2300\nset terminal multiplex on\n") != std::string::npos);
     CHECK(replay.find("set station 0.0 role console") < replay.find("set station 0.2 role display"));
+    CHECK(replay.find("set station 0.1 device-code") == std::string::npos);
 }
 
 TEST_CASE("renderer: human output contains only active operator-facing configuration")

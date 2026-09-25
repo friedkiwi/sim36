@@ -60,9 +60,12 @@ TEST_CASE("argument positions complete their keywords")
     CHECK(complete("set machine ipl-") == std::vector<std::string>{"ipl-type", "ipl-source"});
     CHECK(complete("set machine load-").empty());
     CHECK(complete("set station 1.0 ") ==
-          std::vector<std::string>{"role", "device-code", "listen", "output", "signon-at-ipl"});
+          std::vector<std::string>{"role", "device-code", "listen", "output", "paper", "signon-at-ipl"});
     CHECK(complete("set station 1.0 role ") == std::vector<std::string>{"console", "display", "printer"});
-    CHECK(complete("set station 1.0 output ") == std::vector<std::string>{"console", "file", "tn5250"});
+    CHECK(complete("set station 1.0 output ") ==
+          std::vector<std::string>{"console", "file", "pdfout", "tn5250", "txtout"});
+    CHECK(complete("set station 1.0 paper ") ==
+          std::vector<std::string>{"blue", "gray", "green", "orange", "white"});
     CHECK(complete("listener-auto-signon o") == std::vector<std::string>{"on", "off"});
     CHECK(complete("b ") == std::vector<std::string>{"list", "clear"});  // alias resolves
     CHECK(complete("help ").empty());

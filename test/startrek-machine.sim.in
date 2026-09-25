@@ -2,7 +2,6 @@ attach disk0 @VOLUME@ @DISK_MODE@
 attach tape0 @TAPE@ @TAPE_MODE@
 set station 0.0 role console
 set station 0.1 role printer
-set station 0.1 device-code PB
 set station 0.1 output console
 set station 0.2 role display
 set station 0.2 device-code 11

@@ -581,8 +581,16 @@ void SimulatorSession::setStation(const Args& a)
         bool known = false;
         for (const std::string& r : StationConfig::roles()) if (equalsIgnoreCase(r, a[4])) known = true;
         if (!known) throw MonitorError("station role is console, display, or printer");
+        const bool wasPrinter = s.isPrinter();
         s.role = a[4];
-        if (!s.isPrinter()) {
+        if (s.isPrinter()) {
+            s.deviceCode = "PB";
+            s.deviceCodeGiven = false;
+        } else {
+            if (wasPrinter) {
+                s.deviceCode = "11";
+                s.deviceCodeGiven = false;
+            }
             s.printerOutput = "tn5250";
             s.printerOutputPath.clear();
         }

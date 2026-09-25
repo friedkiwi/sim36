@@ -27,13 +27,12 @@
 # Work-station address 0.0 is the console on every 5250 machine, must be
 # present for the IPL to complete, and binds to this emulator's operator
 # interface rather than to a listener (see `console` in the monitor).
-# Station 0.1 is a 5224 Model 1 printer whose output goes to this console.
+# Station 0.1 is the PB virtual printer whose output goes to this console.
 # The other five displays are reached through the station multiplexer on
 # 127.0.0.1:2300 by default; their per-station listeners are used when
 # `set terminal multiplex off` is given.
 set station 0.0 role console
 set station 0.1 role printer
-set station 0.1 device-code PB
 set station 0.1 output console
 set station 0.2 listen 127.0.0.1:2302
 set station 0.3 listen 127.0.0.1:2303

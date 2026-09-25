@@ -5,7 +5,6 @@
 attach disk0 @VOLUME@ @ATTACH_MODE@
 set station 0.0 role console
 set station 0.1 role printer
-set station 0.1 device-code PB
 set station 0.1 output console
 set station 0.2 listen 127.0.0.1:2302
 set station 0.3 listen 127.0.0.1:2303

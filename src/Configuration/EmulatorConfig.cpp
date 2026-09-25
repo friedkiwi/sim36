@@ -163,7 +163,6 @@ void EmulatorConfig::applyDefaultStationsIfNoneDeclared()
         if (address == 1) {
             s.role = "printer";
             s.deviceCode = "PB";
-            s.deviceCodeGiven = true;
             s.printerOutput = "console";
         } else {
             s.role = "display";
@@ -408,19 +407,18 @@ void EmulatorConfig::validate(const std::string& path)
                 "console at work station address 0, and MSIPL phase 3 waits for a "
                 "signed-on terminal unit block");
 
-    for (const StationConfig& s : stations) {
+    for (StationConfig& s : stations) {
         if (!s.isPrinter()) continue;
-        // The device code is REQUIRED for a printer.  SC21-9052 pages 2-18
-        // and 2-19 give printers two-LETTER codes and displays numeric ones,
-        // and a display's code on a printer's record reports the wrong
-        // device family to SSP.
-        if (!s.deviceCodeGiven)
+        // There is one virtual printer implementation. PB is therefore its
+        // device identity, implied by the role rather than an independent
+        // model-selection knob. Keep accepting explicit PB in old files,
+        // but do not claim to emulate another physical printer personality.
+        if (s.deviceCodeGiven && monitor::toLower(s.deviceCode) != "pb")
             throw ConfigError(path, 0, fmt::format(
-                "station {} is a printer and must state its device_code. There is no "
-                "default: SC21-9052 2-18/2-19 gives printer device codes as two-letter "
-                "codes while displays get numeric ones, and the code selects the device "
-                "family byte SSP matches in record byte 1. Printer codes: {}",
-                s.id(), devices::DeviceCodes::knownCodes(true)));
+                "station {} uses the virtual printer role, whose device_code is PB; "
+                "{} selects a different physical printer personality that sim36 does not emulate",
+                s.id(), s.deviceCode));
+        s.deviceCode = "PB";
     }
 
     // Every station's device code has to be one SSP knows, because SSP

@@ -147,7 +147,8 @@ std::string ConfigurationRenderer::renderReplay(const EmulatorConfig& c)
 
     for (const StationConfig& s : sorted(c)) {
         line(fmt::format("set station {} role {}", s.id(), quoteArgument(s.role)));
-        line(fmt::format("set station {} device-code {}", s.id(), quoteArgument(s.deviceCode)));
+        if (!s.isPrinter())
+            line(fmt::format("set station {} device-code {}", s.id(), quoteArgument(s.deviceCode)));
         line(fmt::format("set station {} signon-at-ipl {}", s.id(), onOff(s.signOnAtIpl)));
         if (s.isPrinter()) {
             if (s.printerOutput == "file" || s.printerOutput == "txtout" || s.printerOutput == "pdfout")

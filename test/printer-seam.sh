@@ -42,10 +42,10 @@ cat > "$TMP/printer.conf" <<'EOF'
 
 [station 0.4]
   role             = printer
-  device_code      = PB
   listen           = 127.0.0.1:12394
 EOF
-sed -i "s#@VOLUME@#$SIM36_VOLUME#" "$TMP/printer.conf"
+sed -i.bak "s#@VOLUME@#$SIM36_VOLUME#" "$TMP/printer.conf"
+rm -f "$TMP/printer.conf.bak"
 
 check() {   # check <name> <file> <fixed-string pattern>
     if grep -qF -- "$3" "$2"; then
@@ -111,9 +111,10 @@ refuse() {   # refuse <name> <sed-expression-applied-to-printer.conf> <pattern>
     check "$1" "$TMP/bad.out" "$3"
 }
 
-refuse "a printer with no device_code is refused, with the reason" \
-       '/^  device_code      = PB/d' \
-       "must state its device_code"
+refuse "an unemulated printer personality is refused, with the reason" \
+       's|^  role             = printer$|  role             = printer\
+  device_code      = PD|' \
+       "different physical printer personality that sim36 does not emulate"
 # signon_at_ipl is valid native display ownership policy. It is deliberately
 # not tested as printer behavior here: it is neither a printer protocol option
 # nor TFRM36 AUTOSIGNON.
