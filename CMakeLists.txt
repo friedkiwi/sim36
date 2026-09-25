@@ -228,6 +228,10 @@ set(SIM36_STATION_PORT_GATES workstation_actions wsc_config workstation_seam pri
     ipl_unattended_main_session ipl_printer_rebuild list_all_regression history_regression catalog_regression
     cnfigssp_print_regression)
 set_tests_properties(${SIM36_STATION_PORT_GATES} PROPERTIES RESOURCE_LOCK sim36_station_ports)
+# This gate performs six complete multiplexer lifecycles, including three real
+# guest IPLs.  It takes about one minute on Linux and just over two minutes on
+# the MSVC v142 runner, so it needs a larger limit than CI's default watchdog.
+set_tests_properties(station_multiplex PROPERTIES TIMEOUT 300)
 
 # ---------------------------------------------------------------------------
 # THIRD_PARTY_NOTICES, generated from the vcpkg copyright files of the
