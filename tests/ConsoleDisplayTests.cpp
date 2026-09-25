@@ -150,7 +150,10 @@ TEST_CASE("console display: DisplayWrite/36 CREATE honors SOH and FCW resequenci
     //   SYSTEM  r2 c45 ffw=6820 attr=22 len=12  (bypass profile field)
     //   name    r5 c30 ffw=4820 attr=30 len=12
     //   subject r6 c30 ffw=4800 attr=30 len=35
-    std::vector<uint8_t> format = {0x11, 0x02, 0x2C, 0x1D, 0x68, 0x20, 0x22, 0x00, 0x0C};
+    constexpr std::size_t formatLength = 167;
+    std::vector<uint8_t> format;
+    format.reserve(formatLength);
+    format.insert(format.end(), {0x11, 0x02, 0x2C, 0x1D, 0x68, 0x20, 0x22, 0x00, 0x0C});
     format.insert(format.end(), 12, 0x40);
     const std::vector<uint8_t> name = {0x11, 0x05, 0x1D, 0x1D, 0x48, 0x20, 0x30, 0x00, 0x0C};
     format.insert(format.end(), name.begin(), name.end());
@@ -174,6 +177,7 @@ TEST_CASE("console display: DisplayWrite/36 CREATE honors SOH and FCW resequenci
     format.insert(format.end(), 8, 0x40);
     const std::vector<uint8_t> soh = {0x01, 0x03, 0x00, 0x00, 0x05};
     format.insert(format.end(), soh.begin(), soh.end());
+    REQUIRE(format.size() == formatLength);
     display.apply(format.data(), 0, static_cast<int>(format.size()));
 
     // The operator reply as a real 5250 client sends it, trailing blanks
