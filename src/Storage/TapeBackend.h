@@ -10,8 +10,8 @@
 // The operation set is the one a tape driver uses over its adapter: LOAD /
 // UNLOAD, REWIND, READ / WRITE a block, WRITE FILEMARKS, SPACE (by record and
 // by file) and READ POSITION.  A concrete backend supplies the storage; the
-// folder format is FolderTapeBackend, and other containers can implement the
-// same interface later.
+// SIMH TAP is the default container and the legacy directory representation
+// is FolderTapeBackend; neither leaks into the device model.
 //
 // Positioning model: the tape is a linear sequence of blocks with tape marks
 // between files, exactly as hardware sees it.  Read and forward-space stop ON

@@ -536,7 +536,8 @@ void MonitorCli::tapeTest(const std::vector<std::string>& a)
 void MonitorCli::tapeSvc(const std::vector<std::string>& a)
 {
     bool temp = a.size() <= 1;
-    std::string dir = temp ? temporaryFolder("s36tapesvc-") : a[1];
+    std::string tempRoot = temp ? temporaryFolder("s36tapesvc-") : std::string();
+    std::string path = temp ? (std::filesystem::path(tempRoot) / "tape.tap").string() : a[1];
 
     constexpr int iob = 0x0600;
     constexpr int buffer = 0x20000;
@@ -557,17 +558,22 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
     try {
         std::string reason;
         bool proceed = true;
-        if (!std::filesystem::exists(std::filesystem::path(dir) / "manifest.json")) {
-            bool init = FolderTapeBackend::init(dir, "TAP01", "S36REFEMU", reason);
-            report("init a labeled tape folder", init, sc);
+        std::error_code ec;
+        const bool directory = std::filesystem::is_directory(path, ec);
+        const bool needsInit = !std::filesystem::exists(path, ec) ||
+            (directory && !std::filesystem::exists(std::filesystem::path(path) / FolderTapeBackend::kManifestName)) ||
+            (!directory && std::filesystem::is_regular_file(path, ec) && std::filesystem::file_size(path, ec) == 0);
+        if (needsInit) {
+            bool init = storage::initializeTape(path, "TAP01", "S36REFEMU", reason);
+            report("init a labeled tape", init, sc);
             if (!init) {
                 fmt::print("  reason: {}\n", reason);
                 proceed = false;
             }
         }
         if (proceed) {
-            auto opened = FolderTapeBackend::open(dir, false, reason);
-            report("open the tape folder", opened != nullptr, sc);
+            auto opened = storage::openTapeBackend(path, false, reason);
+            report("open the tape media", opened != nullptr, sc);
             if (!opened) {
                 fmt::print("  reason: {}\n", reason);
             } else {
@@ -827,7 +833,7 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
     }
     fmt::print("\n");
     fmt::print("  tape SVC: {} passed, {} failed\n", sc.pass, sc.fail);
-    if (temp) removeTree(dir);
+    if (temp) removeTree(tempRoot);
 }
 
 void MonitorCli::saveMain(const std::vector<std::string>& a)

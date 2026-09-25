@@ -28,22 +28,23 @@ instantiate default-machine
 # 1. init / load / status / vtoc / files / unload - the full run-time surface.
 #
 # A fresh tape is inited, mounted and inspected; then a data file is appended
-# through the SVC path (tapesvc, which flushes on its own unload) and the folder
-# is re-loaded so `tape files` shows BOTH the label file and the data file.
+# through the SVC path (tapesvc, which flushes on its own unload) and the TAP
+# file is re-loaded so `tape files` catalogs the resulting tape files.
 # ---------------------------------------------------------------------------
 echo "-- tape init / load / vtoc / files / unload --"
 cat > "$TMP/ops.sim" <<EOF
 ipl pause
 tape
-tape load $TMP/none
-tape init $TMP/tp TAP07 ACME
-tape load $TMP/tp
+tape load $TMP/created.tap
+tape unload
+tape init $TMP/tp.tap TAP07 ACME
+tape load $TMP/tp.tap
 tape
 tape vtoc
 tape files
 boot
-tapesvc $TMP/tp
-tape load $TMP/tp
+tapesvc $TMP/tp.tap
+tape load $TMP/tp.tap
 tape files
 tape unload
 tape
@@ -52,10 +53,10 @@ EOF
 out=$("$SIM36" -c "$TMP/default-machine.sim" -s "$TMP/ops.sim" 2>&1)
 
 check "an empty drive reports itself empty     " "tape drive: EMPTY"
-check "a bad folder is refused, not a crash     " "REFUSED $TMP/none:"
-check "init writes a fresh labeled tape folder  " "initialised tape folder $TMP/tp: volume TAP07, owner ACME"
-check "load mounts it and names the volume      " "mounted $TMP/tp, volume TAP07"
-check "status shows the mounted medium          " "tape drive: $TMP/tp"
+check "a missing writable path creates a TAP    " "mounted $TMP/created.tap, volume (unlabeled)"
+check "init writes a fresh labeled SIMH tape    " "initialised tape $TMP/tp.tap: volume TAP07, owner ACME"
+check "load mounts it and names the volume      " "mounted $TMP/tp.tap, volume TAP07"
+check "status shows the mounted medium          " "tape drive: $TMP/tp.tap"
 check "  ... and the volume serial              " "volume      TAP07"
 check "  ... and the spun-up state              " "loaded (spun up at load point)"
 # vtoc decodes the VOL1 label group.
@@ -66,19 +67,20 @@ check "  ... and the decoded VOL1 label record  " "VOL1 volumeId=TAP07"
 # later write replaces that empty terminator, so the count remains two.
 check "files lists label plus empty terminator  " "-- tape files (2) --"
 check "  ... as an 80-byte label file           " "1  label"
-check "files re-lists after a data write (2)    " "-- tape files (2) --"
-check "  ... and the appended data file appears " "2  data"
+check "files re-lists after guest tape writes   " "-- tape files (5) --"
+check "  ... and the guest data file appears    " "3  data"
 check "unload dismounts and flushes             " "tape unloaded (writes flushed)"
-# The tally proves the manifest on disk is what the listing claimed.
-check "the manifest names blob 0002.dat         " "0002.dat"
+# The resulting media is a single SIMH file, not a conversion workspace.
+[ -f "$TMP/tp.tap" ] && ok "init created a TAP file on disk           " \
+                          || bad "init created a TAP file on disk           " "(absent)"
 
 # Positioning and filemark commands report both the operation result and the
 # resulting head location.  Use a separate cartridge so this exercise cannot
 # alter the listing fixture above.
 cat > "$TMP/position.sim" <<EOF
 ipl pause
-tape init $TMP/pos POS001 TEST
-tape load $TMP/pos
+tape init $TMP/pos.tap POS001 TEST
+tape load $TMP/pos.tap
 tape position
 tape space block 1
 tape space file 1
@@ -87,7 +89,7 @@ tape space file 1
 tape mark 2
 tape position
 tape unload
-tape load $TMP/pos ro
+tape load $TMP/pos.tap ro
 tape mark
 quit
 EOF
@@ -100,37 +102,64 @@ check "mark writes consecutive filemarks         " "tape mark 2: Ok, wrote 2; fi
 check "position sees the consecutive marks       " "tape position: file 3 block 0 EOD"
 check "read-only filemark writes are refused     " "tape mark 1: WriteProtected, wrote 0"
 
-# The init helper actually created the folder and its manifest.
-[ -f "$TMP/tp/manifest.json" ] && ok "init created manifest.json on disk       " \
-                               || bad "init created manifest.json on disk       " "(absent)"
-
 # ---------------------------------------------------------------------------
 # 2. A tape attached in the definition is in the drive at power-on.
 #
-# `attach tape0` pointing at the folder from part 1 must mount at construction,
+# `attach tape0` pointing at the TAP from part 1 must mount at construction,
 # so `tape` shows it loaded with no explicit `tape load`.
 # ---------------------------------------------------------------------------
 echo "-- an attached tape0 mounts at power-on --"
-{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/tp rw\n' "$TMP"; } > "$TMP/tape.sim"
+{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/tp.tap rw\n' "$TMP"; } > "$TMP/tape.sim"
 printf 'ipl pause\ntape\ntape files\nquit\n' > "$TMP/mounted.sim"
 out=$("$SIM36" -c "$TMP/tape.sim" -s "$TMP/mounted.sim" 2>&1)
-check "the declared tape is mounted at startup  " "tape drive: $TMP/tp"
+check "the declared tape is mounted at startup  " "tape drive: $TMP/tp.tap"
 check "  ... with its volume serial             " "volume      TAP07"
-check "  ... and its files are listable         " "-- tape files (2) --"
+check "  ... and its files are listable         " "-- tape files (5) --"
 
 # read-only can be requested from the definition.
 echo "-- a read-only attach protects the tape --"
-{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/tp ro\n' "$TMP"; } > "$TMP/ro.sim"
+{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/tp.tap ro\n' "$TMP"; } > "$TMP/ro.sim"
 out=$("$SIM36" -c "$TMP/ro.sim" -s "$TMP/mounted.sim" 2>&1)
-check "a readonly tape mounts read-only         " "tape drive: $TMP/tp (read-only)"
+check "a readonly tape mounts read-only         " "tape drive: $TMP/tp.tap (read-only)"
 
 # ---------------------------------------------------------------------------
-# 3. A bad folder in the definition is a construction error, reported with why.
+# 3. Creation, blank-file, folder compatibility, and refusal edges.
 # ---------------------------------------------------------------------------
-echo "-- definition errors are reported, not hidden --"
-{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/does-not-exist rw\n' "$TMP"; } > "$TMP/bad.sim"
+echo "-- path type selects the backend --"
+: > "$TMP/blank.tap"
+{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/blank.tap ro\n' "$TMP"; } > "$TMP/blank.sim"
+out=$("$SIM36" -c "$TMP/blank.sim" -s "$TMP/mounted.sim" 2>&1)
+check "a blank file is a valid empty TAP       " "tape drive: $TMP/blank.tap (read-only)"
+check "  ... and contains no tape files        " "the tape has no files"
+
+mkdir "$TMP/folder"
+cat > "$TMP/folder.sim" <<EOF
+ipl pause
+tape init $TMP/folder FOLD01 LEGACY
+tape load $TMP/folder
+tape status
+quit
+EOF
+out=$("$SIM36" -c "$TMP/default-machine.sim" -s "$TMP/folder.sim" 2>&1)
+check "only a directory selects folder media   " "mounted $TMP/folder, volume FOLD01"
+check "  ... with a folder manifest            " "volume      FOLD01"
+[ -f "$TMP/folder/manifest.json" ] && ok "folder compatibility writes a manifest   " \
+                                      || bad "folder compatibility writes a manifest   " "(absent)"
+
+{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/new-at-startup.tap rw\n' "$TMP"; } > "$TMP/new.sim"
+out=$("$SIM36" -c "$TMP/new.sim" -s "$TMP/mounted.sim" 2>&1)
+check "a missing writable attach creates TAP   " "tape drive: $TMP/new-at-startup.tap"
+[ -f "$TMP/new-at-startup.tap" ] && ok "startup attach created the TAP file       " \
+                                      || bad "startup attach created the TAP file       " "(absent)"
+
+{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/missing-ro.tap ro\n' "$TMP"; } > "$TMP/missing-ro.sim"
+out=$("$SIM36" -c "$TMP/missing-ro.sim" -s "$TMP/mounted.sim" 2>&1 || true)
+check "a missing read-only attach is refused   " "cannot be used as a tape"
+
+printf 'not a tap' > "$TMP/bad.tap"
+{ cat "$TMP/default-machine.sim"; printf 'attach tape0 %s/bad.tap ro\n' "$TMP"; } > "$TMP/bad.sim"
 out=$("$SIM36" -c "$TMP/bad.sim" -s "$TMP/mounted.sim" 2>&1 || true)
-check "a bad tape folder fails with why         " "cannot be used as a tape"
+check "malformed existing TAP is refused       " "cannot be used as a tape"
 
 # ---------------------------------------------------------------------------
 # 4. The default machine has no tape, so the drive is empty and nothing changed.

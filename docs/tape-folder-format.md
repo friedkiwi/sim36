@@ -1,11 +1,36 @@
-# Folder tapes and `tape-folder.py`
+# SIMH tapes and the legacy folder format
 
-SIM/36 represents a tape as a directory so its filemarks, block boundaries,
-and labels remain inspectable.  The emulator and the standard-library-only
+SIM/36 uses the SIMH `.tap` format for ordinary tape media. A TAP is mounted
+directly and supports reads, writes, tape marks, forward and reverse spacing,
+overwrite-at-head semantics, unload-time persistence, and saved-position
+restore; no conversion step is required. The four-byte SIMH record markers
+and trailers are little-endian, odd records carry one padding byte, and a
+zero marker is a tape mark.
+
+`attach tape0` and `tape load` select the backend from the host object, not
+the suffix: a directory selects the legacy folder backend and any regular
+file selects SIMH. A blank file is a valid empty TAP. A missing writable path
+is created as an empty TAP, while a missing read-only path is refused.
+
+```text
+attach tape0 /media/save.tap rw
+tape load /media/restore.tap ro
+tape init /media/new.tap TEST01 SIM36
+```
+
+`tape init` defaults to SIMH for a missing file. To deliberately create a
+legacy folder tape, create the directory first and pass that directory to
+`tape init`.
+
+## Legacy folder tapes and `tape-folder.py`
+
+The original representation stores a tape as a directory so its filemarks,
+block boundaries, and labels remain inspectable outside the emulator. The
+emulator and the standard-library-only
 [`tools/tape-folder.py`](../tools/tape-folder.py) utility share format
 identifier `s36-folder-tape`, version 1.
 
-## Physical model
+### Physical model
 
 A folder contains `manifest.json` and one blob for each tape file:
 
@@ -37,7 +62,7 @@ layout (identifier at 0, six-byte volume ID at 4, access byte at 10, and
 14-byte owner at 37).  It deliberately does not offer HDR/EOF authoring while
 the guest-specific fields needed by SSP remain under discovery.
 
-## Common operations
+### Common operations
 
 Create and inspect a blank labeled volume:
 

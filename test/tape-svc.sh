@@ -7,7 +7,7 @@
 # back.
 #
 # The path exercised is the real one: an IOB in guest storage, XR1, SVC 46
-# through the control processor, the virtual tape, the folder backend. The
+# through the control processor, the virtual tape, and the SIMH backend. The
 # monitor's `tapesvc` diagnostic builds the IOBs and issues the SVCs;
 # positioning between data ops uses the backend's own REWIND/SPACE (the label
 # layer's operations, not SVC 46 opcodes).
@@ -19,7 +19,7 @@ instantiate default-machine
 cat > "$TMP/tsvc.sim" <<EOF
 ipl pause
 boot
-tapesvc $TMP/tape
+tapesvc $TMP/tape.tap
 quit
 EOF
 

@@ -1,5 +1,5 @@
-// The typed view of a tape folder's manifest.json, and the IBM standard
-// tape labels it mirrors.
+// The typed tape catalog used by a folder's manifest.json and by live media
+// inspection, plus the IBM standard tape labels it mirrors.
 //
 // The manifest carries the volume identity (the VOL1 fields) and the ordered
 // list of tape files, and nothing about positioning that is not recoverable

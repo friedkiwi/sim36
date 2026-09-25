@@ -1,7 +1,7 @@
 // Tape IOS, SVC 46.  The volume's unit definition table declares a 6380
 // TAPE TAP01, so from the guest's side the drive exists; what this models is
-// that drive, driving a generic tape backend (ITapeBackend; the folder
-// format is FolderTapeBackend).  An empty drive is a normal machine state,
+// that drive, driving a generic tape backend (ITapeBackend; SIMH TAP and the
+// legacy folder format both implement it).  An empty drive is a normal machine state,
 // not an emulator gap.
 //
 // The command set was recovered behaviourally from the Advanced/36's own

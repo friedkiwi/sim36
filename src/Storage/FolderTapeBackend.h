@@ -1,12 +1,10 @@
 // A virtual tape whose container is a folder: a JSON manifest plus numbered
 // data blobs, one per tape file (the region between two tape marks).
 //
-// Why a folder and not a single .tap file: a .tap interleaves 4-byte
-// block-length headers with the data in one opaque stream.  A folder makes
-// the same structure legible: the manifest is human-readable, each tape file
-// is a plain blob you can inspect or replace, and the volume/label identity
-// is named rather than buried in EBCDIC at a byte offset.  The block/tape
-// mark semantics are identical, so nothing about the model is lost.
+// This is the original, human-inspectable representation retained for
+// compatibility and authoring workflows.  New regular-file media uses
+// SimhTapeBackend; backend selection is made solely from directory vs file.
+// The block/tape-mark semantics are identical across both representations.
 //
 // On-disk layout:
 //   mytape/
