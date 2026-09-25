@@ -133,36 +133,78 @@ std::filesystem::path fontPath()
     return candidates.front();
 }
 
-void drawForm(HPDF_Page page, const Palette& colors)
+void centeredText(HPDF_Page page, HPDF_Font font, const std::string& text,
+                  HPDF_REAL centerX, HPDF_REAL baseline)
+{
+    HPDF_Page_SetFontAndSize(page, font, 7);
+    const HPDF_REAL width = HPDF_Page_TextWidth(page, text.c_str());
+    HPDF_Page_TextOut(page, centerX - width / 2, baseline, text.c_str());
+}
+
+void drawForm(HPDF_Page page, HPDF_Font formFont, const Palette& colors)
 {
     constexpr float width = 1044.0F;
     constexpr float height = 792.0F;
-    rgbFill(page, colors.light);
+    // Continuous forms are white stock. A paper colour selects the form
+    // furniture, not the stock itself: only alternate three-line bands are
+    // lightly tinted, while rules and margin labels use the darker colour.
+    rgbFill(page, {255, 255, 255});
     HPDF_Page_Rectangle(page, 0, 0, width, height);
     HPDF_Page_Fill(page);
 
-    rgbFill(page, colors.dark);
-    for (int band = 0; band < 11; ++band) {
-        HPDF_Page_Rectangle(page, 30, static_cast<float>(band * 72), width - 60, 36);
+    rgbFill(page, colors.light);
+    for (int band = 0; band < 10; ++band) {
+        // The printable body starts six lines below the top edge. HPDF's
+        // origin is bottom-left, hence the inverted band coordinate.
+        const float y = height - (72.0F + static_cast<float>(band * 72) + 36.0F);
+        HPDF_Page_Rectangle(page, 40, y, width - 80, 36);
         HPDF_Page_Fill(page);
     }
 
     rgbStroke(page, colors.dark);
-    HPDF_Page_SetLineWidth(page, 0.5F);
-    for (int line = 0; line <= 66; line += 3) {
-        const float y = 6.0F + static_cast<float>(line) * 12.0F;
+    HPDF_Page_SetLineWidth(page, 0.7F);
+    HPDF_Page_MoveTo(page, 30, height - 72.0F);
+    HPDF_Page_LineTo(page, width - 30, height - 72.0F);
+    HPDF_Page_Stroke(page);
+    HPDF_Page_MoveTo(page, 30, 0.5F);
+    HPDF_Page_LineTo(page, width - 30, 0.5F);
+    HPDF_Page_Stroke(page);
+    for (int division = 0; division <= 20; ++division) {
+        const float y = height - (72.0F + static_cast<float>(division * 36));
         HPDF_Page_MoveTo(page, 40, y);
         HPDF_Page_LineTo(page, width - 40, y);
         HPDF_Page_Stroke(page);
     }
 
+    HPDF_Page_SetLineWidth(page, 0.5F);
+    for (float x : {29.5F, 40.0F, width - 40.0F, width - 29.5F}) {
+        HPDF_Page_MoveTo(page, x, 0.5F);
+        HPDF_Page_LineTo(page, x, height - 72.0F);
+        HPDF_Page_Stroke(page);
+    }
+
+    // The marginal scales are part of the form, not printed guest data.
+    rgbFill(page, colors.dark);
+    HPDF_Page_BeginText(page);
+    for (int row = 0; row < 60; ++row)
+        centeredText(page, formFont, std::to_string(row + 1), 35.0F,
+                     height - (72.0F + static_cast<float>(row * 12) + 9.0F));
+    for (int row = 0; row < 80; ++row)
+        centeredText(page, formFont, std::to_string(row + 1), width - 35.0F,
+                     height - (72.0F + static_cast<float>(row * 9) + 7.0F));
+    HPDF_Page_EndText(page);
+
+    // Pale gray tractor-feed perforations remain neutral for every form
+    // colour, including the unbanded white preset.
     rgbStroke(page, {200, 200, 200});
+    rgbFill(page, {230, 230, 230});
     HPDF_Page_SetLineWidth(page, 0.75F);
     for (int hole = 0; hole < 22; ++hole) {
-        const float y = 18.0F + static_cast<float>(hole) * 36.0F;
+        const float y = height - (18.0F + static_cast<float>(hole) * 36.0F);
+        const float radius = hole == 0 || hole == 21 ? 6.5F : 5.5F;
         for (float x : {20.0F, width - 20.0F}) {
-            HPDF_Page_Circle(page, x, y, 4.0F);
-            HPDF_Page_Stroke(page);
+            HPDF_Page_Circle(page, x, y, radius);
+            HPDF_Page_FillStroke(page);
         }
     }
 }
@@ -189,7 +231,8 @@ bool writePrinterPdf(const std::string& path, const std::string& text,
     HPDF_SetCurrentEncoder(document, "UTF-8");
     const char* loadedName = HPDF_LoadTTFontFromFile(document, font.string().c_str(), HPDF_TRUE);
     HPDF_Font pdfFont = loadedName == nullptr ? nullptr : HPDF_GetFont(document, loadedName, "UTF-8");
-    if (pdfFont == nullptr) {
+    HPDF_Font formFont = HPDF_GetFont(document, "Helvetica", nullptr);
+    if (pdfFont == nullptr || formFont == nullptr) {
         error = "cannot load bundled font " + font.string();
         HPDF_Free(document);
         return false;
@@ -200,7 +243,7 @@ bool writePrinterPdf(const std::string& path, const std::string& text,
         HPDF_Page page = HPDF_AddPage(document);
         HPDF_Page_SetWidth(page, 1044);
         HPDF_Page_SetHeight(page, 792);
-        drawForm(page, palette);
+        drawForm(page, formFont, palette);
         HPDF_Page_SetRGBFill(page, 0, 0, 0);
         HPDF_Page_BeginText(page);
         HPDF_Page_SetFontAndSize(page, pdfFont, 10);
