@@ -1,13 +1,12 @@
-// The load-source selection, encoded as the low byte of control storage
+// The IPL-source selection, encoded as the low byte of control storage
 // direct area word 1074, the word phase 1 reads as its fourth instruction and
 // copies to guest 0x08A9.
 //
-// This selects the RELOAD source, not "where the machine boots from".  Phase
-// 1 only reaches the dispatch that reads it when a system reload has been
-// requested (guest 0x08B2 bit 0x08).  A normal disk IPL never consults this
-// byte at all.  The operator picks `disk`, `diskette` or `tape`, and `disk`,
-// the default, is encoded as not requesting a reload rather than as a value
-// of this field, because there is no such value.
+// The same operator selection also tells the control processor where to get
+// the initial 4 KB phase 1.  Phase 1 only reaches the reload dispatch below
+// when a removable source was selected (guest 0x08B2 bit 0x08).  A normal disk
+// IPL never consults this byte.  `disk`, the default, is therefore encoded as
+// no reload request rather than as a value of this field.
 //
 // The dispatch, at guest 0x146A:
 //

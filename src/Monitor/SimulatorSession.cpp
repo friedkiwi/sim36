@@ -527,13 +527,12 @@ void SimulatorSession::setMachine(const Args& a)
         if (!configuration::IplSourceTable::tryNormalizeType(a[3], type))
             throw MonitorError("IPL type must be attend/attended or unattend/unattended");
         definition_.iplType = type;
-    } else if (key == "ipl-source") definition_.iplSourceName = a[3];
-    else if (key == "load-source") {
-        // Where the CONTROL PROCESSOR reads phase 1 from, a different question
-        // from ipl-source (the reload source phase 1 consults once running).
+    } else if (key == "ipl-source") {
         if (!eq(a[3], "disk") && !eq(a[3], "diskette") && !eq(a[3], "tape"))
-            throw MonitorError("load-source must be 'disk', 'diskette', or 'tape'");
-        definition_.loadSourceName = a[3];
+            throw MonitorError("IPL source must be 'disk', 'diskette', or 'tape'");
+        definition_.iplSourceName = normal(a[3]);
+    } else if (key == "load-source") {
+        throw MonitorError("'set machine load-source' has been removed; use 'set machine ipl-source disk|diskette|tape'");
     } else if (key == "listener-auto-signon") definition_.listenerAutoSignOn = parseBool(a[3]);
     else if (key == "security")
         throw MonitorError(

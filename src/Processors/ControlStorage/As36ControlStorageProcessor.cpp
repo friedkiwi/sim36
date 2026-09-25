@@ -94,20 +94,20 @@ void As36ControlStorageProcessor::bringUpControlProcessor()
     devices_.resetPendingIo();
     trace_.csp("control processor bring-up: native, no microcode to load");
 
-    // The panel's load-source switch is latched into control storage at
+    // The panel's IPL-source switch is latched into control storage at
     // power-on, before the main storage IPL reads it.  This is stage A
     // because on a real machine it is the control processor that owns both
     // the panel and the direct areas; phase 1 reads word 1074 as its fourth
     // instruction and could not if a later stage set it.
     int src = cfg_.iplSource();
     directArea_.write(DirectArea::kIplSource, src);
-    trace_.csp("panel: load source '{}', IPL type '{}' -> direct area word {} = {:04X} - {}", cfg_.iplSourceName,
+    trace_.csp("panel: IPL source '{}', IPL type '{}' -> direct area word {} = {:04X} - {}", cfg_.iplSourceName,
                cfg_.iplType, DirectArea::kIplSource, src,
                configuration::IplSourceTable::describe(cfg_.iplSourceName, src));
 
     // Word 1124 is the other direct area word a module reads before anything
     // writes it: IPL phase 2 hands it to SVC 33 as the task work area's
-    // region size.  Same stage and same reason as the load source.
+    // region size.  Same stage and same reason as the IPL source.
     directArea_.write(DirectArea::kTaskWorkAreaSize, cfg_.taskWorkAreaSectors);
     trace_.csp("machine: task work area {} sector(s) -> direct area word {} (SA21-9436 TWAL's default is 60; "
                "which machine property supplies it is emulator policy)",
@@ -231,11 +231,11 @@ void As36ControlStorageProcessor::buildFromUnitDefinitionTable()
 
     if (cfg_.iplRequestsReload()) {
         m_.writeByte(0x8B2, static_cast<uint8_t>(m_.readByte(0x8B2) | kB2ParameterBit));
-        trace_.csp("UDT: load source '{}' -> IPL parameter byte bit 01 SET -> a reload is requested -> 08B2 |= {:02X} "
+        trace_.csp("UDT: IPL source '{}' -> IPL parameter byte bit 01 SET -> a reload is requested -> 08B2 |= {:02X} "
                    "(csipl c1832b14)",
                    cfg_.iplSourceName, kB2ParameterBit);
     } else {
-        trace_.csp("UDT: load source '{}' -> IPL parameter byte bit 01 CLEAR -> no reload requested, csipl skips the "
+        trace_.csp("UDT: IPL source '{}' -> IPL parameter byte bit 01 CLEAR -> no reload requested, csipl skips the "
                    "08B1/08B2 writes",
                    cfg_.iplSourceName);
     }
@@ -339,7 +339,7 @@ void As36ControlStorageProcessor::loadPhase1()
     m_.write(kPhase1LoadAddress, buf.data(), bytes);
 }
 
-// Stage B when the panel's load source is DISKETTE: the control processor
+// Stage B when the panel's IPL source is DISKETTE: the control processor
 // reads the diskette-resident phase 1, the first 4 KB of the #IPLBOOT data
 // set, instead of the disk boot record.  The two are the same thing for two
 // different devices: #IPLBOOT is [phase 1, 4 KB][the reload members], which
@@ -351,7 +351,7 @@ void As36ControlStorageProcessor::loadPhase1FromDiskette(uint8_t* buf, int bytes
 {
     auto& drive = devices_.diskette;
     if (!drive.hasMedium())
-        throw std::runtime_error("load_source = diskette, but the diskette drive is empty: the control processor has "
+        throw std::runtime_error("ipl_source = diskette, but the diskette drive is empty: the control processor has "
                                  "nowhere to read phase 1 from. Insert a volume carrying " +
                                  std::string(kIplDataSet));
 
@@ -359,7 +359,7 @@ void As36ControlStorageProcessor::loadPhase1FromDiskette(uint8_t* buf, int bytes
     storage::DisketteBackend::DataSet ds;
     if (!medium->findDataSet(kIplDataSet, ds))
         throw std::runtime_error(fmt::format(
-            "load_source = diskette, but {} carries no {} data set, so it is not an IPL volume (volume {}, owner {}). "
+            "ipl_source = diskette, but {} carries no {} data set, so it is not an IPL volume (volume {}, owner {}). "
             "Base-SSP volume 01 carries one; a program-product volume does not",
             medium->path(), kIplDataSet, medium->geometry().volumeId(), medium->geometry().ownerId()));
 
@@ -400,7 +400,7 @@ void As36ControlStorageProcessor::loadPhase1FromTape(uint8_t* buf, int bytes)
 {
     storage::ITapeBackend* tape = devices_.tape.medium();
     if (tape == nullptr || !tape->loaded())
-        throw std::runtime_error("load_source = tape, but the tape drive is empty or unloaded: the control processor "
+        throw std::runtime_error("ipl_source = tape, but the tape drive is empty or unloaded: the control processor "
                                  "has nowhere to read phase 1 from. Mount a volume carrying " +
                                  std::string(kIplDataSet));
 
@@ -440,14 +440,15 @@ void As36ControlStorageProcessor::loadPhase1FromTape(uint8_t* buf, int bytes)
         if (id != "HDR1") continue;
         std::string name = storage::Ebcdic::toAscii(block, 4, 17, storage::Ebcdic::CodePage::Cp037);
         while (!name.empty() && name.back() == ' ') name.pop_back();
-        if (name == kIplDataSet) {
-            found = true;
-            foundHdr2 = false;
-        }
+        if (name != kIplDataSet)
+            fail(fmt::format("ipl_source = tape, but the first labeled data set on {} is {}, not {}; phase 1 restarts "
+                             "at BOT and cannot skip an earlier data set", tape->path(), name, kIplDataSet));
+        found = true;
+        foundHdr2 = false;
     }
 
     if (!found)
-        fail(fmt::format("load_source = tape, but {} carries no {} data set, so it is not an IPL volume",
+        fail(fmt::format("ipl_source = tape, but {} carries no {} data set, so it is not an IPL volume",
                          tape->path(), kIplDataSet));
     if (!atData)
         fail(fmt::format("{} on {} has no tape mark between its header labels and data", kIplDataSet, tape->path()));

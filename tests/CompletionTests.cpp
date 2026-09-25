@@ -58,6 +58,7 @@ TEST_CASE("argument positions complete their keywords")
     CHECK(has(complete("show "), "cpu"));
     CHECK(complete("show st") == std::vector<std::string>{"status", "storage"});
     CHECK(complete("set machine ipl-") == std::vector<std::string>{"ipl-type", "ipl-source"});
+    CHECK(complete("set machine load-").empty());
     CHECK(complete("set station 1.0 ") ==
           std::vector<std::string>{"role", "device-code", "listen", "output", "signon-at-ipl"});
     CHECK(complete("set station 1.0 role ") == std::vector<std::string>{"console", "display", "printer"});

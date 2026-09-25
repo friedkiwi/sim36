@@ -1412,7 +1412,7 @@ std::vector<uint8_t> As36ControlStorageProcessor::buildTfrm36GuestPayload(int un
 }
 
 // Transient 05, IPL control: it does not return, it reboots the machine.
-// The request word is the load source the guest has just written through
+// The request word is the IPL source the guest has just written through
 // SVC 0F as direct area word 1074; bit 0x02 asks for the next IPL from
 // disk, bit 0x10 from tape, and the body then performs a pseudo IPL.  This
 // is the last instruction of an SSP generation.  The closest a control
@@ -1435,22 +1435,22 @@ bool As36ControlStorageProcessor::transientIplControl(int requestBlock)
                       : (request & 0x10) != 0 ? "bit 10: findTape + setIplType(0), so the next IPL is FROM TAPE"
                                               : "no arm decoded for these bits";
 
-    // The machine's load source becomes the requested one.  The machine
+    // The machine's IPL source becomes the requested one.  The machine
     // definition is immutable on this side, so the new source is recorded
     // here for the operator's `ipl` to consult; the name reported is the
     // one the reference would show.
-    std::string loadSourceName = source != nullptr ? std::string(source) : cfg_.iplSourceName;
+    std::string iplSourceName = source != nullptr ? std::string(source) : cfg_.iplSourceName;
     if (source != nullptr) pseudoIplSource_ = source;
     pseudoIplRequested_ = true;
 
     msp_->halt(fmt::format("transient 05: the guest asked for a PSEUDO IPL (SVC 50 inline 05, request word {:04X}; {}). "
                            "NuEmul::nuips does copyInstallData + flushS36ToDasd and restarts, so control does not return "
-                           "here - `$IPS Psuedo IPL` on the microcode volumes. The load source is now '{}' and the machine "
+                           "here - `$IPS Psuedo IPL` on the microcode volumes. The IPL source is now '{}' and the machine "
                            "is stopped at the point the restart would happen; `ipl` to take it. "
                            "docs/s36/msrel-program-check-2026-09-10.md",
-                           request, arm, loadSourceName));
-    trace_.csp("transient 05 (IPL control, c18d548c): PSEUDO IPL requested, request word {:04X} - {}. load_source is now '{}'",
-               request, arm, loadSourceName);
+                           request, arm, iplSourceName));
+    trace_.csp("transient 05 (IPL control, c18d548c): PSEUDO IPL requested, request word {:04X} - {}. IPL source is now '{}'",
+               request, arm, iplSourceName);
     return true;
 }
 

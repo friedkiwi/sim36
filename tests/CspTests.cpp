@@ -51,7 +51,7 @@ struct CspEmptyVolume {
 struct CspIplTape {
     std::filesystem::path path;
 
-    CspIplTape(const std::string& dataSet, const std::vector<uint8_t>& phase1, bool withDecoy = false)
+    CspIplTape(const std::string& dataSet, const std::vector<uint8_t>& phase1)
     {
         path = std::filesystem::temp_directory_path() /
                ("sim36-csp-ipl-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".tap");
@@ -78,7 +78,6 @@ struct CspIplTape {
                         storage::TapeResult::Ok);
             REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
         };
-        if (withDecoy) writeDataSet("#NOTBOOT", std::vector<uint8_t>(4096, 0xEE));
         writeDataSet(dataSet, phase1);
         REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
         tape->unload();
@@ -89,15 +88,14 @@ struct CspIplTape {
 
 }  // namespace
 
-TEST_CASE("tape load finds named IPLBOOT, spans blocks, and leaves tape at BOT")
+TEST_CASE("tape load reads first IPLBOOT, spans blocks, and leaves tape at BOT")
 {
     CspEmptyVolume volume(9000);
     std::vector<uint8_t> expected(4096);
     for (std::size_t i = 0; i < expected.size(); ++i) expected[i] = static_cast<uint8_t>(i * 37 + 11);
-    CspIplTape tapeImage("#IPLBOOT", expected, true);
+    CspIplTape tapeImage("#IPLBOOT", expected);
 
     configuration::EmulatorConfig config;
-    config.loadSourceName = "tape";
     config.iplSourceName = "tape";
     machine::MachineState state(128 * 1024);
     monitor::Tracer trace;
@@ -122,12 +120,11 @@ TEST_CASE("tape load finds named IPLBOOT, spans blocks, and leaves tape at BOT")
     CHECK(position.blockNumber == 0);
 }
 
-TEST_CASE("tape load rejects a cartridge without IPLBOOT and rewinds it")
+TEST_CASE("tape load rejects a first data set other than IPLBOOT and rewinds it")
 {
     CspEmptyVolume volume(9000);
     CspIplTape tapeImage("#NOTBOOT", std::vector<uint8_t>(4096, 0xAA));
     configuration::EmulatorConfig config;
-    config.loadSourceName = "tape";
     config.iplSourceName = "tape";
     machine::MachineState state(128 * 1024);
     monitor::Tracer trace;
@@ -140,7 +137,7 @@ TEST_CASE("tape load rejects a cartridge without IPLBOOT and rewinds it")
     As36ControlStorageProcessor csp(state, config, devices, disk, trace);
 
     csp.bringUpControlProcessor();
-    CHECK_THROWS_WITH_AS(csp.iplMainProcessor(), doctest::Contains("carries no #IPLBOOT"), std::runtime_error);
+    CHECK_THROWS_WITH_AS(csp.iplMainProcessor(), doctest::Contains("#NOTBOOT, not #IPLBOOT"), std::runtime_error);
     CHECK(devices.tape.medium()->readPosition().beginningOfTape);
 }
 

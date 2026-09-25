@@ -93,12 +93,9 @@ public:
     std::string multiplexHost = "127.0.0.1";
     int multiplexPort = 2300;
 
-    // The front panel's load-source selection (the RELOAD source phase 1
-    // consults).
+    // The front panel's IPL-source selection.  It selects both where the
+    // control processor obtains phase 1 and where phase 1 continues loading.
     std::string iplSourceName = "disk";
-    // Where the CONTROL PROCESSOR gets phase 1: `disk` reads the boot record
-    // from sector 8191; removable media read the #IPLBOOT data set.
-    std::string loadSourceName = "disk";
 
     // Machine identity is independent of the CSP implementation.  This lets
     // the virtual Advanced/36 CSP expose a 5363 or 5364 personality to SSP.

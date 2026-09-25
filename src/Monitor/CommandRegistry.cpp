@@ -202,7 +202,7 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
                    "wr4", "wr5", "wr6", "wr7"});
         } else if (at(1, "machine") && pos == 2) {
             words({"model", "csp-type", "task-work-area", "host-model", "host-processor-model",
-                   "host-processor-feature", "ipl-type", "ipl-source", "load-source",
+                   "host-processor-feature", "ipl-type", "ipl-source",
                    "listener-auto-signon", "signon-use-router", "signon-statement",
                    "signon-request", "signon-router-key", "ws-interactive"});
         } else if (at(1, "machine") && pos == 3 &&
@@ -216,8 +216,6 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
         } else if (at(1, "machine") && pos == 3 && at(2, "ipl-type")) {
             words({"attend", "unattend"});
         } else if (at(1, "machine") && pos == 3 && at(2, "ipl-source")) {
-            words({"disk", "diskette", "tape", "tape-04", "tape-10"});
-        } else if (at(1, "machine") && pos == 3 && at(2, "load-source")) {
             words({"disk", "diskette", "tape"});
         } else if (at(1, "station") && pos == 3) {
             words({"role", "device-code", "listen", "output", "signon-at-ipl"});

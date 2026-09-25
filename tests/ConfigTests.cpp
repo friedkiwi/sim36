@@ -113,16 +113,41 @@ TEST_CASE("config: main storage is derived from the model and has no setter")
     CHECK_THROWS(session.execute("set machine main-storage 512K"));
 }
 
-TEST_CASE("config: tape is an explicit control-processor load source")
+TEST_CASE("config: IPL source selects both phase 1 and its reload medium")
 {
     sim36::monitor::SimulatorSession session;
-    session.execute("set machine load-source tape");
     session.execute("set machine ipl-source tape");
     session.execute("set machine ipl-type attended");
     CHECK(session.definition().loadsFromTape());
     CHECK_FALSE(session.definition().loadsFromDiskette());
     CHECK(session.definition().iplRequestsReload());
     CHECK(session.definition().iplSource() == 0x88);
+    CHECK_THROWS_WITH(session.execute("set machine load-source disk"),
+                      "'set machine load-source' has been removed; use 'set machine ipl-source disk|diskette|tape'");
+    CHECK_THROWS(session.execute("set machine ipl-source tape-04"));
+}
+
+TEST_CASE("config: obsolete load_source aliases IPL source and cannot conflict")
+{
+    namespace fs = std::filesystem;
+    int marker = 0;
+    const fs::path path = fs::temp_directory_path() /
+        ("sim36-ipl-source-" + std::to_string(reinterpret_cast<std::uintptr_t>(&marker)) + ".conf");
+    auto write = [&](const std::string& sources) {
+        std::ofstream out(path);
+        out << "[machine]\nvolume = x.img\n" << sources
+            << "[station 0.0]\nrole = console\ndevice_code = 11\n";
+    };
+
+    write("load_source = tape\n");
+    EmulatorConfig legacy = EmulatorConfig::load(path.string());
+    CHECK(legacy.iplSourceName == "tape");
+    CHECK(legacy.loadsFromTape());
+
+    write("ipl_source = diskette\nload_source = tape\n");
+    CHECK_THROWS_WITH_AS(EmulatorConfig::load(path.string()),
+                         doctest::Contains("conflicts with ipl_source"), ConfigError);
+    fs::remove(path);
 }
 
 TEST_CASE("config: printers need a printer device code")
@@ -291,6 +316,7 @@ TEST_CASE("renderer: human output contains only active operator-facing configura
     c.stations = {display, printer, console};
 
     const std::string human = ConfigurationRenderer::renderHuman(c, false);
+    CHECK(human.find("load source") == std::string::npos);
     CHECK(human.find("csp type") == std::string::npos);
     CHECK(human.find("host model") == std::string::npos);
     CHECK(human.find("host processor") == std::string::npos);
@@ -320,6 +346,7 @@ TEST_CASE("renderer: human output contains only active operator-facing configura
           std::string::npos);
 
     const std::string replay = ConfigurationRenderer::renderReplay(c);
+    CHECK(replay.find("load-source") == std::string::npos);
     CHECK(replay.find("set machine csp-type advanced36\n") != std::string::npos);
     CHECK(replay.find("set machine signon-request on\n") != std::string::npos);
     CHECK(replay.find("set station 0.0 signon-at-ipl on\n") != std::string::npos);

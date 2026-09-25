@@ -57,7 +57,6 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
     line(fmt::format("  task work area         {} sectors", c.taskWorkAreaSectors));
     line(fmt::format("  IPL type               {}", c.iplType));
     line(fmt::format("  IPL source             {}", c.iplSourceName));
-    line(fmt::format("  phase 1 load source    {}", c.loadSourceName));
 
     line("media:");
     line(fmt::format("  disk0                  {}  {}", displayPath(c.volumePath), fixedDiskMode(c)));
@@ -112,7 +111,6 @@ std::string ConfigurationRenderer::renderReplay(const EmulatorConfig& c)
     line(fmt::format("set machine host-processor-model {}", quoteArgument(c.hostProcessorModel)));
     line(fmt::format("set machine ipl-type {}", quoteArgument(c.iplType)));
     line(fmt::format("set machine ipl-source {}", quoteArgument(c.iplSourceName)));
-    line(fmt::format("set machine load-source {}", quoteArgument(c.loadSourceName)));
     line(fmt::format("set machine listener-auto-signon {}", onOff(c.listenerAutoSignOn)));
     line(fmt::format("set machine signon-use-router {}", onOff(c.consoleSignOnUseRouter)));
     line(fmt::format("set machine signon-statement {}", onOff(c.consoleSignOnStatement)));

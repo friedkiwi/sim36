@@ -107,7 +107,6 @@ EmulatorConfig& EmulatorConfig::operator=(const EmulatorConfig& other)
     multiplexHost = other.multiplexHost;
     multiplexPort = other.multiplexPort;
     iplSourceName = other.iplSourceName;
-    loadSourceName = other.loadSourceName;
     model = other.model;
     cspType = other.cspType;
     stations = other.stations;
@@ -115,8 +114,16 @@ EmulatorConfig& EmulatorConfig::operator=(const EmulatorConfig& other)
     return *this;
 }
 
-bool EmulatorConfig::loadsFromDiskette() const { return equalsIgnoreCase(loadSourceName, "diskette"); }
-bool EmulatorConfig::loadsFromTape() const { return equalsIgnoreCase(loadSourceName, "tape"); }
+bool EmulatorConfig::loadsFromDiskette() const
+{
+    if (equalsIgnoreCase(iplSourceName, "disk")) return false;
+    return (IplSourceTable::encode(iplSourceName, "unattend") & IplSourceTable::kSourceMask) == 0;
+}
+
+bool EmulatorConfig::loadsFromTape() const
+{
+    return (IplSourceTable::encode(iplSourceName, "unattend") & IplSourceTable::kSourceMask) != 0;
+}
 bool EmulatorConfig::iplRequestsReload() const { return IplSourceTable::requestsReload(iplSourceName); }
 int EmulatorConfig::iplSource() const { return IplSourceTable::encode(iplSourceName, iplType); }
 
@@ -173,6 +180,8 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
     StationConfig* station = nullptr;
     TapeConfig* tape = nullptr;
     int lineNo = 0;
+    bool sawIplSource = false;
+    bool sawLegacyLoadSource = false;
 
     std::ifstream in(path);
     if (!in) throw storage::FileNotFoundError::forPath(path);
@@ -270,15 +279,23 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
                 if (!IplSourceTable::tryNormalizeType(v, type))
                     throw ConfigError(path, lineNo, "ipl_type must be attend/attended or unattend/unattended");
                 c.iplType = type;
-            } else if (k == "ipl_source") c.iplSourceName = v;
+            } else if (k == "ipl_source") {
+                if (sawLegacyLoadSource && !equalsIgnoreCase(c.iplSourceName, v))
+                    throw ConfigError(path, lineNo,
+                        "ipl_source conflicts with obsolete load_source; use only ipl_source");
+                c.iplSourceName = v;
+                sawIplSource = true;
+            }
             else if (k == "load_source") {
                 if (!equalsIgnoreCase(v, "disk") && !equalsIgnoreCase(v, "diskette") &&
                     !equalsIgnoreCase(v, "tape"))
                     throw ConfigError(path, lineNo,
-                        "load_source must be 'disk', 'diskette', or 'tape'; it selects where "
-                        "the control processor reads phase 1 from, which is not the "
-                        "same as ipl_source (the reload source)");
-                c.loadSourceName = v;
+                        "obsolete load_source must be 'disk', 'diskette', or 'tape'; use ipl_source");
+                if (sawIplSource && !equalsIgnoreCase(c.iplSourceName, v))
+                    throw ConfigError(path, lineNo,
+                        "obsolete load_source conflicts with ipl_source; remove load_source");
+                c.iplSourceName = v;
+                sawLegacyLoadSource = true;
             } else if (k == "listener_auto_signon") c.listenerAutoSignOn = parseBool(v);
             else if (k == "security")
                 throw ConfigError(path, lineNo,
