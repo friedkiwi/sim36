@@ -663,7 +663,7 @@ bool As36ControlStorageProcessor::service(SvcRequest& req)
             // tracked without being chained to a header.
             int ace = aces_.allocate();
             if (ace != 0) {
-                ActionControlElement::build(m_, ace, req.requestBlock, req.taskBlock, req.q);
+                ActionControlElement::build(m_, ace, req.requestBlock, req.taskBlock, req.q, true);
                 // The delayed device-SVC family shares Q bit 3 with SVC 4C:
                 // completion belongs to the TB supplied in XR2, applied after
                 // build has captured XR2.

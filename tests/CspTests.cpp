@@ -307,6 +307,60 @@ TEST_CASE("general post completes a queued ACE when ECM address return was not r
     CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == ace);
 }
 
+TEST_CASE("a translated ECM remains eligible for multiple wait after its ATR mapping changes")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int requestBlock = 0x1100;
+    constexpr int logicalEcm = 0x1800;
+    constexpr int frame = 0x10;
+    constexpr int realEcm = frame * machine::MachineState::kPageBytes;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
+    state.writeHalf(task, TaskBlock::kEyecatcher);
+    state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
+    csp.bringUpControlProcessor();
+
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalEcm >> machine::MachineState::kPageShift)] = frame;
+    state.writeByte(realEcm + Ecm::kOffMultiWait, 0x80);
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalEcm;
+
+    // Build a plain action. Its ECM, rather than Q bit 4, makes it eligible
+    // for a later multiple wait.
+    SvcRequest build;
+    build.r = 0x4C;
+    build.q = 0x00;
+    build.inline1 = 30;
+    REQUIRE(csp.svc(build));
+    const int queue30 = GuestLowStorage::queueHeader(30);
+    const int ace = state.readAddr24(queue30);
+    REQUIRE(ace != 0);
+    CHECK((state.readByte(ace + ActionControlElement::kOffFlags) & ActionControlElement::kFlagsMultipleWait) != 0);
+
+    // Model its completion, then switch to a program in which the old ECM
+    // logical page is invalid. The panic regression accumulated hundreds of
+    // such completions because nuevt could no longer rediscover ECM+5.
+    state.writeAddr24(queue30, 0);
+    state.writeAddr24(task + TaskBlock::kOffCompleteQueue, ace);
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalEcm >> machine::MachineState::kPageShift)] =
+        machine::MachineState::kAtrProtect;
+
+    SvcRequest wait;
+    wait.r = 0x02;
+    wait.q = 0x08;  // multiple wait, no blocking
+    REQUIRE(csp.svc(wait));
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
+    CHECK(state.msp.psr() == 0x01);  // Equal: the queued completion was consumed
+}
+
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")
 {
     WorkSpaceHeap heap(2 * machine::MachineState::kPageBytes);

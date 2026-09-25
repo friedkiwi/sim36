@@ -100,7 +100,7 @@ int ActionControlElementQueue::buildAndQueue(int rb, int tb, uint8_t qByte, uint
     int ace = allocate();
     if (ace == 0) return 0;
 
-    ActionControlElement::build(m_, ace, rb, tb, qByte);
+    ActionControlElement::build(m_, ace, rb, tb, qByte, true);
     trace_.ace("built {:04X} from rb={:04X} tb={:04X} q={:02X} xr1={:06X} xr2={:06X}",
                ace, rb, tb, qByte, RequestBlock::readXr1Field(m_, rb), RequestBlock::readXr2Field(m_, rb));
 

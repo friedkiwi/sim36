@@ -1118,7 +1118,8 @@ bool As36ControlStorageProcessor::completedEventForTask(SvcRequest& req)
 // The one match-output model, shared by the wait path and the post path.
 // Specific wait: ace+29..31 equals the examined task's XR1, or Q bit 3 and
 // ace+28 bit 3 mark the element asynchronous.  Multiple wait: ace+28 bit 4
-// or mask+5 bit 0 marks a candidate, and with Q bit 5 the type at ace+22
+// (latched from the action Q byte or ECM at submission) or a still-addressable
+// mask+5 bit 0 marks a candidate, and with Q bit 5 the type at ace+22
 // must match WR6 (which receives the matched type).  On a match XR1 =
 // ace+29..31, XR2 = ace+16..18 when the examined task's Q bit 2 asks (and
 // the caller allows), and the element is unlinked and freed.
