@@ -23,12 +23,15 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <fmt/format.h>
 
 namespace sim36::storage {
+
+class TapeManifest;
 
 // The result of one tape operation: the drive's answer, at the level a
 // SCSI tape target answers it.  Intentionally not the System/36 IOB
@@ -131,5 +134,11 @@ public:
 // Reconstruct an exact saved position using only portable tape primitives.
 // A different or truncated cartridge must not be accepted as restored.
 bool restoreTapePosition(ITapeBackend& tape, const TapePosition& wanted, std::string& reason);
+
+// Inspect the linear medium without changing its ready state or head
+// position.  The returned catalog uses TapeManifest's existing typed volume
+// and file descriptions but is derived from actual records, not a folder's
+// manifest.json.
+std::unique_ptr<TapeManifest> inspectTape(ITapeBackend& tape, std::string& reason);
 
 }  // namespace sim36::storage

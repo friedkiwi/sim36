@@ -270,16 +270,16 @@ void MonitorCli::tape(const std::vector<std::string>& a)
     }
     if (what == "init") {
         if (a.size() < 4) {
-            fmt::print("tape init <dir> <volid> [owner]\n");
+            fmt::print("tape init <path> <volid> [owner]\n");
             return;
         }
         std::string owner = a.size() > 4 ? a[4] : "S36REFEMU";
         std::string why;
-        if (!FolderTapeBackend::init(a[2], a[3], owner, why)) {
+        if (!storage::initializeTape(a[2], a[3], owner, why)) {
             fmt::print("REFUSED {}: {}\n", a[2], why);
             return;
         }
-        fmt::print("initialised tape folder {}: volume {}, owner {} (one VOL1 label, then a tape mark)\n", a[2],
+        fmt::print("initialised tape {}: volume {}, owner {} (one VOL1 label, then two tape marks)\n", a[2],
                    storage::TapeLabel::normaliseVolumeId(a[3]), owner);
         return;
     }
@@ -367,15 +367,7 @@ std::unique_ptr<TapeManifest> MonitorCli::loadTapeManifest(std::string& reason)
         reason = "the tape drive is empty";
         return nullptr;
     }
-    std::filesystem::path mpath = std::filesystem::path(drive.medium()->path()) / FolderTapeBackend::kManifestName;
-    if (!std::filesystem::exists(mpath)) {
-        reason = std::string("no ") + FolderTapeBackend::kManifestName + " in " + drive.medium()->path();
-        return nullptr;
-    }
-    std::ifstream in(mpath, std::ios::binary);
-    std::stringstream buf;
-    buf << in.rdbuf();
-    return TapeManifest::read(buf.str(), reason);
+    return storage::inspectTape(*drive.medium(), reason);
 }
 
 void MonitorCli::tapeVtoc()
@@ -425,13 +417,13 @@ void MonitorCli::tapeFiles()
         return;
     }
     fmt::print("-- tape files ({}) --\n", m->files.size());
-    fmt::print("  seq  kind    blob         fmt  blocklen  blocks     bytes\n");
+    fmt::print("  seq  kind       fmt  blocklen  blocks     bytes\n");
     for (const auto& f : m->files) {
         std::vector<int> lengths = f.resolveBlockLengths();
         long long total = 0;
         for (int n : lengths) total += n;
         std::string blocklen = f.hasBlockLengths ? std::string("var") : std::to_string(f.blockLength);
-        fmt::print("  {:>3}  {:<6}  {:<10}   {:<3}  {:>8}  {:>6}  {:>8}\n", f.sequence, f.kind, f.blob, f.recordFormat, blocklen,
+        fmt::print("  {:>3}  {:<6}     {:<3}  {:>8}  {:>6}  {:>8}\n", f.sequence, f.kind, f.recordFormat, blocklen,
                    f.blockCount, total);
     }
 }

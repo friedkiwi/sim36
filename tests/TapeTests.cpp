@@ -285,3 +285,28 @@ TEST_CASE("tape backend selection is based only on directory versus file")
     CHECK(storage::openTapeBackend(missingReadOnly.path.string(), true, reason) == nullptr);
     CHECK_FALSE(std::filesystem::exists(missingReadOnly.path));
 }
+
+TEST_CASE("SIMH initialization and inspection use backend primitives")
+{
+    TapFile file;
+    std::string reason;
+    REQUIRE(storage::initializeTape(file.path.string(), "TAP123", "REALOWNER", reason));
+
+    auto tape = storage::openTapeBackend(file.path.string(), false, reason);
+    REQUIRE(tape != nullptr);
+    tape->load();
+    CHECK(tape->volumeId() == "TAP123");
+    int spaced = 0;
+    REQUIRE(tape->spaceRecords(1, spaced) == storage::TapeResult::Ok);
+    const storage::TapePosition before = tape->readPosition();
+
+    auto catalog = storage::inspectTape(*tape, reason);
+    REQUIRE(catalog != nullptr);
+    CHECK(catalog->volume.volumeId == "TAP123");
+    CHECK(catalog->volume.ownerId == "REALOWNER");
+    REQUIRE(catalog->files.size() == 2);
+    CHECK(catalog->files[0].kind == "label");
+    CHECK(catalog->files[0].blockCount == 1);
+    CHECK(catalog->files[1].blockCount == 0);
+    CHECK(tape->readPosition().toString() == before.toString());
+}
