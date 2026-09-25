@@ -942,7 +942,7 @@ bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
     if (output_ == "console") {
         for (const std::string& line : renderConsoleBytes(data, offset, length, consoleLine_,
                                                           consoleIdeographic_, consolePending_, false))
-            fmt::print("{}: {}\n", label(), line);
+            fmt::print("{}: {}\n", label(), line == "\f" ? "[page break]" : line);
         recordsSent_++;
         bytesSent_ += length;
         return true;
@@ -1068,7 +1068,7 @@ bool PrinterBackend::endJob()
     if (output_ == "console") {
         for (const std::string& line : renderConsoleBytes(nullptr, 0, 0, consoleLine_,
                                                           consoleIdeographic_, consolePending_, true))
-            fmt::print("{}: {}\n", label(), line);
+            fmt::print("{}: {}\n", label(), line == "\f" ? "[page break]" : line);
         consoleIdeographic_ = false;
         fmt::print("{}: [end of job]\n", label());
         jobsEnded_++;
