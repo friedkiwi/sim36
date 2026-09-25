@@ -22,6 +22,19 @@ tape init /media/new.tap TEST01 SIM36
 legacy folder tape, create the directory first and pass that directory to
 `tape init`.
 
+Standard System/36 IPL tapes can be attached directly. The disk remains the
+machine's phase-1 bootstrap and reload target; selecting `tape` makes that
+phase read the tape's `#IPLBOOT` dataset. Both the compact two-label IPL group
+(`HDR1/HDR2`, data, `EOF1/EOF2`) used by real media and ordinary four-label
+SSP datasets are accepted.
+
+```text
+set machine ipl-source tape
+attach disk0 /media/system.img overlay
+attach tape0 /media/system-save.tap ro
+ipl
+```
+
 ## Legacy folder tapes and `tape-folder.py`
 
 The original representation stores a tape as a directory so its filemarks,

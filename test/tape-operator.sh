@@ -67,8 +67,8 @@ check "  ... and the decoded VOL1 label record  " "VOL1 volumeId=TAP07"
 # later write replaces that empty terminator, so the count remains two.
 check "files lists label plus empty terminator  " "-- tape files (2) --"
 check "  ... as an 80-byte label file           " "1  label"
-check "files re-lists after guest tape writes   " "-- tape files (5) --"
-check "  ... and the guest data file appears    " "3  data"
+check "files re-lists after guest tape writes   " "-- tape files (4) --"
+check "  ... and the guest data file appears    " "2  data"
 check "unload dismounts and flushes             " "tape unloaded (writes flushed)"
 # The resulting media is a single SIMH file, not a conversion workspace.
 [ -f "$TMP/tp.tap" ] && ok "init created a TAP file on disk           " \
@@ -114,7 +114,7 @@ printf 'ipl pause\ntape\ntape files\nquit\n' > "$TMP/mounted.sim"
 out=$("$SIM36" -c "$TMP/tape.sim" -s "$TMP/mounted.sim" 2>&1)
 check "the declared tape is mounted at startup  " "tape drive: $TMP/tp.tap"
 check "  ... with its volume serial             " "volume      TAP07"
-check "  ... and its files are listable         " "-- tape files (5) --"
+check "  ... and its files are listable         " "-- tape files (4) --"
 
 # read-only can be requested from the definition.
 echo "-- a read-only attach protects the tape --"

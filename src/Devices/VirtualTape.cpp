@@ -37,6 +37,7 @@ void VirtualTape::load(std::unique_ptr<storage::ITapeBackend> medium)
 {
     unload();
     activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     medium_ = std::move(medium);
     if (medium_) medium_->load();
 }
@@ -47,6 +48,7 @@ bool VirtualTape::unload()
     medium_->unload();
     medium_.reset();
     activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     return true;
 }
 
@@ -169,6 +171,8 @@ bool VirtualTape::initializeStandard(int iob, int modifier, int length, int buff
         return false;
     }
     medium_->rewind();
+    activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     TapeResult r = medium_->writeBlock(label.data(), 0, static_cast<int>(label.size()));
     if (r == TapeResult::NotReady) return notReady(iob);
     if (r == TapeResult::WriteProtected) {
@@ -190,10 +194,63 @@ bool VirtualTape::initializeStandard(int iob, int modifier, int length, int buff
 
 bool VirtualTape::readVolumeLabels(int iob, int modifier, int length, int bufferField)
 {
-    // V4R4 command 13 is arm c23e359c.  It requires 0x370 bytes, runs the
-    // rewind driver method (vtable 0x190), then tapRdLbls.  The SSP request
-    // uses modifier 03.  Only the verified 80-byte VOL1 transfer is exposed;
-    // the remainder of the 0x370-byte work area is left untouched.
+    // V4R4 command 13 is arm c23e359c and uses a 0x370-byte work area.  The
+    // ordinary modifier-03 form rewinds and returns VOL1.  Tape phase 1 uses
+    // modifier 00 after command 19 has opened #IPLBOOT: the first call loads
+    // all data blocks contiguously immediately below the supplied work-area
+    // address; the second validates and consumes the EOF label file.
+    // Tape IPL follows the two-label command-19 open with 13/00 and the same
+    // 0x370-byte work area.  At that point the head is already at the first
+    // data block; this form establishes the reload read session and must not
+    // rewind or transfer a label.  The immediately preceding retained label
+    // group is the state discriminator, keeping the verified 13/03 behavior
+    // below unchanged.
+    if (modifier == 0 && length == 0x370 && activeHeaderLabels_.size() == 160 && reloadDataRead_)
+        return finishReadDataSet(iob, NuTaIob::kCompletionOk);
+
+    if (modifier == 0 && length == 0x370 && activeHeaderLabels_.size() == 160) {
+        std::vector<std::vector<uint8_t>> blocks;
+        int total = 0;
+        for (;;) {
+            std::vector<uint8_t> block;
+            TapeResult r = medium_->readBlock(block);
+            if (r == TapeResult::TapeMark) break;
+            if (r == TapeResult::NotReady) return notReady(iob);
+            if (r != TapeResult::Ok || block.empty()) {
+                trace_.diskIo("  command 13/00 reload stopped after {} byte(s): {} / {} byte block",
+                              total, storage::tapeResultName(r), block.size());
+                postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+                return false;
+            }
+            total += static_cast<int>(block.size());
+            lastRead_ = block;
+            hasLastRead_ = true;
+            readsIssued_++;
+            blocks.push_back(std::move(block));
+        }
+        const int addressBits = bufferField & 0x800000;
+        const int workAddress = bufferField & 0x7FFFFF;
+        if (total <= 0 || total > workAddress) {
+            postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+            return false;
+        }
+        int destination = addressBits | (workAddress - total);
+        const int firstDestination = destination;
+        for (const auto& block : blocks) {
+            if (!m_.writeGuest24Range(destination, block.data(), static_cast<int>(block.size()))) {
+                postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+                return false;
+            }
+            destination += static_cast<int>(block.size());
+        }
+        m_.writeHalf(iob + NuTaIob::kOffReturnedLength, 0);
+        reloadDataRead_ = true;
+        controlOps_++;
+        trace_.diskIo("  command 13/00 loaded {} #IPLBOOT byte(s) at translated {:06X}; {}",
+                      total, firstDestination, medium_->readPosition().toString());
+        IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+        return true;
+    }
     if (modifier != 3 || length != 0x370) {
         trace_.diskIo("  command 13 requires modifier 03 and length 880; got {:02X}/{}", modifier, length);
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
@@ -206,6 +263,8 @@ bool VirtualTape::readVolumeLabels(int iob, int modifier, int length, int buffer
     }
 
     medium_->rewind();
+    activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     std::vector<uint8_t> label;
     TapeResult r = medium_->readBlock(label);
     if (r != TapeResult::Ok || label.size() != 80 || label[0] != 0xE5 || label[1] != 0xD6 || label[2] != 0xD3 ||
@@ -289,6 +348,7 @@ bool VirtualTape::writeHeaderLabels(int iob, int modifier, int length, int buffe
         return false;
     }
     activeHeaderLabels_ = labels;
+    reloadDataRead_ = false;
     controlOps_++;
     trace_.diskIo("  command 14 wrote HDR1/HDR2/UHL1/UHL2 and the closing filemark; {}",
                   medium_->readPosition().toString());
@@ -308,9 +368,65 @@ bool VirtualTape::finishDataSet(int iob, int modifier, int length)
     // writes those 80-byte records through tapWrtLbls, and writes a closing
     // mark.  Preserve the header fields while changing the standard label
     // identifiers HDR->EOF and UHL->UTL.
-    if (modifier != 0 || activeHeaderLabels_.size() != 320) {
-        trace_.diskIo("  command 19 requires modifier 00 and an active command-14 label group; got {:02X}/{}", modifier,
-                      length);
+    if (modifier != 0) {
+        trace_.diskIo("  command 19 requires modifier 00; got {:02X}/{}", modifier, length);
+        postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
+        return false;
+    }
+
+    // The SSP tape-reload path uses the same command in the opposite
+    // session state.  It first reads VOL1 and HDR1 with command 22, then
+    // issues 19/00 while the head is on HDR2.  Native command 19 consumes
+    // the rest of that header-label file and its mark, leaving the next
+    // operation on the first data block.  Ordinary datasets may add the two
+    // user-header labels; the #IPLBOOT dataset on real media has only HDR1
+    // and HDR2.
+    static constexpr uint8_t hdr1[] = {0xC8, 0xC4, 0xD9, 0xF1};
+    if (activeHeaderLabels_.empty() && lastRead_.size() == 80 &&
+        std::equal(std::begin(hdr1), std::end(hdr1), lastRead_.begin())) {
+        activeHeaderLabels_ = lastRead_;
+        static constexpr uint8_t remainingIds[3][4] = {
+            {0xC8, 0xC4, 0xD9, 0xF2}, // HDR2
+            {0xE4, 0xC8, 0xD3, 0xF1}, // UHL1
+            {0xE4, 0xC8, 0xD3, 0xF2}, // UHL2
+        };
+        int remaining = 0;
+        for (;;) {
+            std::vector<uint8_t> label;
+            TapeResult r = medium_->readBlock(label);
+            if (r == TapeResult::TapeMark) break;
+            if (r == TapeResult::NotReady) return notReady(iob);
+            if (r != TapeResult::Ok || label.size() != 80 || remaining >= 3 ||
+                !std::equal(std::begin(remainingIds[remaining]), std::end(remainingIds[remaining]), label.begin())) {
+                trace_.diskIo("  read-side command 19 found an invalid header label {}: {} / {} byte(s)",
+                              remaining + 2, storage::tapeResultName(r), label.size());
+                activeHeaderLabels_.clear();
+                postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+                return false;
+            }
+            activeHeaderLabels_.insert(activeHeaderLabels_.end(), label.begin(), label.end());
+            lastRead_ = label;
+            hasLastRead_ = true;
+            readsIssued_++;
+            ++remaining;
+        }
+        if (activeHeaderLabels_.size() != 160 && activeHeaderLabels_.size() != 320) {
+            trace_.diskIo("  read-side command 19 header group has {} byte(s), expected 160 or 320",
+                          activeHeaderLabels_.size());
+            activeHeaderLabels_.clear();
+            postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
+            return false;
+        }
+        controlOps_++;
+        trace_.diskIo("  command 19 consumed {} header labels and their closing mark; {}",
+                      activeHeaderLabels_.size() / 80, medium_->readPosition().toString());
+        IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
+        return true;
+    }
+
+    if (activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  write-side command 19 requires an active four-label command-14 group; got {} byte(s)",
+                      activeHeaderLabels_.size());
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicLength);
         return false;
     }
@@ -376,6 +492,7 @@ bool VirtualTape::finalizeVolume(int iob, int modifier, int length)
         return false;
     }
     activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     controlOps_++;
     trace_.diskIo("  command 1B wrote the second terminal mark and finalized the tape session; {}",
                   medium_->readPosition().toString());
@@ -401,6 +518,7 @@ bool VirtualTape::unloadCommand(int iob, int modifier, int length)
     const std::string path = medium_->path();
     medium_->unload();
     activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     controlOps_++;
     trace_.diskIo("  command 27 unloaded and flushed {}; cartridge remains present but not ready", path);
     IoBlock::complete(m_, iob, NuTaIob::kCompletionOk);
@@ -431,6 +549,7 @@ bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField
 
     static constexpr uint8_t hdr1[] = {0xC8, 0xC4, 0xD9, 0xF1};
     medium_->rewind();
+    reloadDataRead_ = false;
     bool matched = false;
     int records = 0;
     std::vector<uint8_t> labels;
@@ -481,7 +600,7 @@ bool VirtualTape::findDataSet(int iob, int modifier, int length, int bufferField
     }
 }
 
-bool VirtualTape::finishReadDataSet(int iob)
+bool VirtualTape::finishReadDataSet(int iob, int completion)
 {
     // Command 22's c23e23ec arm maps the driver's filemark condition 1C to
     // tapRdLbls and then tapEofHan.  The latter compares the trailer group
@@ -490,8 +609,8 @@ bool VirtualTape::finishReadDataSet(int iob)
     // that the filemark preceding EOF1 is already consumed when this path
     // begins.  Consume the four 80-byte trailers and their closing mark so
     // the next tape operation starts at the following file.
-    if (activeHeaderLabels_.size() != 320) {
-        trace_.diskIo("  command 22 reached a data filemark without the four labels retained by command 16 - refused");
+    if (activeHeaderLabels_.size() != 160 && activeHeaderLabels_.size() != 320) {
+        trace_.diskIo("  command 22 reached a data filemark without a two- or four-label retained header - refused");
         postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
         return false;
     }
@@ -501,15 +620,32 @@ bool VirtualTape::finishReadDataSet(int iob)
     static constexpr uint8_t utl[] = {0xE4, 0xE3, 0xD3}; // UTL
     std::copy(std::begin(eof), std::end(eof), expected.begin());
     std::copy(std::begin(eof), std::end(eof), expected.begin() + 80);
-    std::copy(std::begin(utl), std::end(utl), expected.begin() + 160);
-    std::copy(std::begin(utl), std::end(utl), expected.begin() + 240);
+    if (expected.size() == 320) {
+        std::copy(std::begin(utl), std::end(utl), expected.begin() + 160);
+        std::copy(std::begin(utl), std::end(utl), expected.begin() + 240);
+    }
 
-    for (int record = 0; record < 4; record++) {
+    const int labelCount = static_cast<int>(expected.size() / 80);
+    for (int record = 0; record < labelCount; record++) {
         std::vector<uint8_t> actual;
         TapeResult r = medium_->readBlock(actual);
         if (r == TapeResult::NotReady) return notReady(iob);
-        if (r != TapeResult::Ok || actual.size() != 80 ||
-            !std::equal(actual.begin(), actual.end(), expected.begin() + record * 80)) {
+        bool matches = r == TapeResult::Ok && actual.size() == 80 &&
+            std::equal(actual.begin(), actual.begin() + (actual.size() >= 4 ? 4 : 0),
+                       expected.begin() + record * 80);
+        if (matches && record == 0) {
+            // EOF1 carries the final block count at +54..+59.  It is
+            // expected to differ from HDR1; dataset identity and every
+            // other stable label byte must still agree.
+            matches = std::equal(actual.begin() + 4, actual.begin() + 54,
+                                 expected.begin() + record * 80 + 4) &&
+                      std::equal(actual.begin() + 60, actual.end(),
+                                 expected.begin() + record * 80 + 60);
+        } else if (matches && record == 1) {
+            matches = std::equal(actual.begin() + 4, actual.end(),
+                                 expected.begin() + record * 80 + 4);
+        }
+        if (!matches) {
             trace_.diskIo("  command 22 trailer record {} did not match its retained header: {} / {} byte(s)",
                           record + 1, storage::tapeResultName(r), actual.size());
             postError(iob, NuTaIob::kCompletionError, NuTaIob::kMicInvalidCommand);
@@ -529,10 +665,11 @@ bool VirtualTape::finishReadDataSet(int iob)
 
     m_.writeHalf(iob + NuTaIob::kOffReturnedLength, 0);
     activeHeaderLabels_.clear();
+    reloadDataRead_ = false;
     controlOps_++;
-    trace_.diskIo("  command 22 consumed matching EOF1/EOF2/UTL1/UTL2 and their closing mark; completion {:02X}; {}",
-                  Ecm::kComplete | NuTaIob::kCompletionEndOfDataSet, medium_->readPosition().toString());
-    IoBlock::complete(m_, iob, NuTaIob::kCompletionEndOfDataSet);
+    trace_.diskIo("  consumed {} matching trailer labels and their closing mark; completion {:02X}; {}",
+                  labelCount, Ecm::kComplete | completion, medium_->readPosition().toString());
+    IoBlock::complete(m_, iob, completion);
     return true;
 }
 

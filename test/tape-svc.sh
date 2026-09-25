@@ -58,11 +58,14 @@ check "command 19 accepts retained block length" "native command 19 ignores the 
 check "the trailer layout round-trips         " "the data and four trailer labels retain their tape-file boundaries PASS"
 check "command 1B accepts retained block length" "native command 1B ignores the retained short-block length PASS"
 check "the volume has two terminal marks      " "the finalized volume ends in two consecutive marks PASS"
+check "command 19 opens the IPL dataset       " "read-side command 19 opens a two-label IPL dataset PASS"
+check "command 13 loads all IPL blocks        " "command 13/00 loads all IPL blocks below its work area PASS"
+check "reload accepts changed EOF block count " "command 13/00 accepts EOF1's final block count and closes reload PASS"
 check "command 27 accepts retained block length" "native command 27 ignores the retained short-block length PASS"
 check "command 27 accepts the restore buffer " "native command 27 accepts BLDLIBR's 4096-byte work area PASS"
 check "an empty drive answers not-ready       " "SVC 46 read on an empty drive answers not-ready PASS"
 # The whole native tally, so a regression points at itself.
-check "the tapesvc round-trip is all green    " "tape SVC: 31 passed, 0 failed"
+check "the tapesvc round-trip is all green    " "tape SVC: 34 passed, 0 failed"
 
 echo
 echo "$pass passed, $fail failed"

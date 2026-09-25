@@ -807,6 +807,56 @@ void MonitorCli::tapeSvc(const std::vector<std::string>& a)
                     report("...the finalized volume ends in two consecutive marks",
                            terminalMark1 == TapeResult::TapeMark && terminalMark2 == TapeResult::TapeMark, sc);
 
+                    // Rebuild the medium in the compact label organization
+                    // used by a real IPL tape: VOL1/HDR1/HDR2 in one tape
+                    // file, two data blocks, then EOF1/EOF2.  This exercises
+                    // the read-side command 19 and both command-13 reload
+                    // phases without requiring private media.
+                    back->rewind();
+                    requireTape(back->writeBlock(vol1.data(), 0, static_cast<int>(vol1.size())), TapeResult::Ok,
+                                "write reload VOL1");
+                    requireTape(back->writeBlock(hdr1.data(), 0, static_cast<int>(hdr1.size())), TapeResult::Ok,
+                                "write reload HDR1");
+                    requireTape(back->writeBlock(hdr2.data(), 0, static_cast<int>(hdr2.size())), TapeResult::Ok,
+                                "write reload HDR2");
+                    requireTape(back->writeTapeMark(), TapeResult::Ok, "close reload header file");
+                    const std::vector<uint8_t> reload1 = {'I', 'P', 'L', '1'};
+                    const std::vector<uint8_t> reload2 = {'I', 'P', 'L', '2', '!'};
+                    requireTape(back->writeBlock(reload1.data(), 0, static_cast<int>(reload1.size())), TapeResult::Ok,
+                                "write reload data 1");
+                    requireTape(back->writeBlock(reload2.data(), 0, static_cast<int>(reload2.size())), TapeResult::Ok,
+                                "write reload data 2");
+                    requireTape(back->writeTapeMark(), TapeResult::Ok, "close reload data file");
+                    std::vector<uint8_t> reloadEof1 = hdr1, reloadEof2 = hdr2;
+                    std::copy(std::begin(trailerIds[0]), std::end(trailerIds[0]), reloadEof1.begin());
+                    std::copy(std::begin(trailerIds[1]), std::end(trailerIds[1]), reloadEof2.begin());
+                    reloadEof1[59] = 0xF2; // EOF1's real final block count differs from HDR1.
+                    requireTape(back->writeBlock(reloadEof1.data(), 0, 80), TapeResult::Ok, "write reload EOF1");
+                    requireTape(back->writeBlock(reloadEof2.data(), 0, 80), TapeResult::Ok, "write reload EOF2");
+                    requireTape(back->writeTapeMark(), TapeResult::Ok, "close reload trailer file");
+                    requireTape(back->writeTapeMark(), TapeResult::Ok, "terminate reload tape");
+                    back->rewind();
+
+                    c = issue(NuTaIob::kCommandReadDataAlt, 0, 0x100);
+                    c = issue(NuTaIob::kCommandReadDataAlt, 0, 0x100);
+                    c = issue(NuTaIob::kCommandFinishDataSet, 0, 0x100);
+                    report("read-side command 19 opens a two-label IPL dataset",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 1 &&
+                               back->readPosition().blockNumber == 0, sc);
+                    c = issue(NuTaIob::kCommandReadVolumeLabels, 0, 0x370);
+                    const int reloadAt = buffer - static_cast<int>(reload1.size() + reload2.size());
+                    bool loadedReload = (c & 0x0F) == NuTaIob::kCompletionOk;
+                    for (std::size_t i = 0; i < reload1.size() && loadedReload; ++i)
+                        loadedReload = st.readByte(reloadAt + static_cast<int>(i)) == reload1[i];
+                    for (std::size_t i = 0; i < reload2.size() && loadedReload; ++i)
+                        loadedReload = st.readByte(reloadAt + static_cast<int>(reload1.size() + i)) == reload2[i];
+                    report("command 13/00 loads all IPL blocks below its work area", loadedReload, sc);
+                    c = issue(NuTaIob::kCommandReadVolumeLabels, 0, 0x370);
+                    report("command 13/00 accepts EOF1's final block count and closes reload",
+                           (c & 0x0F) == NuTaIob::kCompletionOk && back->readPosition().fileNumber == 3 &&
+                               back->readPosition().blockNumber == 0 && back->readPosition().atTapeMark,
+                           sc);
+
                     // Reload solely to exercise the native unload command;
                     // the positioning checks above deliberately moved it.
                     back->load();

@@ -130,7 +130,7 @@ private:
     bool readVolumeLabels(int iob, int modifier, int length, int bufferField);
     bool writeHeaderLabels(int iob, int modifier, int length, int bufferField);
     bool findDataSet(int iob, int modifier, int length, int bufferField);
-    bool finishReadDataSet(int iob);
+    bool finishReadDataSet(int iob, int completion = NuTaIob::kCompletionEndOfDataSet);
     bool finishDataSet(int iob, int modifier, int length);
     bool finalizeVolume(int iob, int modifier, int length);
     bool unloadCommand(int iob, int modifier, int length);
@@ -145,6 +145,7 @@ private:
     long long readsIssued_ = 0, writesIssued_ = 0, controlOps_ = 0, unmappedCommands_ = 0;
     std::vector<uint8_t> lastRead_;
     std::vector<uint8_t> activeHeaderLabels_;
+    bool reloadDataRead_ = false;
     bool hasLastRead_ = false;
 };
 
