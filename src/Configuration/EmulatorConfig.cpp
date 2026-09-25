@@ -371,6 +371,7 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
             else if (k == "listen") parseListen(*station, v, path, lineNo);
             else if (k == "output") station->printerOutput = monitor::toLower(v);
             else if (k == "output_file") station->printerOutputPath = v;
+            else if (k == "paper") station->printerPaper = monitor::toLower(v);
             else throw ConfigError(path, lineNo, "unknown station key '" + k + "'");
         }
     }
@@ -427,20 +428,28 @@ void EmulatorConfig::validate(const std::string& path)
     // the station unmatched.
     for (const StationConfig& s : stations) {
         const bool validOutput = s.printerOutput == "tn5250" || s.printerOutput == "console" ||
-                                 s.printerOutput == "file" || s.printerOutput == "txtout";
+                                 s.printerOutput == "file" || s.printerOutput == "txtout" ||
+                                 s.printerOutput == "pdfout";
         if (!validOutput)
             throw ConfigError(path, 0, "station " + s.id() +
-                " printer output must be tn5250, console, file, or txtout");
+                " printer output must be tn5250, console, file, txtout, or pdfout");
         if (!s.isPrinter() && (s.printerOutput != "tn5250" || !s.printerOutputPath.empty()))
             throw ConfigError(path, 0, "station " + s.id() + " is not a printer but has printer output configured");
-        const bool pathOutput = s.printerOutput == "file" || s.printerOutput == "txtout";
+        const bool pathOutput = s.printerOutput == "file" || s.printerOutput == "txtout" ||
+                                s.printerOutput == "pdfout";
         if (s.isPrinter() && pathOutput && s.printerOutputPath.empty())
             throw ConfigError(path, 0, "station " + s.id() + " " + s.printerOutput + " output needs a path");
         if (s.isPrinter() && !pathOutput && !s.printerOutputPath.empty())
-            throw ConfigError(path, 0, "station " + s.id() + " has an output path but does not use file or txtout output");
+            throw ConfigError(path, 0, "station " + s.id() + " has an output path but does not use a file output");
         if (s.isPrinter() && s.printerOutput != "tn5250" && s.listenPort != 0)
             throw ConfigError(path, 0, "station " + s.id() +
                 " cannot have both a local printer output and a TN5250 listener");
+        const bool validPaper = s.printerPaper == "green" || s.printerPaper == "blue" ||
+                                s.printerPaper == "gray" || s.printerPaper == "orange" ||
+                                s.printerPaper == "white";
+        if (!validPaper)
+            throw ConfigError(path, 0, "station " + s.id() +
+                " printer paper must be green, blue, gray, orange, or white");
         devices::DeviceCodes::Entry e;
         if (!devices::DeviceCodes::tryLookup(s.deviceCode, e))
             throw ConfigError(path, 0, fmt::format(

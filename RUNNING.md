@@ -171,6 +171,8 @@ set station 0.4 listen 127.0.0.1:2404
 set station 0.4 output console
 set station 0.4 output file spool/printer-04.bin
 set station 0.4 output txtout spool/printer-04
+set station 0.4 output pdfout spool/printer-04-pdf
+set station 0.4 paper green
 ```
 
 `file` is the legacy raw-byte output and appends every job to one file.
@@ -179,7 +181,13 @@ job as `job-000001.txt`, `job-000002.txt`, and so on. Existing numbers are
 never reused across emulator restarts. A guest Clear Printer command ends a
 job; `prtend 0.4` provides the same boundary from the monitor.
 
-Selecting console, file, or txtout output clears the listener; assigning a listener is
+`pdfout` uses the same job boundaries and numbering to produce wide,
+66-line fanfold forms with an embedded IBM Plex Mono font. Paper can be
+`green` (the default), `blue`, `gray`, `orange`, or `white`. The IBM Plex
+font is bundled under OFL-1.1; an IBM 1403 imitation font is not bundled
+because the referenced distribution does not state a redistribution license.
+
+Selecting console, file, txtout, or pdfout output clears the listener; assigning a listener is
 refused until output is switched back to `tn5250`. Printer slots are never
 offered by the display multiplexer. A 5250 printer client such as `lp5250d`
 receives RFC 2877 print records.

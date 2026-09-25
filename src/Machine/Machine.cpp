@@ -124,7 +124,7 @@ Machine::Machine(const EmulatorConfig& cfg, const SessionBackends* sessionBacken
                 pb = dynamic_cast<host::PrinterBackend*>(it->second.get());
             } else {
                 pb = new host::PrinterBackend(s.listenHost, s.listenPort, "printer " + s.id(), &trace, signal,
-                                              s.printerOutput, s.printerOutputPath);
+                                              s.printerOutput, s.printerOutputPath, s.printerPaper);
             }
             if (pb == nullptr) throw std::runtime_error("station " + s.id() + " listener type does not match printer role");
             pb->bindMachine(&trace, signal);

@@ -187,6 +187,13 @@ TEST_CASE("config: a printer has exactly one host output attachment")
     REQUIRE(p != nullptr);
     CHECK(p->printerOutput == "txtout");
     CHECK(p->printerOutputPath == "printer-jobs");
+    session.execute("set station 1.0 output pdfout printer-pdfs");
+    session.execute("set station 1.0 paper blue");
+    p = session.definition().findStation(1, 0);
+    REQUIRE(p != nullptr);
+    CHECK(p->printerOutput == "pdfout");
+    CHECK(p->printerPaper == "blue");
+    CHECK_THROWS(session.execute("set station 1.0 paper purple"));
 }
 
 TEST_CASE("the display multiplexer uses only port.address station ids")
@@ -255,7 +262,8 @@ TEST_CASE("printer txtout creates one numbered decoded file per non-empty job")
     sim36::host::PrinterBackend printer("127.0.0.1", 0, "printer test", &trace, [] {},
                                         "txtout", directory.string());
     const uint8_t first[] = {0xC8, 0xC5};
-    const uint8_t second[] = {0xD3, 0xD3, 0xD6, 0x0D, 0x0C, 0xF1, 0xF2, 0x0D};
+    const uint8_t second[] = {0xD3, 0xD3, 0xD6, 0x0D, 0x0C,
+                              0x34, 0xC4, 0x03, 0xF1, 0xF2, 0x0D};
     CHECK(printer.sendDataStream(first, 0, 2));
     CHECK(printer.sendDataStream(second, 0, static_cast<int>(sizeof second)));
     CHECK(printer.endJob());
@@ -263,9 +271,36 @@ TEST_CASE("printer txtout creates one numbered decoded file per non-empty job")
 
     std::ifstream in(directory / "job-000002.txt", std::ios::binary);
     const std::string actual{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-    CHECK(actual == "HELLO\n\f\n12\n");
+    CHECK(actual == "HELLO\n\f\n\n\n12\n");
     CHECK_FALSE(fs::exists(directory / "job-000003.txt"));
     CHECK_FALSE(fs::exists(directory / "job-000002.txt.part"));
+    CHECK_FALSE(fs::exists(directory / "job-000002.txt.lock"));
+    fs::remove_all(directory);
+}
+
+TEST_CASE("printer pdfout creates a numbered PDF with every supported paper colour")
+{
+    namespace fs = std::filesystem;
+    sim36::monitor::Tracer trace;
+    const fs::path directory = fs::temp_directory_path() /
+        ("sim36-printer-pdfout-test-" +
+         std::to_string(reinterpret_cast<std::uintptr_t>(&trace)));
+    fs::remove_all(directory);
+    const uint8_t text[] = {0xC8, 0xC5, 0xD3, 0xD3, 0xD6, 0x0D};
+    const std::vector<std::string> papers = {"green", "blue", "gray", "orange", "white"};
+    for (std::size_t i = 0; i < papers.size(); ++i) {
+        sim36::host::PrinterBackend printer("127.0.0.1", 0, "printer test", &trace, [] {},
+                                            "pdfout", directory.string(), papers[i]);
+        CHECK(printer.sendDataStream(text, 0, static_cast<int>(sizeof text)));
+        CHECK(printer.endJob());
+        const fs::path output = directory / ("job-00000" + std::to_string(i + 1) + ".pdf");
+        std::ifstream in(output, std::ios::binary);
+        std::string signature(5, '\0');
+        in.read(signature.data(), static_cast<std::streamsize>(signature.size()));
+        CHECK(signature == "%PDF-");
+    }
+    CHECK_FALSE(fs::exists(directory / "job-000005.pdf.part"));
+    CHECK_FALSE(fs::exists(directory / "job-000005.pdf.lock"));
     fs::remove_all(directory);
 }
 

@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 
 #include "Storage/Ebcdic.h"
+#include "Host/PrinterPdf.h"
 
 namespace sim36::host {
 
@@ -742,9 +743,11 @@ std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int
     pending.clear();
 
     std::vector<std::string> lines;
+    int pageRow = 0;
     auto finishLine = [&] {
         lines.push_back(line);
         line.clear();
+        ++pageRow;
     };
     auto finishText = [&] {
         if (!line.empty()) finishLine();
@@ -763,6 +766,7 @@ std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int
             case 0x0C: // form feed
                 finishText();
                 lines.push_back("\f");
+                pageRow = 0;
                 break;
             case 0x0D: // carriage return
                 // A carriage return moves to the left margin; it does not
@@ -787,8 +791,13 @@ std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int
                 const uint8_t argument = bytes[++at];
                 if (operation == 0xC8) // relative horizontal position
                     line.append(argument, ' ');
-                else if (operation == 0xC4) // absolute vertical position
+                else if (operation == 0xC4) { // absolute vertical position
                     finishText();
+                    if (!diagnostics) {
+                        const int targetRow = argument > 0 ? argument - 1 : 0;
+                        while (pageRow < targetRow) finishLine();
+                    }
+                }
                 else
                     control(fmt::format("[presentation position {:02X}: {:02X}]", operation, argument));
                 break;
@@ -877,7 +886,7 @@ std::string renderTextBytes(const std::vector<uint8_t>& bytes)
 
 PrinterBackend::~PrinterBackend()
 {
-    if (output_ == "txtout" && !jobBytes_.empty()) finishTextJob();
+    if ((output_ == "txtout" || output_ == "pdfout") && !jobBytes_.empty()) finishDirectoryJob();
     outputFile_.close();
     auto s = session();
     dispose();
@@ -956,7 +965,7 @@ bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
         bytesSent_ += length;
         return true;
     }
-    if (output_ == "txtout") {
+    if (output_ == "txtout" || output_ == "pdfout") {
         if (length > 0) jobBytes_.insert(jobBytes_.end(), data + offset, data + offset + length);
         recordsSent_++;
         bytesSent_ += length;
@@ -977,7 +986,7 @@ std::vector<std::string> PrinterBackend::renderConsoleDataStream(const uint8_t* 
     return rendered;
 }
 
-bool PrinterBackend::finishTextJob()
+bool PrinterBackend::finishDirectoryJob()
 {
     if (jobBytes_.empty()) return true;
     namespace fs = std::filesystem;
@@ -991,33 +1000,64 @@ bool PrinterBackend::finishTextJob()
 
     fs::path finalPath;
     fs::path temporaryPath;
+    fs::path reservationPath;
     for (unsigned int sequence = 1; sequence != 0; ++sequence) {
-        finalPath = fs::path(outputPath_) / fmt::format("job-{:06}.txt", sequence);
+        finalPath = fs::path(outputPath_) /
+                    fmt::format("job-{:06}.{}", sequence, output_ == "pdfout" ? "pdf" : "txt");
         temporaryPath = finalPath;
         temporaryPath += ".part";
-        if (!fs::exists(finalPath, error) && !fs::exists(temporaryPath, error)) break;
+        reservationPath = finalPath;
+        reservationPath += ".lock";
+        if (fs::exists(finalPath, error) || fs::exists(temporaryPath, error)) {
+            if (!error) continue;
+        } else if (!error && fs::create_directory(reservationPath, error)) {
+            break;
+        } else if (!error) {
+            continue; // another printer process reserved this number
+        }
         if (error) {
             recordsDropped_++;
             trace_->ws("{}: cannot inspect printer output directory {}: {}", label(), outputPath_, error.message());
             return false;
         }
     }
+    auto abandonReservation = [&] {
+        std::error_code ignored;
+        fs::remove(temporaryPath, ignored);
+        fs::remove(reservationPath, ignored);
+    };
 
-    std::ofstream out(temporaryPath, std::ios::binary | std::ios::trunc);
     const std::string text = renderTextBytes(jobBytes_);
-    out.write(text.data(), static_cast<std::streamsize>(text.size()));
-    out.close();
-    if (!out) {
-        recordsDropped_++;
-        trace_->ws("{}: write to printer output file {} failed", label(), temporaryPath.string());
-        return false;
+    if (output_ == "pdfout") {
+        std::string pdfError;
+        if (!writePrinterPdf(temporaryPath.string(), text, paper_, pdfError)) {
+            recordsDropped_++;
+            trace_->ws("{}: write to printer output file {} failed: {}", label(), temporaryPath.string(), pdfError);
+            abandonReservation();
+            return false;
+        }
+    } else {
+        std::ofstream out(temporaryPath, std::ios::binary | std::ios::trunc);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        out.close();
+        if (!out) {
+            recordsDropped_++;
+            trace_->ws("{}: write to printer output file {} failed", label(), temporaryPath.string());
+            abandonReservation();
+            return false;
+        }
     }
     fs::rename(temporaryPath, finalPath, error);
     if (error) {
         recordsDropped_++;
         trace_->ws("{}: cannot publish printer output file {}: {}", label(), finalPath.string(), error.message());
+        abandonReservation();
         return false;
     }
+    fs::remove(reservationPath, error);
+    if (error)
+        trace_->ws("{}: cannot remove completed printer job reservation {}: {}",
+                   label(), reservationPath.string(), error.message());
     trace_->ws("{}: completed printer job {}", label(), finalPath.string());
     jobBytes_.clear();
     return true;
@@ -1039,8 +1079,8 @@ bool PrinterBackend::endJob()
         jobsEnded_++;
         return true;
     }
-    if (output_ == "txtout") {
-        if (!finishTextJob()) return false;
+    if (output_ == "txtout" || output_ == "pdfout") {
+        if (!finishDirectoryJob()) return false;
         jobsEnded_++;
         return true;
     }

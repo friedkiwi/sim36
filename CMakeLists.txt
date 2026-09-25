@@ -33,6 +33,7 @@ endif()
 
 find_package(replxx CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
+find_package(unofficial-libharu CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(boost_multiprecision CONFIG REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
@@ -41,6 +42,9 @@ find_package(minizip-ng CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)          # brought in by minizip-ng's zlib feature
 find_package(Threads REQUIRED)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+# Keep the runtime layout identical in the build tree and installed package.
+file(COPY assets/fonts DESTINATION "${CMAKE_BINARY_DIR}")
 
 # One interface target carries the warning and platform policy so every
 # target, including the tests, is built under the same rules.
@@ -74,6 +78,7 @@ add_library(sim36core STATIC
     src/Devices/VirtualFixedDisk.cpp
     src/Host/Console.cpp
     src/Host/ConsoleDisplay.cpp
+    src/Host/PrinterPdf.cpp
     src/Host/Sockets.cpp
     src/Host/StationBackend.cpp
     src/Host/StationMultiplexer.cpp
@@ -135,7 +140,7 @@ add_library(sim36core STATIC
 )
 target_include_directories(sim36core PUBLIC src)
 target_link_libraries(sim36core
-    PUBLIC  sim36_policy fmt::fmt nlohmann_json::nlohmann_json
+    PUBLIC  sim36_policy fmt::fmt nlohmann_json::nlohmann_json unofficial::libharu::hpdf
             MINIZIP::minizip-ng ZLIB::ZLIB Threads::Threads
     PRIVATE replxx::replxx Boost::multiprecision)
 if(WIN32)
@@ -248,4 +253,5 @@ endif()
 
 install(TARGETS sim36 RUNTIME DESTINATION .)
 install(FILES LICENSE README.md RUNNING.md DESTINATION .)
+install(DIRECTORY assets/fonts DESTINATION .)
 install(DIRECTORY etc DESTINATION . FILES_MATCHING PATTERN "*.sim")

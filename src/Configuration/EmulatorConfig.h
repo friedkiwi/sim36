@@ -22,9 +22,11 @@ struct StationConfig {
     // A printer has exactly one host attachment.  "tn5250" uses the
     // listener above, "console" writes decoded output to stdout, and
     // "file" appends the guest's byte stream verbatim to printerOutputPath;
-    // "txtout" creates one numbered, decoded text file per print job in it.
+    // "txtout" and "pdfout" create one numbered, decoded file per print
+    // job in the configured directory. PDF uses printerPaper for its form.
     std::string printerOutput = "tn5250";
     std::string printerOutputPath;
+    std::string printerPaper = "green";
     // Work-station configuration record +0A: host ownership policy, not
     // AUTOSIGNON and not a bit copied into a guest block.
     bool signOnAtIpl = false;

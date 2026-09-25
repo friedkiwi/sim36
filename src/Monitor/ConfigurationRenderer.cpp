@@ -87,8 +87,9 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
                                               s.id(), s.role, s.deviceCode);
         if (s.isPrinter()) {
             description += " output=";
-            description += (s.printerOutput == "file" || s.printerOutput == "txtout")
+            description += (s.printerOutput == "file" || s.printerOutput == "txtout" || s.printerOutput == "pdfout")
                 ? s.printerOutput + " " + s.printerOutputPath : s.printerOutput;
+            if (s.printerOutput == "pdfout") description += " paper=" + s.printerPaper;
         }
         // The multiplexer replaces only display listeners.  Printer TN5250
         // endpoints remain active and should still be reported.
@@ -149,11 +150,13 @@ std::string ConfigurationRenderer::renderReplay(const EmulatorConfig& c)
         line(fmt::format("set station {} device-code {}", s.id(), quoteArgument(s.deviceCode)));
         line(fmt::format("set station {} signon-at-ipl {}", s.id(), onOff(s.signOnAtIpl)));
         if (s.isPrinter()) {
-            if (s.printerOutput == "file" || s.printerOutput == "txtout")
+            if (s.printerOutput == "file" || s.printerOutput == "txtout" || s.printerOutput == "pdfout")
                 line(fmt::format("set station {} output {} {}", s.id(), s.printerOutput,
                                  quoteArgument(absolutePath(s.printerOutputPath))));
             else
                 line(fmt::format("set station {} output {}", s.id(), s.printerOutput));
+            if (s.printerPaper != "green")
+                line(fmt::format("set station {} paper {}", s.id(), s.printerPaper));
         }
         if (s.listenPort != 0)
             line(fmt::format("set station {} listen {}", s.id(),

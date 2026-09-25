@@ -311,9 +311,9 @@ public:
 
     PrinterBackend(const std::string& host, int port, const std::string& label, monitor::Tracer* trace,
                    std::function<void()> signalMachine, const std::string& output = "tn5250",
-                   const std::string& outputPath = "")
+                   const std::string& outputPath = "", const std::string& paper = "green")
         : StationBackend(StationKind::Printer, host, port, label, trace, std::move(signalMachine)),
-          output_(output), outputPath_(outputPath) {}
+          output_(output), outputPath_(outputPath), paper_(paper) {}
     ~PrinterBackend() override;
 
     // The eight-character system name the startup response carries; nothing
@@ -328,6 +328,7 @@ public:
     long long jobsEnded() const { return jobsEnded_; }
     const std::string& output() const { return output_; }
     const std::string& outputPath() const { return outputPath_; }
+    const std::string& paper() const { return paper_; }
     bool networkOutput() const { return output_ == "tn5250"; }
     bool listening() const override { return networkOutput() && StationBackend::listening(); }
     bool attached() const override { return networkOutput() ? StationBackend::attached() : true; }
@@ -363,9 +364,10 @@ private:
 
     std::string output_;
     std::string outputPath_;
+    std::string paper_;
     std::ofstream outputFile_;
     std::vector<uint8_t> jobBytes_;
-    bool finishTextJob();
+    bool finishDirectoryJob();
     // Console output is a stream: guest Output Data records can end in the
     // middle of either a word or an SCS control sequence.
     std::string consoleLine_;

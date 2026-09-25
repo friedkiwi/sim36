@@ -514,6 +514,7 @@ void MachineSnapshot::writeConfig(Writer& w, const EmulatorConfig& c)
         w.boolean(s.signOnAtIpl);
         w.string(s.printerOutput);
         w.string(s.printerOutputPath);
+        w.string(s.printerPaper);
     }
 }
 
@@ -553,6 +554,7 @@ EmulatorConfig MachineSnapshot::readConfig(Reader& r)
         s.signOnAtIpl = r.boolean();
         s.printerOutput = r.string();
         s.printerOutputPath = r.string();
+        s.printerPaper = r.string();
         c.stations.push_back(s);
     }
     return c;

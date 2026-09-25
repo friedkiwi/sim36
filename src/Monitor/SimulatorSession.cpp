@@ -573,7 +573,7 @@ void SimulatorSession::setDevice(const Args& a)
 
 void SimulatorSession::setStation(const Args& a)
 {
-    need(a, 5, "set station <port.address> <role|device-code|listen|output|signon-at-ipl> <value>");
+    need(a, 5, "set station <port.address> <role|device-code|listen|output|paper|signon-at-ipl> <value>");
     requireConfigurable();
     StationConfig& s = findOrCreateStation(a[2]);
     const std::string key = normal(a[3]);
@@ -596,19 +596,27 @@ void SimulatorSession::setStation(const Args& a)
     else if (key == "output") {
         if (!s.isPrinter()) throw MonitorError("station " + s.id() + " is not a printer");
         const std::string mode = normal(a[4]);
-        if (mode == "file" || mode == "txtout") {
-            need(a, 6, "set station <port.address> output <file|txtout> <path>");
+        if (mode == "file" || mode == "txtout" || mode == "pdfout") {
+            need(a, 6, "set station <port.address> output <file|txtout|pdfout> <path>");
             s.printerOutputPath = resolvePath(a[5]);
         } else if (mode == "console" || mode == "tn5250") {
             s.printerOutputPath.clear();
         } else {
-            throw MonitorError("printer output is tn5250, console, file <path>, or txtout <folder>");
+            throw MonitorError("printer output is tn5250, console, file <path>, txtout <folder>, or pdfout <folder>");
         }
         s.printerOutput = mode;
         if (mode != "tn5250") s.listenPort = 0;
     }
+    else if (key == "paper") {
+        if (!s.isPrinter()) throw MonitorError("station " + s.id() + " is not a printer");
+        const std::string paper = normal(a[4]);
+        if (paper != "green" && paper != "blue" && paper != "gray" &&
+            paper != "orange" && paper != "white")
+            throw MonitorError("printer paper is green, blue, gray, orange, or white");
+        s.printerPaper = paper;
+    }
     else if (key == "signon-at-ipl") s.signOnAtIpl = parseBool(a[4]);
-    else throw MonitorError("station property is role, device-code, listen, output, or signon-at-ipl");
+    else throw MonitorError("station property is role, device-code, listen, output, paper, or signon-at-ipl");
     if (multiplexer_ && s.isPrinter()) multiplexer_->disconnectStation(s.id());
     reconcileListeners();
 }
@@ -671,7 +679,7 @@ void SimulatorSession::showConfigurableStations()
         bool attached = multiplexed && multiplexer_ ? !multiplexer_->isFree(s.id())
                                                     : backend != nullptr && backend->attached();
         std::string endpoint = s.isPrinter() && s.printerOutput == "console" ? "console output"
-            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout")
+            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout" || s.printerOutput == "pdfout")
                 ? s.printerOutput + " " + s.printerOutputPath
             : multiplexed
             ? "mux " + definition_.multiplexHost + ":" + std::to_string(definition_.multiplexPort)
@@ -694,7 +702,7 @@ void SimulatorSession::getTerminalConfiguration()
     for (const StationConfig& s : definition_.stations) {
         std::string transport = s.isConsole() ? "operator"
             : s.isPrinter() && s.printerOutput == "console" ? "output console"
-            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout")
+            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout" || s.printerOutput == "pdfout")
                 ? "output " + s.printerOutput + " " + s.printerOutputPath
             : s.listenPort == 0 ? "listen off"
             : "listen " + s.listenHost + ":" + std::to_string(s.listenPort) +
@@ -719,7 +727,7 @@ void SimulatorSession::showTerminals()
                                                     : backend != nullptr && backend->attached();
         std::string endpoint = console ? "operator console"
             : s.isPrinter() && s.printerOutput == "console" ? "console output"
-            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout")
+            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout" || s.printerOutput == "pdfout")
                 ? s.printerOutput + " " + s.printerOutputPath
             : multiplexed ? definition_.multiplexHost + ":" + std::to_string(definition_.multiplexPort)
             : backend == nullptr || !backend->listening() ? "off" : backend->endpoint();
@@ -752,7 +760,8 @@ void SimulatorSession::reconcileListeners()
             backend->kind() == (printer ? host::StationKind::Printer : host::StationKind::Display) &&
             backend->endpoint() == endpoint &&
             (!printer || (printerBackend != nullptr && printerBackend->output() == s.printerOutput &&
-                           printerBackend->outputPath() == s.printerOutputPath)) &&
+                           printerBackend->outputPath() == s.printerOutputPath &&
+                           printerBackend->paper() == s.printerPaper)) &&
             (console ? static_cast<host::WorkstationBackend*>(backend)->isConsoleAttachment()
                      : backend->listening() == shouldListen);
         if (compatible) continue;
@@ -767,7 +776,7 @@ void SimulatorSession::reconcileListeners()
         if (printer)
             fresh = std::make_unique<host::PrinterBackend>(s.listenHost, s.listenPort, "printer " + s.id(),
                                                            &listenerTrace_, [this] { signalConstructedMachine(); },
-                                                           s.printerOutput, s.printerOutputPath);
+                                                           s.printerOutput, s.printerOutputPath, s.printerPaper);
         else
             fresh = std::make_unique<host::WorkstationBackend>(s.listenHost, s.listenPort, "station " + s.id(),
                                                                &listenerTrace_, [this] { signalConstructedMachine(); });
