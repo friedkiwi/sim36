@@ -10,12 +10,20 @@ ActionControlElementQueue::CheckpointState ActionControlElementQueue::captureChe
 {
     CheckpointState s;
     for (const auto& kv : allocated_) s.allocated.push_back(kv.first);   // std::map iterates sorted
+    for (const auto& kv : realEcmByAce_) {
+        s.realEcmRecords.push_back(kv.first);
+        s.realEcmRecords.push_back(kv.second);
+        auto multi = ecmMultipleWaitByAce_.find(kv.first);
+        s.realEcmRecords.push_back(multi != ecmMultipleWaitByAce_.end() && multi->second ? 1 : 0);
+    }
     return s;
 }
 
 bool ActionControlElementQueue::restoreCheckpoint(const CheckpointState& s, std::string& why)
 {
     allocated_.clear();
+    realEcmByAce_.clear();
+    ecmMultipleWaitByAce_.clear();
     for (int a : s.allocated) {
         if (allocated_.count(a) != 0) {
             why = "duplicate allocated ACE in checkpoint";
@@ -24,6 +32,30 @@ bool ActionControlElementQueue::restoreCheckpoint(const CheckpointState& s, std:
         // The heap is restored from its own checkpoint, so the pool knows
         // which allocation each live element belongs to.
         allocated_[a] = heap_.liveAllocationAt(a, ActionControlElement::kSize);
+    }
+    if (s.realEcmRecords.size() % 3 != 0) {
+        why = "truncated ACE/ECM provenance vector in checkpoint";
+        return false;
+    }
+    for (std::size_t i = 0; i < s.realEcmRecords.size(); i += 3) {
+        int ace = s.realEcmRecords[i], ecm = s.realEcmRecords[i + 1], multipleWait = s.realEcmRecords[i + 2];
+        if (allocated_.count(ace) == 0) {
+            why = "ECM provenance names an unallocated ACE";
+            return false;
+        }
+        if (ecm < 0 || (ecm != 0 && ecm > m_.backingBytes() - Ecm::kSize)) {
+            why = "ECM provenance names unaddressable storage";
+            return false;
+        }
+        if (!realEcmByAce_.emplace(ace, ecm).second) {
+            why = "duplicate ACE in ECM provenance";
+            return false;
+        }
+        if (multipleWait != 0 && multipleWait != 1) {
+            why = "invalid multiple-wait attribute in ECM provenance";
+            return false;
+        }
+        ecmMultipleWaitByAce_[ace] = multipleWait != 0;
     }
     why.clear();
     return true;
@@ -60,6 +92,8 @@ int ActionControlElementQueue::allocate()
                    a, previous, allocation);
     }
     allocated_[a] = allocation;
+    realEcmByAce_.erase(a);
+    ecmMultipleWaitByAce_.erase(a);
     return a;
 }
 
@@ -78,6 +112,8 @@ void ActionControlElementQueue::release(int ace)
     }
     long long allocation = it->second;
     allocated_.erase(it);
+    realEcmByAce_.erase(ace);
+    ecmMultipleWaitByAce_.erase(ace);
 
     // An element handed to the guest on a complete-event queue is the guest's
     // to free, and SSP does exactly that: a sign-on job dequeues the
@@ -100,7 +136,13 @@ int ActionControlElementQueue::buildAndQueue(int rb, int tb, uint8_t qByte, uint
     int ace = allocate();
     if (ace == 0) return 0;
 
-    ActionControlElement::build(m_, ace, rb, tb, qByte, true);
+    ActionControlElement::build(m_, ace, rb, tb, qByte);
+    int ecmField = RequestBlock::readXr1Field(m_, rb);
+    if (!rememberEcm(ace, ecmField)) {
+        trace_.ace("nubldace: cannot resolve ECM {:06X} for ACE {:04X}", ecmField, ace);
+        release(ace);
+        return 0;
+    }
     trace_.ace("built {:04X} from rb={:04X} tb={:04X} q={:02X} xr1={:06X} xr2={:06X}",
                ace, rb, tb, qByte, RequestBlock::readXr1Field(m_, rb), RequestBlock::readXr2Field(m_, rb));
 
@@ -118,7 +160,12 @@ int ActionControlElementQueue::buildAndQueue(int rb, int tb, uint8_t qByte, uint
 
     // Q bit 2: hand the address back through the event control mask and XR2.
     if ((qByte & 0x20) != 0) {
-        int ecm = RequestBlock::readXr1Field(m_, rb);
+        int ecm = 0;
+        if (!ecmAddress(ace, ecm) || ecm == 0) {
+            trace_.ace("  cannot return address {:06X}: ACE {:04X} has no addressable ECM", ace, ace);
+            release(ace);
+            return 0;
+        }
         m_.writeAddr24(ecm + Ecm::kOffAceAddress, ace);
         RequestBlock::writeXr2(m_, rb, ace);
         trace_.ace("  address {:06X} stored at ecm {:06X}+2 and returned in XR2", ace, ecm);
@@ -126,6 +173,40 @@ int ActionControlElementQueue::buildAndQueue(int rb, int tb, uint8_t qByte, uint
 
     enqueue(headerNumber, ace);
     return ace;
+}
+
+bool ActionControlElementQueue::rememberEcm(int ace, int ecmField)
+{
+    if (allocated_.count(ace) == 0) return false;
+    int ecm = 0;
+    if (ecmField != 0 && !m_.resolveGuest24(ecmField, false, ecm)) return false;
+    if (ecm != 0 && (ecm < 0 || ecm > m_.backingBytes() - Ecm::kSize)) return false;
+    realEcmByAce_[ace] = ecm;
+    ecmMultipleWaitByAce_[ace] = ecm != 0 && (m_.readByte(ecm + Ecm::kOffMultiWait) & 0x80) != 0;
+    return true;
+}
+
+bool ActionControlElementQueue::ecmAddress(int ace, int& realEcm) const
+{
+    auto retained = realEcmByAce_.find(ace);
+    if (retained != realEcmByAce_.end()) {
+        realEcm = retained->second;
+        return true;
+    }
+
+    // Synthetic/internal ACE producers predate provenance and use real
+    // addresses.  Never reinterpret a translated address through whatever
+    // unrelated ATR file happens to be live later.
+    int field = m_.readAddr24(ace + ActionControlElement::kOffXr1);
+    if ((field & 0x800000) != 0 || field > m_.backingBytes() - Ecm::kSize) return false;
+    realEcm = field;
+    return true;
+}
+
+bool ActionControlElementQueue::ecmMultipleWaitEligible(int ace) const
+{
+    auto retained = ecmMultipleWaitByAce_.find(ace);
+    return retained != ecmMultipleWaitByAce_.end() && retained->second;
 }
 
 void ActionControlElementQueue::enqueue(uint8_t headerNumber, int ace)
@@ -161,20 +242,20 @@ std::vector<int> ActionControlElementQueue::elements(uint8_t headerNumber)
     return list;
 }
 
-void ActionControlElementQueue::post(int ace, int completionCode)
+bool ActionControlElementQueue::post(int ace, int completionCode)
 {
-    // ace+13..15 is the RAW XR1 pair; the ECM address inside it is a
-    // device-path address and follows the same rule as every other one -
-    // real unless bit 0x800000, then task-translated.
-    int ecmField = m_.readAddr24(ace + ActionControlElement::kOffXr1);
-    int ecm;
-    if (!m_.resolveGuest24(ecmField, true, ecm)) ecm = 0;
+    int ecm = 0;
+    if (!ecmAddress(ace, ecm)) {
+        trace_.ace("posted {:04X} with missing translated-ECM provenance - request rejected", ace);
+        return false;
+    }
     if (ecm != 0) {
         Ecm::post(m_, ecm, completionCode);
         trace_.ace("posted {:04X} -> ecm {:06X}+6 = {:02X}", ace, ecm, 0x40 | (completionCode & 0x0F));
     } else {
         trace_.ace("posted {:04X} with no event control mask - request ignored", ace);
     }
+    return true;
 }
 
 void ActionControlElementQueue::dump(std::FILE* out, int ace)

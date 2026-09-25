@@ -185,6 +185,9 @@ public:
     // unit-FF controller invite all retain their element instead of posting
     // an immediate completion.
     bool isPending(int iob) const;
+    // Drop one controller-owned operation without producing a completion.
+    // Task termination uses this before releasing the operation's ACE.
+    bool cancelPendingOperation(int iob);
     void resetPendingIo();
     // The IPL walks the station list after publishing the bootstrap unit
     // block; with a physical controller the stations the host acquired are

@@ -89,6 +89,23 @@ bool DeviceSet::isPending(int iob) const
            std::find(pendingPrinterOutputs_.begin(), pendingPrinterOutputs_.end(), iob) != pendingPrinterOutputs_.end();
 }
 
+bool DeviceSet::cancelPendingOperation(int iob)
+{
+    bool removed = false;
+    removed = pendingInputReads_.erase(iob) || removed;
+    removed = pendingC1Completions_.erase(iob) || removed;
+    removed = pendingPutWithInvites_.erase(iob) || removed;
+    removed = pendingScreenSaves_.erase(iob) || removed;
+    removed = pendingControllerInvites_.erase(iob) != 0 || removed;
+    auto printer = std::find(pendingPrinterOutputs_.begin(), pendingPrinterOutputs_.end(), iob);
+    if (printer != pendingPrinterOutputs_.end()) {
+        pendingPrinterOutputs_.erase(printer);
+        removed = true;
+    }
+    if (removed) trace_.ws("cancelled retained device operation for terminating task, IOB {:06X}", iob);
+    return removed;
+}
+
 void DeviceSet::resetPendingIo()
 {
     pendingInputReads_.clear();

@@ -766,9 +766,29 @@ int As36ControlStorageProcessor::releaseTaskTerminationIoQueues(int tb, const st
     released += releaseTaskQueueMatches(54, tb, 7, 11, 16, false, "nutetqdq", call);
     for (uint8_t q : {static_cast<uint8_t>(32), static_cast<uint8_t>(30), static_cast<uint8_t>(29)})
         released += releaseTaskQueueMatches(q, tb, 21, 4, 32, true, "nuteiopg", call);
-    trace_.csp("{}: nupterm timer/I-O queue cleanup removed {} element(s) for task {:04X} from Q54/Q32/Q30/Q29 "
-               "(nutetqdq/nuteiopg c18a48c8-c18a49e4)",
-               call, released, tb);
+
+    // Retained workstation and printer requests have left the guest system
+    // queues but are still owned by the device controller.  They must not
+    // outlive their task: a later response would otherwise post through a
+    // freed ACE and could corrupt a newly assigned queue-space cell.
+    const int queuedReleased = released;
+    int retainedReleased = 0;
+    for (auto it = pendingDeviceAces_.begin(); it != pendingDeviceAces_.end();) {
+        int iob = it->first, ace = it->second;
+        if (m_.readAddr24(ace + ActionControlElement::kOffTaskBlock) != tb) {
+            ++it;
+            continue;
+        }
+        devices_.cancelPendingOperation(iob);
+        aces_.release(ace);
+        it = pendingDeviceAces_.erase(it);
+        retainedReleased++;
+    }
+    deferredWsInput_.erase(tb);
+    released += retainedReleased;
+    trace_.csp("{}: nupterm timer/I-O queue cleanup removed {} element(s) for task {:04X} from Q54/Q32/Q30/Q29 and "
+               "{} retained device operation(s) (nutetqdq/nuteiopg c18a48c8-c18a49e4)",
+               call, queuedReleased, tb, retainedReleased);
     return released;
 }
 

@@ -34,8 +34,8 @@ public:
     static constexpr int kOffXr1Copy = 29;     // 3
 
     static constexpr uint8_t kFlagsBase = 0x80;
-    // Multiple-wait eligibility, copied from Q bit 4 or the ECM's stable
-    // multi-wait attribute while the issuing translation context is live.
+    // Multiple-wait eligibility copied from Q bit 4.  The ECM's independent
+    // attribute remains in the ECM; the queue retains its resolved address.
     static constexpr uint8_t kFlagsMultipleWait = 0x08;
     // Marks an internally generated condition; an internal post produces 0xC8.
     static constexpr uint8_t kFlagsInternalCondition = 0x40;
@@ -47,8 +47,7 @@ public:
     // of the three at +2..4.
     static constexpr int kChainLastByte = kOffChainLink + 2;
 
-    static void build(machine::MachineState& m, int ace, int rb, int tb, uint8_t qByte,
-                      bool captureEcmMultipleWait = false);
+    static void build(machine::MachineState& m, int ace, int rb, int tb, uint8_t qByte);
     static void applyTaskAssociation(machine::MachineState& m, int ace, uint8_t qByte);
 };
 

@@ -663,7 +663,13 @@ bool As36ControlStorageProcessor::service(SvcRequest& req)
             // tracked without being chained to a header.
             int ace = aces_.allocate();
             if (ace != 0) {
-                ActionControlElement::build(m_, ace, req.requestBlock, req.taskBlock, req.q, true);
+                ActionControlElement::build(m_, ace, req.requestBlock, req.taskBlock, req.q);
+                int ecmField = RequestBlock::readXr1Field(m_, req.requestBlock);
+                if (!aces_.rememberEcm(ace, ecmField)) {
+                    trace_.ace("device SVC {:02X}: cannot resolve ECM/IOB {:06X} for ace {:04X}", req.r, ecmField, ace);
+                    aces_.release(ace);
+                    return deviceSvc(req, 0);
+                }
                 // The delayed device-SVC family shares Q bit 3 with SVC 4C:
                 // completion belongs to the TB supplied in XR2, applied after
                 // build has captured XR2.
@@ -1079,11 +1085,14 @@ bool As36ControlStorageProcessor::deviceSvc(SvcRequest& req, int ace)
     // the call was answered: phase 1 has branches for completion 43 as well
     // as 40.
     if (ace != 0) {
-        int ecmField = m_.readAddr24(ace + ActionControlElement::kOffXr1);
-        int ecm;
-        if (!m_.resolveGuest24(ecmField, false, ecm)) ecm = 0;
-        aces_.post(ace, ecm != 0 && Ecm::isComplete(m_, ecm) ? m_.readByte(ecm + Ecm::kOffCompletion) & 0x0F
-                                                             : (ok ? 0 : 4));
+        int ecm = 0;
+        bool hasEcm = aces_.ecmAddress(ace, ecm);
+        if (!aces_.post(ace, hasEcm && ecm != 0 && Ecm::isComplete(m_, ecm)
+                                ? m_.readByte(ecm + Ecm::kOffCompletion) & 0x0F
+                                : (ok ? 0 : 4))) {
+            aces_.release(ace);
+            return false;
+        }
 
         // A delayed device request completes through its ACE even when the
         // requester is still running.  completeToTask always puts the element

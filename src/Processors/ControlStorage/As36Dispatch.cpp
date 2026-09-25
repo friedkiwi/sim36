@@ -918,18 +918,30 @@ void As36ControlStorageProcessor::requeueByPriority(int tb, int chainLastByte, u
 // finds the mask at ace+13.
 bool As36ControlStorageProcessor::postActionControlElement(SvcRequest& req)
 {
-    int ace = RequestBlock::readXr1Field(m_, req.requestBlock);
+    int aceField = RequestBlock::readXr1Field(m_, req.requestBlock);
+    int ace = 0;
+    if (!m_.resolveGuest24(aceField, false, ace)) ace = 0;
     if (m_.readHalf(ace) != ActionControlElement::kEyecatcher) {
-        trace_.csp("SVC 19: {:06X} is not an action control element - nuposta aborts through nuerabt with code 93", ace);
+        trace_.csp("SVC 19: {:06X} (resolved {:06X}) is not an action control element - nuposta aborts through nuerabt "
+                   "with code 93", aceField, ace);
         return false;
     }
-    int ecm = m_.readAddr24(ace + ActionControlElement::kOffXr1);
+    int ecm = 0;
+    if (!aces_.ecmAddress(ace, ecm)) {
+        trace_.csp("SVC 19: action control element {:06X} has no retained ECM translation", ace);
+        return false;
+    }
     return postEvent(ecm, req.inline1, req.inline2, "SVC 19");
 }
 
 bool As36ControlStorageProcessor::eventPost(SvcRequest& req)
 {
-    int ecm = RequestBlock::readXr1Field(m_, req.requestBlock);
+    int ecmField = RequestBlock::readXr1Field(m_, req.requestBlock);
+    int ecm = 0;
+    if (ecmField != 0 && !m_.resolveGuest24(ecmField, false, ecm)) {
+        trace_.csp("SVC 03: event control mask {:06X} cannot be resolved", ecmField);
+        return false;
+    }
     return postEvent(ecm, req.inline1, req.inline2, "SVC 03");
 }
 
@@ -1047,7 +1059,7 @@ bool As36ControlStorageProcessor::postTaskByTaskId(SvcRequest& req)
 
 // Satisfied when an element on the caller's complete event queue answers
 // the wait (consumed), or, for a specific wait, when the 7th byte of the
-// mask XR1 names has bit 1 on (a translated XR1 fails this test unread).
+// mask XR1 names has bit 1 on.
 // Q bit 7 off is "wait without wait": the PSR answers and the task never
 // blocks; on, the task waits with the event-wait code 0x80.
 bool As36ControlStorageProcessor::eventWait(SvcRequest& req)
@@ -1056,18 +1068,18 @@ bool As36ControlStorageProcessor::eventWait(SvcRequest& req)
     constexpr uint8_t kReturnXr2 = 0x20;     // Q bit 2
     constexpr uint8_t kMultipleWait = 0x08;  // Q bit 4
     constexpr uint8_t kWait = 0x01;          // Q bit 7
-    constexpr int kRealAddressMask = ~0x800000;
 
     bool satisfied = completedEventForTask(req);
 
     if (!satisfied && (req.q & kMultipleWait) == 0) {
-        int xr1 = RequestBlock::readXr1Field(m_, req.requestBlock);
-        if ((xr1 & ~kRealAddressMask) != 0) {
-            trace_.csp("SVC 02: XR1 = {:06X} is translated, so nuwait cannot test the mask and the wait is not satisfied",
-                       xr1);
-        } else if (Ecm::isComplete(m_, xr1)) {
+        int xr1Field = RequestBlock::readXr1Field(m_, req.requestBlock);
+        int xr1 = 0;
+        if (!m_.resolveGuest24(xr1Field, false, xr1)) {
+            trace_.csp("SVC 02: XR1 = {:06X} cannot be resolved, so the wait is not satisfied", xr1Field);
+        } else if (xr1 != 0 && Ecm::isComplete(m_, xr1)) {
             satisfied = true;
-            trace_.csp("SVC 02: mask {:06X} is complete ({:02X})", xr1, m_.readByte(xr1 + Ecm::kOffCompletion));
+            trace_.csp("SVC 02: mask {:06X} (resolved {:06X}) is complete ({:02X})", xr1Field, xr1,
+                       m_.readByte(xr1 + Ecm::kOffCompletion));
         }
     }
 
@@ -1118,8 +1130,10 @@ bool As36ControlStorageProcessor::completedEventForTask(SvcRequest& req)
 // The one match-output model, shared by the wait path and the post path.
 // Specific wait: ace+29..31 equals the examined task's XR1, or Q bit 3 and
 // ace+28 bit 3 mark the element asynchronous.  Multiple wait: ace+28 bit 4
-// (latched from the action Q byte or ECM at submission) or a still-addressable
-// mask+5 bit 0 marks a candidate, and with Q bit 5 the type at ace+22
+// from the action Q byte or mask+5 bit 0 marks a candidate.  The ECM
+// attribute captured at submission survives a later unmap, while the live
+// translation remains significant when SSP deliberately reuses the logical
+// IOB address in a newly mapped work area.  With Q bit 5 the type at ace+22
 // must match WR6 (which receives the matched type).  On a match XR1 =
 // ace+29..31, XR2 = ace+16..18 when the examined task's Q bit 2 asks (and
 // the caller allows), and the element is unlinked and freed.
@@ -1151,14 +1165,11 @@ bool As36ControlStorageProcessor::completedEvent(int tb, int rb, uint8_t q, bool
                                    asyncMatch ? "True" : "False");
         } else {
             bool flagsCandidate = (flags & ActionControlElement::kFlagsMultipleWait) != 0;
-            // The element carries the caller's XR1 as it was issued.  A
-            // spool writer's disk IOB lives in its translated work space, so
-            // the mask byte is read through the waiting task's registers,
-            // which are live: a raw read of a 80nnnn field lands in
-            // unrelated storage and made this arm answer by accident.
             int ecmReal = 0;
-            bool ecmCandidate = ecm != 0 && m_.resolveGuest24(ecm, false, ecmReal) &&
-                                (m_.readByte(ecmReal + Ecm::kOffMultiWait) & 0x80) != 0;
+            bool retainedEcmCandidate = aces_.ecmMultipleWaitEligible(at);
+            bool liveEcmCandidate = ecm != 0 && m_.resolveGuest24(ecm, false, ecmReal) && ecmReal != 0 &&
+                                    (m_.readByte(ecmReal + Ecm::kOffMultiWait) & 0x80) != 0;
+            bool ecmCandidate = retainedEcmCandidate || liveEcmCandidate;
             match = flagsCandidate || ecmCandidate;
             bool typeMatch = true;
             if (match && (q & kEventTypeGiven) != 0) {
@@ -1336,10 +1347,11 @@ bool As36ControlStorageProcessor::generalPost(SvcRequest& req)
         // nugpstcs saves the next link before nupostac dequeues the current
         // ACE.  Preserve that order: the dequeue clears the current link.
         int next = m_.readAddr24(at + ActionControlElement::kOffChainLink);
-        int ecm = m_.readAddr24(at + ActionControlElement::kOffXr1);
-        if (ecm == 0 || ecm > m_.backingBytes() - Ecm::kOffGeneralPostMask - 2) {
+        int ecmField = m_.readAddr24(at + ActionControlElement::kOffXr1);
+        int ecm = 0;
+        if (!aces_.ecmAddress(at, ecm) || ecm == 0 || ecm > m_.backingBytes() - Ecm::kOffGeneralPostMask - 2) {
             trace_.csp("SVC 01: queue {} element {:06X} names an unaddressable ECM {:06X}",
-                       kGeneralPostElementQueue, at, ecm);
+                       kGeneralPostElementQueue, at, ecmField);
             return false;
         }
         uint16_t mask = m_.readHalf(ecm + Ecm::kOffGeneralPostMask);

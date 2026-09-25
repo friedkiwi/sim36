@@ -198,6 +198,10 @@ TEST_CASE("workstation: reading retained fields retires their one-shot C1 status
     processors::controlstorage::RequestBlock::writeXr1(state, requestBlock, putIob);
     REQUIRE(devices.deviceSvc(request));
     CHECK(devices.isPending(putIob));
+    CHECK(devices.cancelPendingOperation(putIob));
+    CHECK_FALSE(devices.isPending(putIob));
+    CHECK(devices.pendingPutWithInviteCount() == 0);
+    CHECK_FALSE(devices.cancelPendingOperation(putIob));
 }
 
 TEST_CASE("workstation: command 27 unwraps an SSP saved-screen envelope as RFC 1205 restore")

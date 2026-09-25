@@ -20,7 +20,7 @@ namespace sim36::monitor {
 
 class MachineSnapshot {
 public:
-    static constexpr int kVersion = 20;   // 20: retained printer outputs; 19: printer output attachment is part of station configuration
+    static constexpr int kVersion = 21;   // 21: retained ACE-to-real-ECM translation provenance
 
     struct StationState {
         std::string id;

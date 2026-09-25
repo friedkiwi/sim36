@@ -235,6 +235,13 @@ bool As36ControlStorageProcessor::restoreCheckpoint(const CheckpointState& s, st
         failure = why;
         return false;
     }
+    for (const auto& pending : pendingDeviceAces_) {
+        int ecm = 0;
+        if (!aces_.ecmAddress(pending.second, ecm) || ecm != pending.first) {
+            failure = "pending device ACE has missing or inconsistent ECM provenance";
+            return false;
+        }
+    }
     return true;
 }
 

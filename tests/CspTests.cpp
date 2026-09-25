@@ -212,7 +212,9 @@ TEST_CASE("a printer put completes when the issuing task waits, not inside its S
 
     constexpr int task = 0x1000;
     constexpr int requestBlock = 0x1100;
-    constexpr int iob = 0x1200;
+    constexpr int logicalIob = 0x1800;
+    constexpr int iobFrame = 0x10;
+    constexpr int iob = iobFrame * machine::MachineState::kPageBytes;
     constexpr int data = 0x1300;
     std::string failure;
     REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
@@ -231,13 +233,19 @@ TEST_CASE("a printer put completes when the issuing task waits, not inside its S
     state.writeByte(data, 0x34);
     state.writeByte(data + 1, 0xC4);
     state.writeByte(data + 2, 0x01);
-    state.msp.pactXr1 = 0;
-    state.msp.xr1 = iob;
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalIob >> machine::MachineState::kPageShift)] = iobFrame;
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalIob;
 
     SvcRequest print;
     print.r = 0x42;
     print.q = 0x08;  // multiple-wait action element
     REQUIRE(csp.svc(print));
+    // A transfer can replace the issuing program's ATR file before the
+    // retained device completion arrives.  Completion still belongs to the
+    // physical IOB captured when the request was issued.
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalIob >> machine::MachineState::kPageShift)] =
+        machine::MachineState::kAtrProtect;
     // The record has left the machine but the operation is not over: the
     // mask stays armed and nothing is queued, so SPWRT's no-wait poll of its
     // disk reads (Q=0C, type 0020) cannot consume the printer's event.
@@ -266,7 +274,7 @@ TEST_CASE("a printer put completes when the issuing task waits, not inside its S
     std::filesystem::remove(output);
 }
 
-TEST_CASE("general post completes a queued ACE when ECM address return was not requested")
+TEST_CASE("general post uses retained translation when ECM address return was not requested")
 {
     CspEmptyVolume volume;
     configuration::EmulatorConfig config;
@@ -278,14 +286,17 @@ TEST_CASE("general post completes a queued ACE when ECM address return was not r
 
     constexpr int task = 0x1000;
     constexpr int requestBlock = 0x1100;
-    constexpr int ecm = 0x1200;
+    constexpr int logicalEcm = 0x1800;
+    constexpr int frame = 0x10;
+    constexpr int ecm = frame * machine::MachineState::kPageBytes;
     std::string failure;
     REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
     state.writeHalf(task, TaskBlock::kEyecatcher);
     state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
     csp.bringUpControlProcessor();
-    state.msp.pactXr1 = 0;
-    state.msp.xr1 = ecm;
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalEcm >> machine::MachineState::kPageShift)] = frame;
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalEcm;
     state.writeHalf(ecm + Ecm::kOffGeneralPostMask, 0x2200);
 
     SvcRequest build;
@@ -343,7 +354,10 @@ TEST_CASE("a translated ECM remains eligible for multiple wait after its ATR map
     const int queue30 = GuestLowStorage::queueHeader(30);
     const int ace = state.readAddr24(queue30);
     REQUIRE(ace != 0);
-    CHECK((state.readByte(ace + ActionControlElement::kOffFlags) & ActionControlElement::kFlagsMultipleWait) != 0);
+    CHECK((state.readByte(ace + ActionControlElement::kOffFlags) & ActionControlElement::kFlagsMultipleWait) == 0);
+    As36ControlStorageProcessor::CheckpointState checkpoint;
+    REQUIRE(csp.captureCheckpoint(checkpoint, failure));
+    CHECK(checkpoint.aces.realEcmRecords == std::vector<int>{ace, realEcm, 1});
 
     // Model its completion, then switch to a program in which the old ECM
     // logical page is invalid. The panic regression accumulated hundreds of
@@ -359,6 +373,151 @@ TEST_CASE("a translated ECM remains eligible for multiple wait after its ATR map
     REQUIRE(csp.svc(wait));
     CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
     CHECK(state.msp.psr() == 0x01);  // Equal: the queued completion was consumed
+}
+
+TEST_CASE("multiple wait honors an ECM attribute introduced by a live workspace remap")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int requestBlock = 0x1100;
+    constexpr int logicalEcm = 0x1800;
+    constexpr int issuingFrame = 0x10;
+    constexpr int waitingFrame = 0x11;
+    constexpr int waitingEcm = waitingFrame * machine::MachineState::kPageBytes;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
+    state.writeHalf(task, TaskBlock::kEyecatcher);
+    state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
+    csp.bringUpControlProcessor();
+    int atr = machine::MachineState::kAtrTaskGroup0 + (logicalEcm >> machine::MachineState::kPageShift);
+    state.atr[atr] = issuingFrame;
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalEcm;
+
+    SvcRequest build;
+    build.r = 0x4C;
+    build.inline1 = 30;
+    REQUIRE(csp.svc(build));
+    int ace = state.readAddr24(GuestLowStorage::queueHeader(30));
+    REQUIRE(ace != 0);
+    state.writeAddr24(GuestLowStorage::queueHeader(30), 0);
+    state.writeAddr24(task + TaskBlock::kOffCompleteQueue, ace);
+
+    // SSP recycles the logical IOB address in a newly mapped workspace.
+    // That live ECM can add multiple-wait eligibility even though the ECM
+    // at submission did not have it.
+    state.atr[atr] = waitingFrame;
+    state.writeByte(waitingEcm + Ecm::kOffMultiWait, 0x80);
+    SvcRequest wait;
+    wait.r = 0x02;
+    wait.q = 0x08;
+    REQUIRE(csp.svc(wait));
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == 0);
+    CHECK(state.msp.psr() == 0x01);
+}
+
+TEST_CASE("translated ECM provenance serves address return and both event-post entry points")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int requestBlock = 0x1100;
+    constexpr int logicalEcm = 0x1800;
+    constexpr int frame = 0x10;
+    constexpr int realEcm = frame * machine::MachineState::kPageBytes;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
+    state.writeHalf(task, TaskBlock::kEyecatcher);
+    state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
+    csp.bringUpControlProcessor();
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalEcm >> machine::MachineState::kPageShift)] = frame;
+
+    auto build = [&]() {
+        state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+        state.msp.xr1 = logicalEcm;
+        SvcRequest request;
+        request.r = 0x4C;
+        request.q = 0x20;
+        request.inline1 = 30;
+        REQUIRE(csp.svc(request));
+        int ace = state.readAddr24(GuestLowStorage::queueHeader(30));
+        REQUIRE(ace != 0);
+        CHECK(state.readAddr24(realEcm + Ecm::kOffAceAddress) == ace);
+        return ace;
+    };
+
+    int ace = build();
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalEcm;
+    SvcRequest postMask;
+    postMask.r = 0x03;
+    postMask.inline1 = 30;
+    postMask.inline2 = 3;
+    REQUIRE(csp.svc(postMask));
+    CHECK(state.readByte(realEcm + Ecm::kOffCompletion) == 0x43);
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == ace);
+
+    // Consume the first event before exercising the ACE-address entry.
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalEcm;
+    SvcRequest consume;
+    consume.r = 0x02;
+    REQUIRE(csp.svc(consume));
+
+    ace = build();
+    state.msp.pactXr1 = 0;
+    state.msp.xr1 = ace;
+    SvcRequest postAce;
+    postAce.r = 0x19;
+    postAce.inline1 = 30;
+    postAce.inline2 = 2;
+    REQUIRE(csp.svc(postAce));
+    CHECK(state.readByte(realEcm + Ecm::kOffCompletion) == 0x42);
+    CHECK(state.readAddr24(task + TaskBlock::kOffCompleteQueue) == ace);
+}
+
+TEST_CASE("specific wait polls a translated completed ECM")
+{
+    CspEmptyVolume volume;
+    configuration::EmulatorConfig config;
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadOnly);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    constexpr int task = 0x1000;
+    constexpr int requestBlock = 0x1100;
+    constexpr int logicalEcm = 0x1800;
+    constexpr int frame = 0x10;
+    constexpr int realEcm = frame * machine::MachineState::kPageBytes;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()), task, requestBlock, failure));
+    state.writeHalf(task, TaskBlock::kEyecatcher);
+    state.writeAddr24(task + TaskBlock::kOffRequestBlock, requestBlock);
+    csp.bringUpControlProcessor();
+    state.atr[machine::MachineState::kAtrTaskGroup0 + (logicalEcm >> machine::MachineState::kPageShift)] = frame;
+    state.writeByte(realEcm + Ecm::kOffCompletion, 0x44);
+    state.msp.pactXr1 = machine::MspRegisters::kPactTranslate;
+    state.msp.xr1 = logicalEcm;
+
+    SvcRequest wait;
+    wait.r = 0x02;
+    REQUIRE(csp.svc(wait));
+    CHECK(state.msp.psr() == 0x01);
 }
 
 TEST_CASE("workspace heap checkpoints cannot exceed their live block capacity")

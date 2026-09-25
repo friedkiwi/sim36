@@ -123,8 +123,19 @@ bool As36ControlStorageProcessor::postRetainedWorkStationCompletion(
     int ace = it->second;
     pendingDeviceAces_.erase(it);
 
+    int retainedEcm = 0;
+    if (!aces_.ecmAddress(ace, retainedEcm) || retainedEcm != iob) {
+        trace_.csp("work-station IOB {:06X} completed but ACE {:04X} retains ECM {:06X}; completion rejected", iob, ace,
+                   retainedEcm);
+        aces_.release(ace);
+        return false;
+    }
+
     int indicators = Ecm::isComplete(m_, iob) ? m_.readByte(iob + Ecm::kOffCompletion) & 0x0F : 4;
-    aces_.post(ace, indicators);
+    if (!aces_.post(ace, indicators)) {
+        aces_.release(ace);
+        return false;
+    }
     int target = m_.readAddr24(ace + ActionControlElement::kOffTaskBlock);
     if (deferred != nullptr && TaskBlock::isTaskBlock(m_, target)) {
         deferredWsInput_[target] = *deferred;

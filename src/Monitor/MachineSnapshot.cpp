@@ -636,6 +636,7 @@ void MachineSnapshot::writeRuntime(Writer& w, machine::Machine& m)
     w.i32(s.aces.next);
     w.ints(s.aces.free);
     w.ints(s.aces.allocated);
+    w.ints(s.aces.realEcmRecords);
 
     devices::DeviceSet::PendingCheckpoint d = m.devices().capturePendingCheckpoint();
     w.ints(d.inputReadPairs);
@@ -759,6 +760,7 @@ MachineSnapshot::RuntimeState MachineSnapshot::readRuntime(Reader& r)
     c.aces.next = r.i32();
     c.aces.free = r.ints("free ACEs");
     c.aces.allocated = r.ints("allocated ACEs");
+    c.aces.realEcmRecords = r.ints("ACE/ECM provenance");
 
     auto& d = s.devices;
     d.inputReadPairs = r.ints("pending input reads");

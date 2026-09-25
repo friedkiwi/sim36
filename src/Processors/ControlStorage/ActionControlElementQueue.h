@@ -34,6 +34,10 @@ public:
         int next = 0;
         std::vector<int> free;
         std::vector<int> allocated;
+        // Triples of ACE, resolved real ECM address, and the ECM's multiple-
+        // wait attribute at submission.  The ACE itself keeps the
+        // architected (possibly translated) XR1 field.
+        std::vector<int> realEcmRecords;
     };
 
     // ACEs are allocated out of THE SYSTEM QUEUE SPACE: an ACE is an ordinary
@@ -51,7 +55,12 @@ public:
 
     // A new control-processor IPL rebuilds the system queue space, so every
     // element this allocator was holding is gone with it.
-    void reset() { allocated_.clear(); }
+    void reset()
+    {
+        allocated_.clear();
+        realEcmByAce_.clear();
+        ecmMultipleWaitByAce_.clear();
+    }
 
     static int headerAddress(int headerNumber) { return kQueueHeaderBase + headerNumber * kQueueHeaderStride; }
 
@@ -71,6 +80,13 @@ public:
     // allocated.
     int buildAndQueue(int rb, int tb, uint8_t qByte, uint8_t headerNumber);
 
+    // Resolve an ACE's ECM while its issuing ATR context is selected and
+    // retain the real address for every later host operation.  A zero ECM is
+    // valid and means that the action deliberately has no mask.
+    bool rememberEcm(int ace, int ecmField);
+    bool ecmAddress(int ace, int& realEcm) const;
+    bool ecmMultipleWaitEligible(int ace) const;
+
     // The two-arm FIFO insert.  A stored link is the successor's OWN address,
     // not its address plus the link offset: the queue scan, the queue search
     // and the IPL's own writes of the task block's plain address into headers
@@ -81,7 +97,7 @@ public:
 
     // Complete a request: post through the event control mask the ACE names,
     // then unlink.  The mask's 7th byte becomes hex 4n.
-    void post(int ace, int completionCode);
+    bool post(int ace, int completionCode);
 
     void dump(std::FILE* out, int ace);
 
@@ -93,6 +109,8 @@ private:
     // what lets release() tell an element the guest has already freed from
     // one the pool has since re-assigned.
     std::map<int, long long> allocated_;
+    std::map<int, int> realEcmByAce_;
+    std::map<int, bool> ecmMultipleWaitByAce_;
 };
 
 }  // namespace sim36::processors::controlstorage
