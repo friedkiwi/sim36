@@ -24,10 +24,19 @@ if [ -z "$dump" ] || [ ! -f "$dump" ]; then
     exit 1
 fi
 
-[ "$(stat -c %a "$dump")" = 600 ] || {
-    echo "panic dump is not owner-only" >&2
-    exit 1
-}
+# POSIX creates the archive with mode 0600.  Windows has no corresponding
+# mode bits: PanicDump deliberately inherits the per-user temporary-directory
+# ACL, and MSYS stat synthesizes a broader-looking POSIX mode from that ACL.
+if [ "${OS:-}" != Windows_NT ]; then
+    case $(uname -s) in
+        Darwin) mode=$(stat -f %Lp "$dump") ;;
+        *)      mode=$(stat -c %a "$dump") ;;
+    esac
+    [ "$mode" = 600 ] || {
+        echo "panic dump is not owner-only" >&2
+        exit 1
+    }
+fi
 unzip -t "$dump" >/dev/null
 entries=$(unzip -Z1 "$dump")
 for required in README.txt operator/what-happened.txt \
