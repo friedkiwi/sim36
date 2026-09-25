@@ -273,8 +273,11 @@ TEST_CASE("printer txtout creates one numbered decoded file per non-empty job")
     CHECK(printer.endJob());
     CHECK(printer.endJob());
 
-    std::ifstream in(directory / "job-000002.txt", std::ios::binary);
-    const std::string actual{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    std::string actual;
+    {
+        std::ifstream in(directory / "job-000002.txt", std::ios::binary);
+        actual.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
     CHECK(actual == "HELLO\n\f\n\n\n12\n");
     CHECK_FALSE(fs::exists(directory / "job-000003.txt"));
     CHECK_FALSE(fs::exists(directory / "job-000002.txt.part"));
