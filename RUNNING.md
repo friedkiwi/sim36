@@ -170,9 +170,16 @@ set station 0.4 output tn5250
 set station 0.4 listen 127.0.0.1:2404
 set station 0.4 output console
 set station 0.4 output file spool/printer-04.bin
+set station 0.4 output txtout spool/printer-04
 ```
 
-Selecting console or file output clears the listener; assigning a listener is
+`file` is the legacy raw-byte output and appends every job to one file.
+`txtout` decodes EBCDIC/SCS and atomically publishes one file per completed
+job as `job-000001.txt`, `job-000002.txt`, and so on. Existing numbers are
+never reused across emulator restarts. A guest Clear Printer command ends a
+job; `prtend 0.4` provides the same boundary from the monitor.
+
+Selecting console, file, or txtout output clears the listener; assigning a listener is
 refused until output is switched back to `tn5250`. Printer slots are never
 offered by the display multiplexer. A 5250 printer client such as `lp5250d`
 receives RFC 2877 print records.

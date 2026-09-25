@@ -1,6 +1,7 @@
 #include "Host/StationBackend.h"
 
 #include <cctype>
+#include <filesystem>
 #include <stdexcept>
 
 #include <fmt/format.h>
@@ -731,7 +732,8 @@ const char* scsFormatControlName(uint8_t operation)
 
 std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int length,
                                             std::string& line, bool& ideographic,
-                                            std::vector<uint8_t>& pending, bool finishStream)
+                                            std::vector<uint8_t>& pending, bool finishStream,
+                                            bool diagnostics = true)
 {
     std::vector<uint8_t> bytes;
     bytes.reserve(pending.size() + static_cast<std::size_t>(length));
@@ -749,7 +751,7 @@ std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int
     };
     auto control = [&](const std::string& text) {
         finishText();
-        lines.push_back(text);
+        if (diagnostics) lines.push_back(text);
     };
     auto retain = [&](std::size_t at) {
         pending.assign(bytes.begin() + static_cast<std::ptrdiff_t>(at), bytes.end());
@@ -759,7 +761,8 @@ std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int
         const uint8_t byte = bytes[at];
         switch (byte) {
             case 0x0C: // form feed
-                control("[page break]");
+                finishText();
+                lines.push_back("\f");
                 break;
             case 0x0D: // carriage return
                 // A carriage return moves to the left margin; it does not
@@ -853,10 +856,28 @@ std::vector<std::string> renderConsoleBytes(const uint8_t* data, int offset, int
     return lines;
 }
 
+std::string renderTextBytes(const std::vector<uint8_t>& bytes)
+{
+    std::string line;
+    bool ideographic = false;
+    std::vector<uint8_t> pending;
+    std::string text;
+    for (const std::string& rendered : renderConsoleBytes(bytes.data(), 0, static_cast<int>(bytes.size()),
+                                                          line, ideographic, pending, true, false)) {
+        if (rendered == "\f") text += "\f\n";
+        else {
+            text += rendered;
+            text += '\n';
+        }
+    }
+    return text;
+}
+
 }  // namespace
 
 PrinterBackend::~PrinterBackend()
 {
+    if (output_ == "txtout" && !jobBytes_.empty()) finishTextJob();
     outputFile_.close();
     auto s = session();
     dispose();
@@ -935,6 +956,12 @@ bool PrinterBackend::sendDataStream(const uint8_t* data, int offset, int length)
         bytesSent_ += length;
         return true;
     }
+    if (output_ == "txtout") {
+        if (length > 0) jobBytes_.insert(jobBytes_.end(), data + offset, data + offset + length);
+        recordsSent_++;
+        bytesSent_ += length;
+        return true;
+    }
     std::vector<uint8_t> record = printRecord(data, offset, length, static_cast<uint8_t>(kFlagFirstOfChain | kFlagLastOfChain));
     return sendRecord(record, length, fmt::format("print record, {} byte(s) of data stream", length));
 }
@@ -944,7 +971,56 @@ std::vector<std::string> PrinterBackend::renderConsoleDataStream(const uint8_t* 
     std::string line;
     bool ideographic = false;
     std::vector<uint8_t> pending;
-    return renderConsoleBytes(data, offset, length, line, ideographic, pending, true);
+    std::vector<std::string> rendered = renderConsoleBytes(data, offset, length, line, ideographic, pending, true);
+    for (std::string& item : rendered)
+        if (item == "\f") item = "[page break]";
+    return rendered;
+}
+
+bool PrinterBackend::finishTextJob()
+{
+    if (jobBytes_.empty()) return true;
+    namespace fs = std::filesystem;
+    std::error_code error;
+    fs::create_directories(outputPath_, error);
+    if (error) {
+        recordsDropped_++;
+        trace_->ws("{}: cannot create printer output directory {}: {}", label(), outputPath_, error.message());
+        return false;
+    }
+
+    fs::path finalPath;
+    fs::path temporaryPath;
+    for (unsigned int sequence = 1; sequence != 0; ++sequence) {
+        finalPath = fs::path(outputPath_) / fmt::format("job-{:06}.txt", sequence);
+        temporaryPath = finalPath;
+        temporaryPath += ".part";
+        if (!fs::exists(finalPath, error) && !fs::exists(temporaryPath, error)) break;
+        if (error) {
+            recordsDropped_++;
+            trace_->ws("{}: cannot inspect printer output directory {}: {}", label(), outputPath_, error.message());
+            return false;
+        }
+    }
+
+    std::ofstream out(temporaryPath, std::ios::binary | std::ios::trunc);
+    const std::string text = renderTextBytes(jobBytes_);
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.close();
+    if (!out) {
+        recordsDropped_++;
+        trace_->ws("{}: write to printer output file {} failed", label(), temporaryPath.string());
+        return false;
+    }
+    fs::rename(temporaryPath, finalPath, error);
+    if (error) {
+        recordsDropped_++;
+        trace_->ws("{}: cannot publish printer output file {}: {}", label(), finalPath.string(), error.message());
+        return false;
+    }
+    trace_->ws("{}: completed printer job {}", label(), finalPath.string());
+    jobBytes_.clear();
+    return true;
 }
 
 bool PrinterBackend::endJob()
@@ -960,6 +1036,11 @@ bool PrinterBackend::endJob()
     }
     if (output_ == "file") {
         if (outputFile_.is_open()) outputFile_.close();
+        jobsEnded_++;
+        return true;
+    }
+    if (output_ == "txtout") {
+        if (!finishTextJob()) return false;
         jobsEnded_++;
         return true;
     }

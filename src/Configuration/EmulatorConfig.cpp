@@ -427,19 +427,20 @@ void EmulatorConfig::validate(const std::string& path)
     // the station unmatched.
     for (const StationConfig& s : stations) {
         const bool validOutput = s.printerOutput == "tn5250" || s.printerOutput == "console" ||
-                                 s.printerOutput == "file";
+                                 s.printerOutput == "file" || s.printerOutput == "txtout";
         if (!validOutput)
             throw ConfigError(path, 0, "station " + s.id() +
-                " printer output must be tn5250, console, or file");
+                " printer output must be tn5250, console, file, or txtout");
         if (!s.isPrinter() && (s.printerOutput != "tn5250" || !s.printerOutputPath.empty()))
             throw ConfigError(path, 0, "station " + s.id() + " is not a printer but has printer output configured");
-        if (s.isPrinter() && s.printerOutput == "file" && s.printerOutputPath.empty())
-            throw ConfigError(path, 0, "station " + s.id() + " file output needs a path");
-        if (s.isPrinter() && s.printerOutput != "file" && !s.printerOutputPath.empty())
-            throw ConfigError(path, 0, "station " + s.id() + " has an output file path but does not use file output");
+        const bool pathOutput = s.printerOutput == "file" || s.printerOutput == "txtout";
+        if (s.isPrinter() && pathOutput && s.printerOutputPath.empty())
+            throw ConfigError(path, 0, "station " + s.id() + " " + s.printerOutput + " output needs a path");
+        if (s.isPrinter() && !pathOutput && !s.printerOutputPath.empty())
+            throw ConfigError(path, 0, "station " + s.id() + " has an output path but does not use file or txtout output");
         if (s.isPrinter() && s.printerOutput != "tn5250" && s.listenPort != 0)
             throw ConfigError(path, 0, "station " + s.id() +
-                " cannot have both a printer console/file output and a TN5250 listener");
+                " cannot have both a local printer output and a TN5250 listener");
         devices::DeviceCodes::Entry e;
         if (!devices::DeviceCodes::tryLookup(s.deviceCode, e))
             throw ConfigError(path, 0, fmt::format(

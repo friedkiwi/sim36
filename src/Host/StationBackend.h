@@ -364,6 +364,8 @@ private:
     std::string output_;
     std::string outputPath_;
     std::ofstream outputFile_;
+    std::vector<uint8_t> jobBytes_;
+    bool finishTextJob();
     // Console output is a stream: guest Output Data records can end in the
     // middle of either a word or an SCS control sequence.
     std::string consoleLine_;

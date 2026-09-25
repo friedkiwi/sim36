@@ -182,6 +182,11 @@ TEST_CASE("config: a printer has exactly one host output attachment")
     CHECK(p->printerOutput == "file");
     CHECK(p->printerOutputPath == "printer.out");
     CHECK(p->listenPort == 0);
+    session.execute("set station 1.0 output txtout printer-jobs");
+    p = session.definition().findStation(1, 0);
+    REQUIRE(p != nullptr);
+    CHECK(p->printerOutput == "txtout");
+    CHECK(p->printerOutputPath == "printer-jobs");
 }
 
 TEST_CASE("the display multiplexer uses only port.address station ids")
@@ -232,6 +237,36 @@ TEST_CASE("printer file output appends the guest byte stream verbatim")
     }
     CHECK(actual == std::vector<uint8_t>{0xC8, 0xC5, 0xD3, 0xD3, 0xD6, 0xF1, 0xF2});
     fs::remove(path);
+}
+
+TEST_CASE("printer txtout creates one numbered decoded file per non-empty job")
+{
+    namespace fs = std::filesystem;
+    sim36::monitor::Tracer trace;
+    const fs::path directory = fs::temp_directory_path() /
+        ("sim36-printer-txtout-test-" +
+         std::to_string(reinterpret_cast<std::uintptr_t>(&trace)));
+    fs::remove_all(directory);
+    fs::create_directories(directory);
+    {
+        std::ofstream occupied(directory / "job-000001.txt");
+        occupied << "keep\n";
+    }
+    sim36::host::PrinterBackend printer("127.0.0.1", 0, "printer test", &trace, [] {},
+                                        "txtout", directory.string());
+    const uint8_t first[] = {0xC8, 0xC5};
+    const uint8_t second[] = {0xD3, 0xD3, 0xD6, 0x0D, 0x0C, 0xF1, 0xF2, 0x0D};
+    CHECK(printer.sendDataStream(first, 0, 2));
+    CHECK(printer.sendDataStream(second, 0, static_cast<int>(sizeof second)));
+    CHECK(printer.endJob());
+    CHECK(printer.endJob());
+
+    std::ifstream in(directory / "job-000002.txt", std::ios::binary);
+    const std::string actual{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    CHECK(actual == "HELLO\n\f\n12\n");
+    CHECK_FALSE(fs::exists(directory / "job-000003.txt"));
+    CHECK_FALSE(fs::exists(directory / "job-000002.txt.part"));
+    fs::remove_all(directory);
 }
 
 TEST_CASE("printer console output interprets SVC 26 SCS controls")

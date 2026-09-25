@@ -596,13 +596,13 @@ void SimulatorSession::setStation(const Args& a)
     else if (key == "output") {
         if (!s.isPrinter()) throw MonitorError("station " + s.id() + " is not a printer");
         const std::string mode = normal(a[4]);
-        if (mode == "file") {
-            need(a, 6, "set station <port.address> output file <path>");
+        if (mode == "file" || mode == "txtout") {
+            need(a, 6, "set station <port.address> output <file|txtout> <path>");
             s.printerOutputPath = resolvePath(a[5]);
         } else if (mode == "console" || mode == "tn5250") {
             s.printerOutputPath.clear();
         } else {
-            throw MonitorError("printer output is tn5250, console, or file <path>");
+            throw MonitorError("printer output is tn5250, console, file <path>, or txtout <folder>");
         }
         s.printerOutput = mode;
         if (mode != "tn5250") s.listenPort = 0;
@@ -671,7 +671,8 @@ void SimulatorSession::showConfigurableStations()
         bool attached = multiplexed && multiplexer_ ? !multiplexer_->isFree(s.id())
                                                     : backend != nullptr && backend->attached();
         std::string endpoint = s.isPrinter() && s.printerOutput == "console" ? "console output"
-            : s.isPrinter() && s.printerOutput == "file" ? "file " + s.printerOutputPath
+            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout")
+                ? s.printerOutput + " " + s.printerOutputPath
             : multiplexed
             ? "mux " + definition_.multiplexHost + ":" + std::to_string(definition_.multiplexPort)
             : backend != nullptr && backend->listening() ? backend->endpoint() : "(no listener)";
@@ -693,7 +694,8 @@ void SimulatorSession::getTerminalConfiguration()
     for (const StationConfig& s : definition_.stations) {
         std::string transport = s.isConsole() ? "operator"
             : s.isPrinter() && s.printerOutput == "console" ? "output console"
-            : s.isPrinter() && s.printerOutput == "file" ? "output file " + s.printerOutputPath
+            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout")
+                ? "output " + s.printerOutput + " " + s.printerOutputPath
             : s.listenPort == 0 ? "listen off"
             : "listen " + s.listenHost + ":" + std::to_string(s.listenPort) +
               (definition_.stationMultiplex && !s.isPrinter() ? " (inactive while multiplex is on)" : "");
@@ -717,7 +719,8 @@ void SimulatorSession::showTerminals()
                                                     : backend != nullptr && backend->attached();
         std::string endpoint = console ? "operator console"
             : s.isPrinter() && s.printerOutput == "console" ? "console output"
-            : s.isPrinter() && s.printerOutput == "file" ? s.printerOutputPath
+            : s.isPrinter() && (s.printerOutput == "file" || s.printerOutput == "txtout")
+                ? s.printerOutput + " " + s.printerOutputPath
             : multiplexed ? definition_.multiplexHost + ":" + std::to_string(definition_.multiplexPort)
             : backend == nullptr || !backend->listening() ? "off" : backend->endpoint();
         std::string state = attached

@@ -21,7 +21,8 @@ struct StationConfig {
     std::string listenHost = "127.0.0.1";
     // A printer has exactly one host attachment.  "tn5250" uses the
     // listener above, "console" writes decoded output to stdout, and
-    // "file" appends the guest's byte stream verbatim to printerOutputPath.
+    // "file" appends the guest's byte stream verbatim to printerOutputPath;
+    // "txtout" creates one numbered, decoded text file per print job in it.
     std::string printerOutput = "tn5250";
     std::string printerOutputPath;
     // Work-station configuration record +0A: host ownership policy, not
