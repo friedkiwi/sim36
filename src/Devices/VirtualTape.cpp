@@ -199,12 +199,8 @@ bool VirtualTape::readVolumeLabels(int iob, int modifier, int length, int buffer
     // modifier 00 after command 19 has opened #IPLBOOT: the first call loads
     // all data blocks contiguously immediately below the supplied work-area
     // address; the second validates and consumes the EOF label file.
-    // Tape IPL follows the two-label command-19 open with 13/00 and the same
-    // 0x370-byte work area.  At that point the head is already at the first
-    // data block; this form establishes the reload read session and must not
-    // rewind or transfer a label.  The immediately preceding retained label
-    // group is the state discriminator, keeping the verified 13/03 behavior
-    // below unchanged.
+    // The retained two-label group and reload phase distinguish those two
+    // calls from the verified 13/03 behavior below.
     if (modifier == 0 && length == 0x370 && activeHeaderLabels_.size() == 160 && reloadDataRead_)
         return finishReadDataSet(iob, NuTaIob::kCompletionOk);
 
@@ -630,9 +626,9 @@ bool VirtualTape::finishReadDataSet(int iob, int completion)
         std::vector<uint8_t> actual;
         TapeResult r = medium_->readBlock(actual);
         if (r == TapeResult::NotReady) return notReady(iob);
-        bool matches = r == TapeResult::Ok && actual.size() == 80 &&
-            std::equal(actual.begin(), actual.begin() + (actual.size() >= 4 ? 4 : 0),
-                       expected.begin() + record * 80);
+        bool matches = r == TapeResult::Ok && actual.size() == 80;
+        if (matches)
+            matches = std::equal(actual.begin(), actual.begin() + 4, expected.begin() + record * 80);
         if (matches && record == 0) {
             // EOF1 carries the final block count at +54..+59.  It is
             // expected to differ from HDR1; dataset identity and every
