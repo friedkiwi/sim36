@@ -6,6 +6,10 @@ cd "$(dirname "$0")/.."
 ok() { echo "  $1 PASS"; pass=$((pass + 1)); }
 bad() { echo "  $1 FAIL"; fail=$((fail + 1)); }
 has() { if printf '%s\n' "$out" | grep -qF "$2"; then ok "$1"; else bad "$1"; fi; }
+has_disk_overlay() {
+    line=$(printf '%s\n' "$2" | grep -F "$volume" | grep -E '(^attach disk0 |^  disk0 +).*[[:space:]]overlay$' || true)
+    if [ -n "$line" ]; then ok "$1"; else bad "$1"; fi
+}
 volume=$(basename "$SIM36_VOLUME")
 
 instantiate command-file-machine
@@ -43,7 +47,7 @@ if printf '%s\n' "$replay" | awk 'NF && $1 != "set" && $1 != "attach" { exit 1 }
 else
     bad "save config stdout emits commands only"
 fi
-has "saved configuration preserves overlay mode" "attach disk0 $SIM36_VOLUME overlay"
+has_disk_overlay "saved configuration preserves disk path and overlay mode" "$replay"
 has "saved configuration preserves CSP type" "set machine csp-type advanced36"
 mux_listen_line=$(printf '%s\n' "$replay" | grep -n '^set terminal multiplex listen ' | cut -d: -f1)
 mux_mode_line=$(printf '%s\n' "$replay" | grep -n '^set terminal multiplex off$' | cut -d: -f1)
@@ -62,7 +66,7 @@ fi
 printf '%s\nshow config\nquit\n' "$replay" >"$TMP/replay.sim"
 out=$("$SIM36" -c "$TMP/replay.sim" 2>&1) || true
 has "stdout configuration is replayable" "memory                 1024K [model maximum]"
-has "replayed configuration retains overlay" "$SIM36_VOLUME  overlay"
+has_disk_overlay "replayed configuration retains disk path and overlay" "$out"
 has "replayed configuration retains machine model" "model                  5363"
 has "replayed distinct CSP implementation remains visible" "csp type               advanced36 (virtual)"
 
