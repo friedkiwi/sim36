@@ -56,8 +56,8 @@ In another terminal, connect a 5250 client to the multiplexer:
 tn5250 telnet://127.0.0.1:2300
 ```
 
-On the station-selection panel, enter `W1` and press Enter. Then start the
-installation from the SIM/36 monitor:
+On the station-selection panel, enter `0.0` and press Enter. This should be pre-filled
+on the first connection. Then start the installation from the SIM/36 monitor:
 
 ```text
 ipl
