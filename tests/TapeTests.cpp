@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "Storage/FolderTapeBackend.h"
+#include "Storage/SimhTapeBackend.h"
 #include "Storage/TapeBackend.h"
 
 using namespace sim36;
@@ -43,6 +44,16 @@ struct TapeFolder
     {
         return storage::FolderTapeBackend::open(path.string(), true, reason);
     }
+};
+
+struct TapFile
+{
+    std::filesystem::path path = std::filesystem::temp_directory_path() /
+                                 ("sim36-simh-tape-test-" +
+                                  std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".tap");
+
+    TapFile() { std::filesystem::remove(path); }
+    ~TapFile() { std::filesystem::remove(path); }
 };
 
 }  // namespace
@@ -156,4 +167,91 @@ TEST_CASE("saved tape positions restore exactly")
     storage::TapePosition impossible{3, 0, false, false, true};
     CHECK_FALSE(storage::restoreTapePosition(*medium, impossible, reason));
     CHECK(reason.find("cannot restore tape file 3") != std::string::npos);
+}
+
+TEST_CASE("SIMH tape framing is validated and supports full tape semantics")
+{
+    TapFile file;
+    const auto& path = file.path;
+
+    std::string reason;
+    auto tape = storage::SimhTapeBackend::open(path.string(), false, reason);
+    REQUIRE(tape != nullptr);
+    CHECK(std::filesystem::file_size(path) == 0);
+    tape->load();
+    CHECK(tape->readPosition().endOfData);
+
+    const uint8_t odd[] = {0x11, 0x22, 0x33};
+    const uint8_t even[] = {0x44, 0x55};
+    REQUIRE(tape->writeBlock(odd, 0, 3) == storage::TapeResult::Ok);
+    REQUIRE(tape->writeBlock(even, 0, 2) == storage::TapeResult::Ok);
+    REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
+    REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
+    tape->unload();
+
+    // 3-byte record: 4 + 3 + one pad + 4; 2-byte record: 4 + 2 + 4;
+    // followed by two four-byte tape marks.
+    CHECK(std::filesystem::file_size(path) == 30);
+    auto reopened = storage::SimhTapeBackend::open(path.string(), true, reason);
+    REQUIRE(reopened != nullptr);
+    reopened->load();
+    std::vector<uint8_t> actual;
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::Ok);
+    CHECK(actual == std::vector<uint8_t>(odd, odd + 3));
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::Ok);
+    CHECK(actual == std::vector<uint8_t>(even, even + 2));
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::TapeMark);
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::TapeMark);
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::EndOfData);
+
+    reopened->rewind();
+    int spaced = 0;
+    CHECK(reopened->spaceRecords(2, spaced) == storage::TapeResult::Ok);
+    CHECK(spaced == 2);
+    CHECK(reopened->readPosition().atTapeMark);
+    CHECK(reopened->spaceFiles(1, spaced) == storage::TapeResult::Ok);
+    CHECK(reopened->readPosition().atTapeMark);
+    CHECK(reopened->spaceFiles(-1, spaced) == storage::TapeResult::Ok);
+    CHECK(reopened->readPosition().fileNumber == 0);
+}
+
+TEST_CASE("SIMH tape overwrite erases forward and malformed records are refused")
+{
+    TapFile file;
+    const auto& path = file.path;
+
+    std::string reason;
+    auto tape = storage::SimhTapeBackend::open(path.string(), false, reason);
+    REQUIRE(tape != nullptr);
+    tape->load();
+    const uint8_t records[] = {1, 2, 3};
+    for (uint8_t record : records) REQUIRE(tape->writeBlock(&record, 0, 1) == storage::TapeResult::Ok);
+    tape->rewind();
+    int spaced = 0;
+    REQUIRE(tape->spaceRecords(1, spaced) == storage::TapeResult::Ok);
+    const uint8_t replacement[] = {9, 8};
+    REQUIRE(tape->writeBlock(replacement, 0, 2) == storage::TapeResult::Ok);
+    REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
+    tape->unload();
+
+    auto reopened = storage::SimhTapeBackend::open(path.string(), true, reason);
+    REQUIRE(reopened != nullptr);
+    reopened->load();
+    std::vector<uint8_t> actual;
+    REQUIRE(reopened->readBlock(actual) == storage::TapeResult::Ok);
+    CHECK(actual == std::vector<uint8_t>{1});
+    REQUIRE(reopened->readBlock(actual) == storage::TapeResult::Ok);
+    CHECK(actual == std::vector<uint8_t>({9, 8}));
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::TapeMark);
+    CHECK(reopened->readBlock(actual) == storage::TapeResult::EndOfData);
+
+    // Corrupt the trailing length of the first record.
+    {
+        std::fstream io(path, std::ios::binary | std::ios::in | std::ios::out);
+        io.seekp(6);
+        const char bad = 2;
+        io.write(&bad, 1);
+    }
+    CHECK(storage::SimhTapeBackend::open(path.string(), true, reason) == nullptr);
+    CHECK(reason.find("marker mismatch") != std::string::npos);
 }

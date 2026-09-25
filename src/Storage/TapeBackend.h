@@ -40,6 +40,8 @@ enum class TapeResult {
     BeginningOfTape,   // a backward operation reached load point
     WriteProtected,    // a write was refused because the volume is write-protected
     NotReady,          // no volume is loaded, or it is not spun up
+    RecordError,       // a SIMH record carries the recorded-data error flag
+    InvalidArgument,   // the requested block cannot be represented by this drive
 };
 
 inline const char* tapeResultName(TapeResult r)
@@ -51,6 +53,8 @@ inline const char* tapeResultName(TapeResult r)
         case TapeResult::BeginningOfTape: return "BeginningOfTape";
         case TapeResult::WriteProtected: return "WriteProtected";
         case TapeResult::NotReady: return "NotReady";
+        case TapeResult::RecordError: return "RecordError";
+        case TapeResult::InvalidArgument: return "InvalidArgument";
     }
     return "?";
 }
