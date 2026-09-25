@@ -141,6 +141,71 @@ TEST_CASE("tape load rejects a first data set other than IPLBOOT and rewinds it"
     CHECK(devices.tape.medium()->readPosition().beginningOfTape);
 }
 
+TEST_CASE("SVC 52 reads and relocates logical ranges through nonadjacent page frames")
+{
+    CspEmptyVolume volume(4);
+    configuration::EmulatorConfig config;
+    machine::MachineState state(512 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadWrite);
+    devices::DeviceSet devices(state, disk, trace);
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+    constexpr int taskBlock = 0x1100;
+    constexpr int requestBlock = 0x1000;
+    std::string failure;
+    REQUIRE(csp.restoreCheckpointMemory(std::vector<uint8_t>(state.backingBytes()),
+                                        taskBlock, requestBlock, failure));
+
+    std::vector<uint8_t> module(storage::DiskBackend::kSectorBytes);
+    for (std::size_t i = 0; i < module.size(); ++i) module[i] = static_cast<uint8_t>(i ^ 0xA5);
+    module[15] = 0x00;
+    module[16] = 0x10;
+    REQUIRE(disk.writeSector(0, module.data()));
+    uint8_t relocation[storage::DiskBackend::kSectorBytes] = {};
+    relocation[0] = 0x10;  // relocate the halfword ending at module byte 16
+    relocation[1] = 0xFF;
+    REQUIRE(disk.writeSector(1, relocation));
+
+    // Both the 17-byte parameter list and the loaded module cross logical
+    // page boundaries whose physical frames are deliberately nonadjacent.
+    state.atr[machine::MachineState::kAtrTaskGroup0 + 0] = 0x10;
+    state.atr[machine::MachineState::kAtrTaskGroup0 + 1] = 0x30;
+    state.atr[machine::MachineState::kAtrTaskGroup0 + 2] = 0x20;
+    state.atr[machine::MachineState::kAtrTaskGroup0 + 3] = 0x40;
+
+    constexpr int listAddress = 0x8007F8;
+    constexpr int loadAddress = 0x8017F0;
+    constexpr int linkAddress = 0x800000;
+    uint8_t list[17] = {};
+    auto putAddr24 = [&](int at, int value) {
+        list[at] = static_cast<uint8_t>(value >> 16);
+        list[at + 1] = static_cast<uint8_t>(value >> 8);
+        list[at + 2] = static_cast<uint8_t>(value);
+    };
+    putAddr24(0, 1);             // disk sector, 1-based
+    list[4] = 1;                 // one sector
+    putAddr24(5, linkAddress);
+    putAddr24(8, linkAddress);
+    putAddr24(14, loadAddress);
+    REQUIRE(state.writeGuest24Range(listAddress, list, sizeof list));
+
+    state.msp.pactXr2 = 0x80;
+    state.msp.xr2 = static_cast<uint16_t>(listAddress);
+    SvcRequest request;
+    request.r = 0x52;
+    request.inline1 = 0x02;      // load to the explicit address
+    REQUIRE(csp.svc(request));
+
+    module[15] = 0x18;
+    module[16] = 0x00;           // 0x0010 + relocation delta 0x17F0
+    std::vector<uint8_t> actual(module.size());
+    REQUIRE(state.readGuest24Range(loadAddress, actual.data(), static_cast<int>(actual.size())));
+    CHECK(actual == module);
+    CHECK(state.readByte((0x20 << 11) + 0x7FF) == 0x18);
+    CHECK(state.readByte(0x40 << 11) == 0x00);
+    CHECK(state.readByte(0x21 << 11) == 0x00);  // adjacent physical frame was not used
+}
+
 TEST_CASE("Advanced/36 dispatches BASIC XFER and preserves the FORTRAN stub")
 {
     CspEmptyVolume volume;

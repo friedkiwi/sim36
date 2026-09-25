@@ -191,14 +191,14 @@ private:
     bool map(SvcRequest& req);
     bool mapParameterListCore(SvcRequest& req, int rb, int pb, int list, const std::string& call);
     void compactMapTable(int rb, int pb, const std::string& call);
-    bool mapRegister(int rb, uint8_t parm2, int action, int target, int list, int& source, int& logical);
-    bool mapAction(SvcRequest& req, int action, uint8_t parm2, int list, int pb, int source, int startPage,
+    bool mapRegister(int rb, uint8_t parm2, int action, int target, uint8_t* entry, int& source, int& logical);
+    bool mapAction(SvcRequest& req, int action, uint8_t parm2, const uint8_t* entry, int pb, int source, int startPage,
                    int pages, int& entries, int& lastEntry);
     bool appendMapEntry(int rb, int pb, int startPage, int pages, int displacement, int block, bool whole,
                         int& entries, int& lastEntry);
     bool mapAnotherRequestBlock(int rb, int pb, int other, int sourcePage, int startPage, int pages, bool whole,
                                 int& entries, int& lastEntry);
-    bool mapByTypeAndId(SvcRequest& req, int list, int pb, int sourcePage, int startPage, int pages, bool whole,
+    bool mapByTypeAndId(SvcRequest& req, const uint8_t* entry, int pb, int sourcePage, int startPage, int pages, bool whole,
                         int& entries, int& lastEntry);
     int findWorkSpace(int taskBlock, uint8_t type, int id, std::string& why);
     int findTaskById(int id, int currentTaskBlock);

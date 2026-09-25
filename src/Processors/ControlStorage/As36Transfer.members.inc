@@ -117,8 +117,8 @@ private:
     static int hexToDecimal(int v);
     void traceSvtubCloneGate(int old, int cfg);
     bool mainStorageRelocatingLoader(SvcRequest& req);
-    bool readModule(int diskAddress, int sectors, int at);
-    bool relocateModule(int at, int delta, int diskAddress, int sectors, int rldOffset);
+    bool readModule(int diskAddress, int sectors, std::vector<uint8_t>& image);
+    bool relocateModule(std::vector<uint8_t>& image, int delta, int diskAddress, int sectors, int rldOffset);
 
 public:
     // Read-only monitor snapshot of one program block whose load header was

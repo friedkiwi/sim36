@@ -874,23 +874,24 @@ bool As36ControlStorageProcessor::workSpaceMaintenance(SvcRequest& req)
 {
     int rb = req.requestBlock;
     int xr1 = RequestBlock::readXr1Field(m_, rb);
-    int list;
-    if (!resolveTranslated(xr1, list)) {
-        return refuse("SVC 35: the parameter list is at translated {:06X} and that page is not mapped (nucwrk resolves XR1 "
-                      "at c18bb814 the same way nucmap resolves XR2)",
-                      xr1);
+    uint8_t list[WrkParameterList::kBytes] = {};
+    if (!m_.readGuest24Range(xr1, list, sizeof list)) {
+        return refuse("SVC 35: the {}-byte parameter list at {:06X} is not fully mapped (nucwrk resolves XR1 at "
+                      "c18bb814 the same way nucmap resolves XR2)",
+                      sizeof list, xr1);
     }
 
-    uint8_t command = m_.readByte(list + WrkParameterList::kOffCommand);
-    uint8_t type = m_.readByte(list + WrkParameterList::kOffType);
-    int size = m_.readAddr24(list + WrkParameterList::kOffSizeBytes);
-    uint8_t flags = m_.readByte(list + WrkParameterList::kOffFlags);
-    int taskId = m_.readHalf(list + WrkParameterList::kOffTaskId);
+    const auto addr24 = [&](int at) { return (list[at] << 16) | (list[at + 1] << 8) | list[at + 2]; };
+    uint8_t command = list[WrkParameterList::kOffCommand];
+    uint8_t type = list[WrkParameterList::kOffType];
+    int size = addr24(WrkParameterList::kOffSizeBytes);
+    uint8_t flags = list[WrkParameterList::kOffFlags];
+    int taskId = (list[WrkParameterList::kOffTaskId] << 8) | list[WrkParameterList::kOffTaskId + 1];
     bool task = type >= WrkParameterList::kTaskWorkSpaceFloor;
 
     trace_.csp("SVC 35: parameter list at {:06X}: command {} ({}), type {:02X} ({} work space), size {} byte(s) = {} page(s), "
                "flags {:02X}, task id {:04X}",
-               list, command,
+               xr1, command,
                command == WrkParameterList::kConditionalCreate     ? "conditional create"
                : command == WrkParameterList::kUnconditionalCreate ? "unconditional create"
                : command == WrkParameterList::kDelete              ? "delete"
@@ -902,7 +903,7 @@ bool As36ControlStorageProcessor::workSpaceMaintenance(SvcRequest& req)
         command != WrkParameterList::kDelete) {
         return refuse("SVC 35: command {} is not 1, 2 or 3 - nucwrk calls nuersvc with code 998 (c18bba1c); list={:06X}, "
                       "type={:02X}, size={:06X}, flags={:02X}, task-id={:04X}",
-                      command, list, type, size, flags, taskId);
+                      command, xr1, type, size, flags, taskId);
     }
 
     if (command == WrkParameterList::kDelete) {
@@ -939,7 +940,7 @@ bool As36ControlStorageProcessor::workSpaceMaintenance(SvcRequest& req)
         // The anchor test masks off bit 0x800000: translated zero takes the
         // ordinary type search, like zero.  A non-zero candidate asks for a
         // membership scan that is not implemented.
-        int anchor = m_.readAddr24(list + WrkParameterList::kOffAnchor);
+        int anchor = addr24(WrkParameterList::kOffAnchor);
         int candidate = anchor & 0x7FFFFF;
         if (anchor != candidate && candidate == 0)
             trace_.csp("SVC 35: raw anchor {:06X} is translated zero; nucwrk masks bit 800000 at c18bb994 and uses the "

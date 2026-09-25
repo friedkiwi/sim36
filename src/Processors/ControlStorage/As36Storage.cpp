@@ -234,14 +234,7 @@ bool As36ControlStorageProcessor::map(SvcRequest& req)
 
     // XR2 is compared against 0x800000 and the list is resolved through the
     // task's translation registers when the bit is on.
-    int xr2 = RequestBlock::readXr2Field(m_, rb);
-    int list;
-    if (!resolveTranslated(xr2, list)) {
-        trace_.csp("SVC 2F: the parameter list is at translated {:06X} and that page is not mapped", xr2);
-        return false;
-    }
-
-    return mapParameterListCore(req, rb, pb, list, "SVC 2F");
+    return mapParameterListCore(req, rb, pb, RequestBlock::readXr2Field(m_, rb), "SVC 2F");
 }
 
 // The shared body: SVC 2F supplies a guest-addressed list, and a transfer
@@ -249,14 +242,40 @@ bool As36ControlStorageProcessor::map(SvcRequest& req)
 bool As36ControlStorageProcessor::mapParameterListCore(SvcRequest& req, int rb, int pb, int list,
                                                         const std::string& call)
 {
+    const auto advance = [](int address, int bytes) {
+        return (address & kTranslatedBit) != 0
+                 ? ((address & 0xFF0000) | ((address + bytes) & 0xFFFF))
+                 : address + bytes;
+    };
     int entries = 0, lastEntry = 0;
     for (;;) {
-        uint8_t parm0 = m_.readByte(list + MapParameterList::kOffTargetPage);
-        uint8_t parm1 = m_.readByte(list + MapParameterList::kOffAction);
-        uint8_t parm2 = m_.readByte(list + MapParameterList::kOffRegister);
+        uint8_t entry[16] = {};
+        if (!m_.readGuest24Range(list, entry, 3)) {
+            trace_.csp("{}: the map entry header at {:06X} is not fully mapped", call, list);
+            return false;
+        }
+        uint8_t parm0 = entry[MapParameterList::kOffTargetPage];
+        uint8_t parm1 = entry[MapParameterList::kOffAction];
+        uint8_t parm2 = entry[MapParameterList::kOffRegister];
         int action = parm1 >> 4;
         int entryLength = parm1 & MapParameterList::kEntryLengthMask;
         bool last = (parm0 & MapParameterList::kFlagLastEntry) != 0;
+        if (entryLength < 5) {
+            trace_.csp("{}: map entry at {:06X} is only {} byte(s); its mandatory fields require 5", call, list,
+                       entryLength);
+            return false;
+        }
+        const int selector = parm2 & MapParameterList::kRegisterMask;
+        const int required = action == MapParameterList::kActionByTypeAndId ? 8
+                           : action == MapParameterList::kActionByBlockAddress ||
+                             action == MapParameterList::kActionByRequestBlock ||
+                             selector == MapParameterList::kRegisterListUpdated ||
+                             selector == MapParameterList::kRegisterListReadOnly ? 11 : 5;
+        if (entryLength < required || !m_.readGuest24Range(list, entry, entryLength)) {
+            trace_.csp("{}: the {}-byte map entry at {:06X} is too short or not fully mapped ({} required)", call,
+                       entryLength, list, required);
+            return false;
+        }
 
         // Bit 0x40 continues where the previous entry stopped; it is ignored
         // on the first entry, so a template may carry it in every entry.
@@ -266,11 +285,18 @@ bool As36ControlStorageProcessor::mapParameterListCore(SvcRequest& req, int rb, 
                          : MapParameterList::targetAddress(parm0);
 
         int source, logical;
-        bool mapped = mapRegister(rb, parm2, action, target, list, source, logical);
+        bool mapped = mapRegister(rb, parm2, action, target, entry, source, logical);
+        if ((parm2 & MapParameterList::kRegisterMask) == MapParameterList::kRegisterListUpdated && mapped &&
+            !m_.writeGuest24Range(advance(list, MapParameterList::kOffAddress),
+                                  entry + MapParameterList::kOffAddress, 3)) {
+            trace_.csp("{}: the updated address at {:06X} is not fully mapped", call,
+                       advance(list, MapParameterList::kOffAddress));
+            return false;
+        }
 
         // The length is a halfword in the list, or, with bit 6 of parm[0],
         // the register the list names by save-area index.
-        int length = m_.readHalf(list + MapParameterList::kOffLength);
+        int length = (entry[MapParameterList::kOffLength] << 8) | entry[MapParameterList::kOffLength + 1];
         if ((parm0 & MapParameterList::kFlagLengthInRegister) != 0) {
             int index = length;
             length = m_.readHalf(rb + RequestBlock::kOffIar + index * 2);
@@ -283,7 +309,15 @@ bool As36ControlStorageProcessor::mapParameterListCore(SvcRequest& req, int rb, 
                 // last entry, and up to the next entry's target page on any
                 // other.
                 length = 0x10000 - logical;
-                if (!last) length = MapParameterList::targetAddress(m_.readByte(list + entryLength)) - target;
+                if (!last) {
+                    uint8_t next = 0;
+                    int nextAddress = advance(list, entryLength);
+                    if (!m_.readGuest24Range(nextAddress, &next, 1)) {
+                        trace_.csp("{}: the next map entry at {:06X} is not mapped", call, nextAddress);
+                        return false;
+                    }
+                    length = MapParameterList::targetAddress(next) - target;
+                }
             }
 
             int startPage = target >> machine::MachineState::kPageShift;
@@ -292,7 +326,7 @@ bool As36ControlStorageProcessor::mapParameterListCore(SvcRequest& req, int rb, 
             // The 32-entry translation window, clamped rather than refused.
             if (startPage + pages > kAtrCount) pages -= startPage + pages - kAtrCount;
 
-            if (pages > 0 && !mapAction(req, action, parm2, list, pb, source, startPage, pages, entries, lastEntry))
+            if (pages > 0 && !mapAction(req, action, parm2, entry, pb, source, startPage, pages, entries, lastEntry))
                 return false;
         }
 
@@ -302,7 +336,7 @@ bool As36ControlStorageProcessor::mapParameterListCore(SvcRequest& req, int rb, 
                        call, list);
             return false;
         }
-        list += entryLength;
+        list = advance(list, entryLength);
     }
 
     // Every completed list is followed by compaction.  This is observable:
@@ -368,7 +402,7 @@ void As36ControlStorageProcessor::compactMapTable(int rb, int pb, const std::str
 // for the path it retargets.  A path that is not already translated is only
 // retargeted for actions 4 and 6; otherwise the entry is skipped.  Work
 // registers have no prefix byte and no such gate.
-bool As36ControlStorageProcessor::mapRegister(int rb, uint8_t parm2, int action, int target, int list, int& source,
+bool As36ControlStorageProcessor::mapRegister(int rb, uint8_t parm2, int action, int target, uint8_t* entry, int& source,
                                               int& logical)
 {
     int selector = parm2 & MapParameterList::kRegisterMask;
@@ -407,7 +441,9 @@ bool As36ControlStorageProcessor::mapRegister(int rb, uint8_t parm2, int action,
 
     int value;
     if (selector == MapParameterList::kRegisterListUpdated || selector == MapParameterList::kRegisterListReadOnly) {
-        value = m_.readAddr24(list + MapParameterList::kOffAddress);
+        value = (entry[MapParameterList::kOffAddress] << 16) |
+                (entry[MapParameterList::kOffAddress + 1] << 8) |
+                entry[MapParameterList::kOffAddress + 2];
         if ((value >> 16) < kTranslatedPrefix && action != MapParameterList::kActionByTypeAndId &&
             action != MapParameterList::kActionByBlockAddress)
             return false;
@@ -424,7 +460,10 @@ bool As36ControlStorageProcessor::mapRegister(int rb, uint8_t parm2, int action,
     logical = target + (value & MapParameterList::kSourceOffsetMask);
 
     if (selector == MapParameterList::kRegisterListUpdated) {
-        m_.writeAddr24(list + MapParameterList::kOffAddress, kTranslatedBit | (logical & 0xFFFFFF));
+        value = kTranslatedBit | (logical & 0xFFFFFF);
+        entry[MapParameterList::kOffAddress] = static_cast<uint8_t>(value >> 16);
+        entry[MapParameterList::kOffAddress + 1] = static_cast<uint8_t>(value >> 8);
+        entry[MapParameterList::kOffAddress + 2] = static_cast<uint8_t>(value);
     } else if (selector != MapParameterList::kRegisterListReadOnly) {
         m_.writeHalf(valueAt, static_cast<uint16_t>(logical));
         if (prefixAt >= 0) m_.writeByte(prefixAt, kTranslatedPrefix);
@@ -437,7 +476,7 @@ bool As36ControlStorageProcessor::mapRegister(int rb, uint8_t parm2, int action,
 // and 3 build nothing; action 1 unmaps the range; actions 6 and 9 name one
 // block directly; actions 5 and 7 copy another request block's
 // addressability; action 4 finds a work space by type and id.
-bool As36ControlStorageProcessor::mapAction(SvcRequest& req, int action, uint8_t parm2, int list, int pb, int source,
+bool As36ControlStorageProcessor::mapAction(SvcRequest& req, int action, uint8_t parm2, const uint8_t* entry, int pb, int source,
                                             int startPage, int pages, int& entries, int& lastEntry)
 {
     int rb = req.requestBlock;
@@ -456,8 +495,11 @@ bool As36ControlStorageProcessor::mapAction(SvcRequest& req, int action, uint8_t
 
         case MapParameterList::kActionOwnProgram:
         case MapParameterList::kActionByBlockAddress: {
-            int block = action == MapParameterList::kActionOwnProgram ? pb
-                                                                       : m_.readAddr24(list + MapParameterList::kOffAddress);
+            int block = action == MapParameterList::kActionOwnProgram
+                          ? pb
+                          : (entry[MapParameterList::kOffAddress] << 16) |
+                            (entry[MapParameterList::kOffAddress + 1] << 8) |
+                            entry[MapParameterList::kOffAddress + 2];
             uint16_t eye = m_.readHalf(block);
             if (eye != GuestLowStorage::kEyeProgramBlock && eye != GuestLowStorage::kEyeSystemBlock) {
                 trace_.csp("SVC 2F: action {} names {:06X}, whose eyecatcher {:04X} is neither PB nor SB", action, block, eye);
@@ -482,7 +524,9 @@ bool As36ControlStorageProcessor::mapAction(SvcRequest& req, int action, uint8_t
         case MapParameterList::kActionByRequestBlock: {
             int other = action == MapParameterList::kActionCallersProgram
                             ? m_.readAddr24(rb + RequestBlock::kOffPrevious)
-                            : m_.readAddr24(list + MapParameterList::kOffAddress);
+                            : (entry[MapParameterList::kOffAddress] << 16) |
+                              (entry[MapParameterList::kOffAddress + 1] << 8) |
+                              entry[MapParameterList::kOffAddress + 2];
             if (other == 0) {
                 if (action == MapParameterList::kActionCallersProgram) {
                     // With rb+3..5 zero there is no caller's request block to
@@ -504,7 +548,7 @@ bool As36ControlStorageProcessor::mapAction(SvcRequest& req, int action, uint8_t
         }
 
         case MapParameterList::kActionByTypeAndId:
-            return mapByTypeAndId(req, list, pb, sourcePage, startPage, pages, whole, entries, lastEntry);
+            return mapByTypeAndId(req, entry, pb, sourcePage, startPage, pages, whole, entries, lastEntry);
 
         default:
             trace_.csp("SVC 2F: action {} is not one nucm1000 dispatches, which is nuersvc code 83 (c18917ac)", action);
@@ -707,12 +751,12 @@ bool As36ControlStorageProcessor::mapAnotherRequestBlock(int rb, int pb, int oth
 
 // The action-4 arm: find the work space by type and id, take the domain and
 // use counts, and append the same displacement actions 6 and 9 compute.
-bool As36ControlStorageProcessor::mapByTypeAndId(SvcRequest& req, int list, int pb, int sourcePage, int startPage,
+bool As36ControlStorageProcessor::mapByTypeAndId(SvcRequest& req, const uint8_t* entry, int pb, int sourcePage, int startPage,
                                                  int pages, bool whole, int& entries, int& lastEntry)
 {
     int rb = req.requestBlock;
-    uint8_t type = m_.readByte(list + MapParameterList::kOffType);
-    int id = m_.readHalf(list + MapParameterList::kOffId);
+    uint8_t type = entry[MapParameterList::kOffType];
+    int id = (entry[MapParameterList::kOffId] << 8) | entry[MapParameterList::kOffId + 1];
 
     std::string why;
     int block = findWorkSpace(req.taskBlock, type, id, why);

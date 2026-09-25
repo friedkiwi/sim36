@@ -167,6 +167,10 @@ bool VirtualFixedDisk::scan(int iob, int sector, int sectors, int relation, int 
     std::vector<uint8_t> argument(static_cast<std::size_t>(keyLength));
     readExtents(resolveArgumentExtents(bufferExtents, keyLength), argument);
 
+    std::string argumentBytes;
+    for (uint8_t b : argument) argumentBytes += fmt::format("{:02X}", b);
+    trace_.diskIo("  scan argument {}", argumentBytes);
+
     // The 62EH attachment treats an FF byte in the argument as a mask; whether
     // the Advanced/36 honours it is unknown.  This compares plainly and says so.
     for (uint8_t b : argument) {

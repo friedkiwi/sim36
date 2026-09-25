@@ -1921,23 +1921,22 @@ bool As36ControlStorageProcessor::mainStorageRelocatingLoader(SvcRequest& req)
         return false;
     }
 
-    int listAddress = RequestBlock::readXr2Field(m_, rb);
-    int list;
-    if (!resolveTranslated(listAddress, list)) {
-        trace_.csp("SVC 52: the parameter list XR2 = {:06X} is translated and its page is not mapped", listAddress);
-        return false;
-    }
-    if (list < 0 || list + kLoaderPlBytes > m_.backingBytes()) {
-        trace_.csp("SVC 52: the parameter list at {:06X} runs past the end of main storage", list);
+    const int listAddress = RequestBlock::readXr2Field(m_, rb);
+    uint8_t list[kLoaderPlBytes] = {};
+    if (!m_.readGuest24Range(listAddress, list, kLoaderPlBytes)) {
+        trace_.csp("SVC 52: the {}-byte parameter list XR2 = {:06X} is not fully mapped",
+                   kLoaderPlBytes, listAddress);
         return false;
     }
 
-    int diskAddress = m_.readAddr24(list + kLoaderPlDiskAddress);
-    int sectors = m_.readHalf(list + kLoaderPlSectors);
-    int linkAddress = m_.readAddr24(list + kLoaderPlLinkAddress);
-    int startControl = m_.readAddr24(list + kLoaderPlStartControl);
-    int rldOffset = m_.readByte(list + kLoaderPlRldOffset);
-    int loadAddress = m_.readAddr24(list + kLoaderPlLoadAddress);
+    const auto addr24 = [&](int at) { return (list[at] << 16) | (list[at + 1] << 8) | list[at + 2]; };
+    const auto half = [&](int at) { return (list[at] << 8) | list[at + 1]; };
+    int diskAddress = addr24(kLoaderPlDiskAddress);
+    int sectors = half(kLoaderPlSectors);
+    int linkAddress = addr24(kLoaderPlLinkAddress);
+    int startControl = addr24(kLoaderPlStartControl);
+    int rldOffset = list[kLoaderPlRldOffset];
+    int loadAddress = addr24(kLoaderPlLoadAddress);
 
     // The relocation base: what the post-processing subtracts from the
     // load address.
@@ -1970,11 +1969,17 @@ bool As36ControlStorageProcessor::mainStorageRelocatingLoader(SvcRequest& req)
                    tb, (loadAddress - relocationBase) & 0xFFFF, diskAddress);
     }
 
-    int at;
-    if (!resolveTranslated(loadAddress, at)) {
-        trace_.csp("SVC 52: the load address {:06X} is translated and its page is not mapped", loadAddress);
+    const int bytes = sectors * storage::DiskBackend::kSectorBytes;
+    std::vector<std::pair<int, int>> destination;
+    if (sectors <= 0) {
+        trace_.csp("SVC 52: the parameter list asks for {} sectors; nothing is read", sectors);
         return false;
     }
+    if (!m_.guest24Extents(loadAddress, bytes, true, destination)) {
+        trace_.csp("SVC 52: the {}-byte load range at {:06X} is not fully mapped", bytes, loadAddress);
+        return false;
+    }
+    const int at = destination.front().first;
 
     trace_.csp("SVC 52: type {:02X}{}{}{}{} - {} sector(s) from 1-based {} to {:06X} (real {:06X}); link {:06X}, start "
                "control {:06X}",
@@ -1982,19 +1987,31 @@ bool As36ControlStorageProcessor::mainStorageRelocatingLoader(SvcRequest& req)
                (type & kLoaderFetch) != 0 ? " fetch" : " load", (type & kLoaderSystem) != 0 ? " system" : "", sectors,
                diskAddress, loadAddress, at, linkAddress, startControl);
 
-    if (!readModule(diskAddress, sectors, at)) return false;
+    std::vector<uint8_t> image;
+    if (!readModule(diskAddress, sectors, image)) return false;
 
     // The relocation transient runs when, and only when, the load address
     // differs from the link address, tested on the LOW HALFWORD.
     int delta = (loadAddress - relocationBase) & 0xFFFF;
     if (delta != 0) {
-        if (!relocateModule(at, delta, diskAddress, sectors, rldOffset)) return false;
+        if (!relocateModule(image, delta, diskAddress, sectors, rldOffset)) return false;
         // The start control address moves with the module.
         startControl = (startControl + delta) & 0xFFFFFF;
     } else {
         trace_.csp("SVC 52: load address {:06X} equals link address {:06X}, so no relocation is required (3-146, and "
                    "nuLdrPostProcess c1893d5c)",
                    loadAddress, relocationBase);
+    }
+
+    // A translated loader destination is a logical byte range, not a promise
+    // that its independently mapped page frames are adjacent in main storage.
+    // Validate the whole range above, relocate the logical image, then scatter
+    // it through the same per-page translation the MSP uses.
+    for (const auto& extent : destination)
+        invalidateSystemTransientForWrite(extent.first, extent.second, "SVC 52 loader write");
+    if (!m_.writeGuest24Range(loadAddress, image.data(), bytes)) {
+        trace_.csp("SVC 52: the validated load range at {:06X} became unavailable", loadAddress);
+        return false;
     }
 
     if ((type & kLoaderFetch) != 0) {
@@ -2014,7 +2031,7 @@ bool As36ControlStorageProcessor::mainStorageRelocatingLoader(SvcRequest& req)
 
 // The loader's read: an ordinary read of the module's sectors, issued the
 // way SVC 51's get arm issues one.
-bool As36ControlStorageProcessor::readModule(int diskAddress, int sectors, int at)
+bool As36ControlStorageProcessor::readModule(int diskAddress, int sectors, std::vector<uint8_t>& image)
 {
     if (sectors <= 0) {
         trace_.csp("SVC 52: the parameter list asks for {} sectors; nothing is read", sectors);
@@ -2026,15 +2043,9 @@ bool As36ControlStorageProcessor::readModule(int diskAddress, int sectors, int a
         return false;
     }
     int bytes = sectors * storage::DiskBackend::kSectorBytes;
-    if (at < 0 || at + bytes > m_.backingBytes()) {
-        trace_.csp("SVC 52: {} bytes at guest {:06X} run past the end of main storage", bytes, at);
-        return false;
-    }
-    std::vector<uint8_t> image(static_cast<std::size_t>(bytes));
+    image.resize(static_cast<std::size_t>(bytes));
     for (int i = 0; i < sectors; i++)
         diskRead(sector + i, image.data() + static_cast<std::ptrdiff_t>(i) * storage::DiskBackend::kSectorBytes, "loader");
-    invalidateSystemTransientForWrite(at, bytes, "SVC 52 loader write");
-    m_.write(at, image.data(), bytes);
     return true;
 }
 
@@ -2046,13 +2057,14 @@ bool As36ControlStorageProcessor::readModule(int diskAddress, int sectors, int a
 // starts at sector disk address + length, one lower when the parameter
 // list's byte offset is non-zero, and is re-read at every 256-byte
 // boundary.
-bool As36ControlStorageProcessor::relocateModule(int at, int delta, int diskAddress, int sectors, int rldOffset)
+bool As36ControlStorageProcessor::relocateModule(std::vector<uint8_t>& image, int delta, int diskAddress, int sectors,
+                                                 int rldOffset)
 {
     long long sector = static_cast<long long>(diskAddress) + sectors;
     if (rldOffset != 0) sector -= 1;
     sector -= 1;   // the wire address is 1-based
 
-    int cursor = at;
+    int cursor = 0;
     int offset = rldOffset;
     uint8_t page[storage::DiskBackend::kSectorBytes] = {};
     long long pageSector = -1;
@@ -2096,11 +2108,14 @@ bool As36ControlStorageProcessor::relocateModule(int at, int delta, int diskAddr
         }
         if (b == kRldSkip) continue;
 
-        if (cursor - 1 < 0 || cursor + 1 > m_.backingBytes()) {
-            trace_.csp("SVC 52: the relocation cursor left main storage at {:06X}", cursor);
+        if (cursor < 1 || cursor >= static_cast<int>(image.size())) {
+            trace_.csp("SVC 52: the relocation cursor left the {}-byte module at +{:X}", image.size(), cursor);
             return false;
         }
-        m_.writeHalf(cursor - 1, static_cast<uint16_t>(m_.readHalf(cursor - 1) + delta));
+        const int value = (image[static_cast<std::size_t>(cursor - 1)] << 8) | image[static_cast<std::size_t>(cursor)];
+        const uint16_t relocatedValue = static_cast<uint16_t>(value + delta);
+        image[static_cast<std::size_t>(cursor - 1)] = static_cast<uint8_t>(relocatedValue >> 8);
+        image[static_cast<std::size_t>(cursor)] = static_cast<uint8_t>(relocatedValue);
         relocated++;
     }
     trace_.csp("SVC 52: the relocation directory has no FF terminator within {} bytes", limit);
