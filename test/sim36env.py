@@ -18,12 +18,22 @@ def exe():
     return os.environ.get("SIM36", os.path.join(ROOT, "build", "linux-make", "sim36"))
 
 
+def monitor_path(path):
+    """Return an absolute path safe to embed in a monitor command.
+
+    The monitor lexer gives backslash its usual escape meaning.  Native
+    Windows Python produces backslash-separated absolute paths, so normalize
+    them to the forward slashes accepted by both the simulator and Windows.
+    """
+    return os.path.abspath(path).replace("\\", "/")
+
+
 def volume():
     v = os.environ.get("SIM36_VOLUME", "")
     if not v or not os.path.exists(v):
         print("SKIP: no volume (set SIM36_VOLUME to a System/36 volume image)")
         sys.exit(77)
-    return os.path.abspath(v)
+    return monitor_path(v)
 
 
 def default_config(template="default-machine.sim.in", **subst):
