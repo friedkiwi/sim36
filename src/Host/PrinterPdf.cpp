@@ -53,14 +53,21 @@ Palette paletteFor(const std::string& paper)
     return {{99, 182, 99}, {219, 250, 219}};
 }
 
+HPDF_REAL pdfColorChannel(int value)
+{
+    return static_cast<HPDF_REAL>(value) / static_cast<HPDF_REAL>(255);
+}
+
 void rgbFill(HPDF_Page page, Color color)
 {
-    HPDF_Page_SetRGBFill(page, color.r / 255.0, color.g / 255.0, color.b / 255.0);
+    HPDF_Page_SetRGBFill(page, pdfColorChannel(color.r), pdfColorChannel(color.g),
+                         pdfColorChannel(color.b));
 }
 
 void rgbStroke(HPDF_Page page, Color color)
 {
-    HPDF_Page_SetRGBStroke(page, color.r / 255.0, color.g / 255.0, color.b / 255.0);
+    HPDF_Page_SetRGBStroke(page, pdfColorChannel(color.r), pdfColorChannel(color.g),
+                           pdfColorChannel(color.b));
 }
 
 std::vector<std::vector<std::string>> pagesOf(const std::string& text)
