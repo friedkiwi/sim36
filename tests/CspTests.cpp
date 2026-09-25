@@ -528,7 +528,7 @@ TEST_CASE("translated ECM provenance serves address return and both event-post e
 
     constexpr int task = 0x1000;
     constexpr int requestBlock = 0x1100;
-    constexpr int logicalEcm = 0x1800;
+    constexpr uint16_t logicalEcm = 0x1800;
     constexpr int frame = 0x10;
     constexpr int realEcm = frame * machine::MachineState::kPageBytes;
     std::string failure;
@@ -572,7 +572,8 @@ TEST_CASE("translated ECM provenance serves address return and both event-post e
 
     ace = build();
     state.msp.pactXr1 = 0;
-    state.msp.xr1 = ace;
+    REQUIRE(ace <= 0xFFFF);
+    state.msp.xr1 = static_cast<uint16_t>(ace);
     SvcRequest postAce;
     postAce.r = 0x19;
     postAce.inline1 = 30;
