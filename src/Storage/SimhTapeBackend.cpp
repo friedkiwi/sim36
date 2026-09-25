@@ -8,6 +8,14 @@
 #include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <system_error>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <fmt/format.h>
 
@@ -34,6 +42,19 @@ void writeWord(std::ostream& out, std::uint32_t value)
     const unsigned char b[4] = {static_cast<unsigned char>(value), static_cast<unsigned char>(value >> 8),
                                 static_cast<unsigned char>(value >> 16), static_cast<unsigned char>(value >> 24)};
     out.write(reinterpret_cast<const char*>(b), 4);
+}
+
+void replaceFile(const fs::path& source, const fs::path& destination)
+{
+#ifdef _WIN32
+    if (MoveFileExW(source.c_str(), destination.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0)
+        return;
+    throw std::runtime_error(
+        std::error_code(static_cast<int>(GetLastError()), std::system_category()).message());
+#else
+    if (std::rename(source.c_str(), destination.c_str()) != 0) throw std::runtime_error(std::strerror(errno));
+#endif
 }
 
 }  // namespace
@@ -354,7 +375,7 @@ void SimhTapeBackend::flush()
         out.flush();
         if (!out) throw std::runtime_error(std::strerror(errno));
         out.close();
-        if (std::rename(temp.string().c_str(), path_.c_str()) != 0) throw std::runtime_error(std::strerror(errno));
+        replaceFile(temp, path_);
     } catch (...) {
         std::error_code ignored;
         fs::remove(temp, ignored);
