@@ -326,6 +326,11 @@ void As36ControlStorageProcessor::loadPhase1()
         m_.write(kPhase1LoadAddress, buf.data(), bytes);
         return;
     }
+    if (cfg_.loadsFromTape()) {
+        loadPhase1FromTape(buf.data(), bytes);
+        m_.write(kPhase1LoadAddress, buf.data(), bytes);
+        return;
+    }
     for (int i = 0; i < kPhase1Sectors; i++)
         diskRead(kPhase1Sector + i, buf.data() + static_cast<std::ptrdiff_t>(i) * storage::DiskBackend::kSectorBytes,
                  "phase 1");
@@ -348,42 +353,123 @@ void As36ControlStorageProcessor::loadPhase1FromDiskette(uint8_t* buf, int bytes
     if (!drive.hasMedium())
         throw std::runtime_error("load_source = diskette, but the diskette drive is empty: the control processor has "
                                  "nowhere to read phase 1 from. Insert a volume carrying " +
-                                 std::string(kDisketteIplDataSet));
+                                 std::string(kIplDataSet));
 
     storage::DisketteBackend* medium = drive.medium();
     storage::DisketteBackend::DataSet ds;
-    if (!medium->findDataSet(kDisketteIplDataSet, ds))
+    if (!medium->findDataSet(kIplDataSet, ds))
         throw std::runtime_error(fmt::format(
             "load_source = diskette, but {} carries no {} data set, so it is not an IPL volume (volume {}, owner {}). "
             "Base-SSP volume 01 carries one; a program-product volume does not",
-            medium->path(), kDisketteIplDataSet, medium->geometry().volumeId(), medium->geometry().ownerId()));
+            medium->path(), kIplDataSet, medium->geometry().volumeId(), medium->geometry().ownerId()));
 
     if (ds.recordBytes <= 0 || bytes % ds.recordBytes != 0)
         throw std::runtime_error(fmt::format("{} on {} is recorded {} bytes per record, which does not divide the {}-byte "
                                              "phase 1",
-                                             kDisketteIplDataSet, medium->path(), ds.recordBytes, bytes));
+                                             kIplDataSet, medium->path(), ds.recordBytes, bytes));
 
     int records = bytes / ds.recordBytes;
     int c = ds.cylinder, h = ds.head, r = ds.record;
     for (int i = 0; i < records; i++) {
         if (!medium->geometry().isValid(c, h, r))
             throw std::runtime_error(fmt::format("{} record {} of {} is at C/H/R {}/{}/{}, which is not on {}",
-                                                 kDisketteIplDataSet, i + 1, records, c, h, r, medium->path()));
+                                                 kIplDataSet, i + 1, records, c, h, r, medium->path()));
         std::vector<uint8_t> rec;
         if (!medium->readRecord(c, h, r, rec) || static_cast<int>(rec.size()) < ds.recordBytes)
             throw std::runtime_error(fmt::format("{} claims {}-byte records but C/H/R {}/{}/{} is recorded {}",
-                                                 kDisketteIplDataSet, ds.recordBytes, c, h, r, rec.size()));
+                                                 kIplDataSet, ds.recordBytes, c, h, r, rec.size()));
         std::copy(rec.begin(), rec.begin() + ds.recordBytes, buf + static_cast<std::ptrdiff_t>(i) * ds.recordBytes);
         if (i + 1 < records && !medium->next(c, h, r))
-            throw std::runtime_error(fmt::format("{} runs past the end of {} after {} record(s)", kDisketteIplDataSet,
+            throw std::runtime_error(fmt::format("{} runs past the end of {} after {} record(s)", kIplDataSet,
                                                  medium->path(), i + 1));
     }
 
     trace_.csp("phase 1: {} record(s) of {} B from {} at C/H/R {}/{}/{} (volume {}, extent {:02}{}{:02}..{:02}{}{:02}), {} "
                "bytes to guest {:04X} - MSPID, the diskette-resident phase 1",
-               records, ds.recordBytes, kDisketteIplDataSet, ds.cylinder, ds.head, ds.record,
+               records, ds.recordBytes, kIplDataSet, ds.cylinder, ds.head, ds.record,
                medium->geometry().volumeId(), ds.cylinder, ds.head, ds.record, ds.endCylinder, ds.endHead, ds.endRecord,
                bytes, kPhase1LoadAddress);
+}
+
+// Stage B for a tape load follows the same contract as diskette load: find
+// the labeled #IPLBOOT data set and copy its first 4 KB into real storage.
+// Phase 1 then owns the device and performs the reload through SVC 46.  The
+// control processor therefore rewinds after peeking, just as a physical load
+// leaves the cartridge at load point for the program it starts.
+void As36ControlStorageProcessor::loadPhase1FromTape(uint8_t* buf, int bytes)
+{
+    storage::ITapeBackend* tape = devices_.tape.medium();
+    if (tape == nullptr || !tape->loaded())
+        throw std::runtime_error("load_source = tape, but the tape drive is empty or unloaded: the control processor "
+                                 "has nowhere to read phase 1 from. Mount a volume carrying " +
+                                 std::string(kIplDataSet));
+
+    tape->rewind();
+    struct RewindOnExit {
+        storage::ITapeBackend* tape;
+        ~RewindOnExit() { tape->rewind(); }
+    } rewindOnExit{tape};
+    auto fail = [&](const std::string& reason) -> void {
+        throw std::runtime_error(reason);
+    };
+
+    bool found = false;
+    bool foundHdr2 = false;
+    bool atData = false;
+    int recordsExamined = 0;
+    while (recordsExamined < 65536) {
+        std::vector<uint8_t> block;
+        storage::TapeResult result = tape->readBlock(block);
+        if (result == storage::TapeResult::TapeMark) {
+            if (found) {
+                if (!foundHdr2)
+                    fail(fmt::format("{} on {} has HDR1 but no HDR2 before its data", kIplDataSet, tape->path()));
+                atData = true;
+                break;
+            }
+            continue;
+        }
+        if (result == storage::TapeResult::EndOfData) break;
+        if (result != storage::TapeResult::Ok)
+            fail(fmt::format("cannot search {} on {}: tape read returned {}", kIplDataSet, tape->path(),
+                             storage::tapeResultName(result)));
+        ++recordsExamined;
+        if (block.size() != 80) continue;
+        const std::string id = storage::Ebcdic::toAscii(block, 0, 4, storage::Ebcdic::CodePage::Cp037);
+        if (found && id == "HDR2") foundHdr2 = true;
+        if (id != "HDR1") continue;
+        std::string name = storage::Ebcdic::toAscii(block, 4, 17, storage::Ebcdic::CodePage::Cp037);
+        while (!name.empty() && name.back() == ' ') name.pop_back();
+        if (name == kIplDataSet) {
+            found = true;
+            foundHdr2 = false;
+        }
+    }
+
+    if (!found)
+        fail(fmt::format("load_source = tape, but {} carries no {} data set, so it is not an IPL volume",
+                         tape->path(), kIplDataSet));
+    if (!atData)
+        fail(fmt::format("{} on {} has no tape mark between its header labels and data", kIplDataSet, tape->path()));
+
+    int copied = 0;
+    int blocks = 0;
+    while (copied < bytes) {
+        std::vector<uint8_t> block;
+        storage::TapeResult result = tape->readBlock(block);
+        if (result == storage::TapeResult::TapeMark || result == storage::TapeResult::EndOfData)
+            fail(fmt::format("{} on {} ends after {} byte(s); phase 1 needs {}", kIplDataSet, tape->path(), copied,
+                             bytes));
+        if (result != storage::TapeResult::Ok)
+            fail(fmt::format("cannot read {} data on {}: tape read returned {}", kIplDataSet, tape->path(),
+                             storage::tapeResultName(result)));
+        const int take = std::min(bytes - copied, static_cast<int>(block.size()));
+        std::copy(block.begin(), block.begin() + take, buf + copied);
+        copied += take;
+        ++blocks;
+    }
+    trace_.csp("phase 1: first {} bytes of {} from {} in {} tape block(s), to guest {:04X}; tape rewound for SVC 46",
+               bytes, kIplDataSet, tape->path(), blocks, kPhase1LoadAddress);
 }
 
 // On the real machine the MSP is started by making a task runnable, never

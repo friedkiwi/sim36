@@ -113,6 +113,18 @@ TEST_CASE("config: main storage is derived from the model and has no setter")
     CHECK_THROWS(session.execute("set machine main-storage 512K"));
 }
 
+TEST_CASE("config: tape is an explicit control-processor load source")
+{
+    sim36::monitor::SimulatorSession session;
+    session.execute("set machine load-source tape");
+    session.execute("set machine ipl-source tape");
+    session.execute("set machine ipl-type attended");
+    CHECK(session.definition().loadsFromTape());
+    CHECK_FALSE(session.definition().loadsFromDiskette());
+    CHECK(session.definition().iplRequestsReload());
+    CHECK(session.definition().iplSource() == 0x88);
+}
+
 TEST_CASE("config: printers need a printer device code")
 {
     EmulatorConfig c;

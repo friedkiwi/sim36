@@ -45,6 +45,7 @@ installation media:
 
 ```text
 set machine load-source diskette
+set machine ipl-source diskette
 set machine ipl-type attend
 attach disk0 work/ssp51-new.img
 attach diskette0 work/ssp51/flat/SSP51-01.img ro
@@ -125,6 +126,7 @@ diskette eject
 stop
 reset --yes
 set machine load-source disk
+set machine ipl-source disk
 ipl
 ```
 

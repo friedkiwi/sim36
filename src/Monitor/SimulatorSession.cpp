@@ -531,8 +531,8 @@ void SimulatorSession::setMachine(const Args& a)
     else if (key == "load-source") {
         // Where the CONTROL PROCESSOR reads phase 1 from, a different question
         // from ipl-source (the reload source phase 1 consults once running).
-        if (!eq(a[3], "disk") && !eq(a[3], "diskette"))
-            throw MonitorError("load-source must be 'disk' or 'diskette'");
+        if (!eq(a[3], "disk") && !eq(a[3], "diskette") && !eq(a[3], "tape"))
+            throw MonitorError("load-source must be 'disk', 'diskette', or 'tape'");
         definition_.loadSourceName = a[3];
     } else if (key == "listener-auto-signon") definition_.listenerAutoSignOn = parseBool(a[3]);
     else if (key == "security")

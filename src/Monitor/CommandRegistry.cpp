@@ -213,6 +213,12 @@ CommandRegistry::Completion CommandRegistry::complete(const std::vector<std::str
             words({"advanced36", "5363", "5364"});
         } else if (at(1, "machine") && pos == 3 && at(2, "csp-type")) {
             words({"advanced36"});
+        } else if (at(1, "machine") && pos == 3 && at(2, "ipl-type")) {
+            words({"attend", "unattend"});
+        } else if (at(1, "machine") && pos == 3 && at(2, "ipl-source")) {
+            words({"disk", "diskette", "tape", "tape-04", "tape-10"});
+        } else if (at(1, "machine") && pos == 3 && at(2, "load-source")) {
+            words({"disk", "diskette", "tape"});
         } else if (at(1, "station") && pos == 3) {
             words({"role", "device-code", "listen", "output", "signon-at-ipl"});
         } else if (at(1, "station") && pos == 4 && at(3, "role")) {

@@ -22,18 +22,28 @@ tape init /media/new.tap TEST01 SIM36
 legacy folder tape, create the directory first and pass that directory to
 `tape init`.
 
-Standard System/36 IPL tapes can be attached directly. The disk remains the
-machine's phase-1 bootstrap and reload target; selecting `tape` makes that
-phase read the tape's `#IPLBOOT` dataset. Both the compact two-label IPL group
+Standard System/36 IPL tapes can be attached directly. For a cold reload onto
+an empty disk, `load-source tape` makes the control processor find the
+`#IPLBOOT` HDR1 on tape, copy the first 4 KB of its data to main storage, and
+rewind. `ipl-source tape` independently tells that running phase 1 to continue
+the reload through SVC 46; `ipl-type attend` exposes the generation prompts.
+Both the compact two-label IPL group
 (`HDR1/HDR2`, data, `EOF1/EOF2`) used by real media and ordinary four-label
 SSP datasets are accepted.
 
 ```text
+set machine load-source tape
 set machine ipl-source tape
-attach disk0 /media/system.img overlay
+set machine ipl-type attend
+attach disk0 /media/empty-system.img
 attach tape0 /media/system-save.tap ro
 ipl
 ```
+
+The two source knobs are intentionally separate. On a populated disk,
+`load-source disk` plus `ipl-source tape` starts the disk-resident phase 1 and
+asks it to reload from tape. A cold install cannot use that combination,
+because an empty disk has no phase 1; it must set both sources to `tape`.
 
 ## Legacy folder tapes and `tape-folder.py`
 

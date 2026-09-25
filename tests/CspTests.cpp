@@ -25,6 +25,8 @@
 #include "Processors/ControlStorage/TaskBlock.h"
 #include "Processors/ControlStorage/TaskWorkArea.h"
 #include "Storage/DiskBackend.h"
+#include "Storage/Ebcdic.h"
+#include "Storage/SimhTapeBackend.h"
 
 using namespace sim36;
 using namespace sim36::processors::controlstorage;
@@ -46,7 +48,101 @@ struct CspEmptyVolume {
     ~CspEmptyVolume() { std::filesystem::remove(path); }
 };
 
+struct CspIplTape {
+    std::filesystem::path path;
+
+    CspIplTape(const std::string& dataSet, const std::vector<uint8_t>& phase1, bool withDecoy = false)
+    {
+        path = std::filesystem::temp_directory_path() /
+               ("sim36-csp-ipl-" + std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".tap");
+        std::string reason;
+        auto tape = storage::SimhTapeBackend::open(path.string(), false, reason);
+        REQUIRE_MESSAGE(tape != nullptr, reason);
+        tape->load();
+        auto label = [](const std::string& id, const std::string& name) {
+            std::vector<uint8_t> block(80, 0x40);
+            std::vector<uint8_t> text = storage::Ebcdic::fromAscii(id + name, storage::Ebcdic::CodePage::Cp037);
+            std::copy(text.begin(), text.end(), block.begin());
+            return block;
+        };
+        auto writeDataSet = [&](const std::string& name, const std::vector<uint8_t>& data) {
+            std::vector<uint8_t> hdr1 = label("HDR1", name);
+            std::vector<uint8_t> hdr2 = label("HDR2", "");
+            REQUIRE(tape->writeBlock(hdr1.data(), 0, static_cast<int>(hdr1.size())) == storage::TapeResult::Ok);
+            REQUIRE(tape->writeBlock(hdr2.data(), 0, static_cast<int>(hdr2.size())) == storage::TapeResult::Ok);
+            REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
+            const int first = std::min(1000, static_cast<int>(data.size()));
+            REQUIRE(tape->writeBlock(data.data(), 0, first) == storage::TapeResult::Ok);
+            if (first < static_cast<int>(data.size()))
+                REQUIRE(tape->writeBlock(data.data(), first, static_cast<int>(data.size()) - first) ==
+                        storage::TapeResult::Ok);
+            REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
+        };
+        if (withDecoy) writeDataSet("#NOTBOOT", std::vector<uint8_t>(4096, 0xEE));
+        writeDataSet(dataSet, phase1);
+        REQUIRE(tape->writeTapeMark() == storage::TapeResult::Ok);
+        tape->unload();
+    }
+
+    ~CspIplTape() { std::filesystem::remove(path); }
+};
+
 }  // namespace
+
+TEST_CASE("tape load finds named IPLBOOT, spans blocks, and leaves tape at BOT")
+{
+    CspEmptyVolume volume(9000);
+    std::vector<uint8_t> expected(4096);
+    for (std::size_t i = 0; i < expected.size(); ++i) expected[i] = static_cast<uint8_t>(i * 37 + 11);
+    CspIplTape tapeImage("#IPLBOOT", expected, true);
+
+    configuration::EmulatorConfig config;
+    config.loadSourceName = "tape";
+    config.iplSourceName = "tape";
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadWrite);
+    devices::DeviceSet devices(state, disk, trace);
+    std::string reason;
+    auto tape = storage::SimhTapeBackend::open(tapeImage.path.string(), true, reason);
+    REQUIRE_MESSAGE(tape != nullptr, reason);
+    devices.tape.load(std::move(tape));
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    csp.bringUpControlProcessor();
+    csp.iplMainProcessor();
+
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        CHECK(state.readByte(As36ControlStorageProcessor::kPhase1LoadAddress + static_cast<int>(i)) == expected[i]);
+    }
+    const storage::TapePosition position = devices.tape.medium()->readPosition();
+    CHECK(position.beginningOfTape);
+    CHECK(position.fileNumber == 0);
+    CHECK(position.blockNumber == 0);
+}
+
+TEST_CASE("tape load rejects a cartridge without IPLBOOT and rewinds it")
+{
+    CspEmptyVolume volume(9000);
+    CspIplTape tapeImage("#NOTBOOT", std::vector<uint8_t>(4096, 0xAA));
+    configuration::EmulatorConfig config;
+    config.loadSourceName = "tape";
+    config.iplSourceName = "tape";
+    machine::MachineState state(128 * 1024);
+    monitor::Tracer trace;
+    storage::DiskBackend disk(volume.path.string(), storage::VolumeMode::ReadWrite);
+    devices::DeviceSet devices(state, disk, trace);
+    std::string reason;
+    auto tape = storage::SimhTapeBackend::open(tapeImage.path.string(), true, reason);
+    REQUIRE_MESSAGE(tape != nullptr, reason);
+    devices.tape.load(std::move(tape));
+    As36ControlStorageProcessor csp(state, config, devices, disk, trace);
+
+    csp.bringUpControlProcessor();
+    CHECK_THROWS_WITH_AS(csp.iplMainProcessor(), doctest::Contains("carries no #IPLBOOT"), std::runtime_error);
+    CHECK(devices.tape.medium()->readPosition().beginningOfTape);
+}
 
 TEST_CASE("Advanced/36 dispatches BASIC XFER and preserves the FORTRAN stub")
 {

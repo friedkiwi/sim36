@@ -158,9 +158,10 @@ private:
     void buildFromUnitDefinitionTable();
     void buildSystemUnitBlock(bool terminal);
     void loadPhase1();
-    // The data set an IPL diskette carries its phase 1 in.
-    static constexpr const char* kDisketteIplDataSet = "#IPLBOOT";
+    // The data set IPL removable media carry phase 1 in.
+    static constexpr const char* kIplDataSet = "#IPLBOOT";
     void loadPhase1FromDiskette(uint8_t* buf, int bytes);
+    void loadPhase1FromTape(uint8_t* buf, int bytes);
     void postInitialTask();
 
     // ---- the supervisor call path ----------------------------------------

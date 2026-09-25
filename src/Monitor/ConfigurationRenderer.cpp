@@ -57,6 +57,7 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
     line(fmt::format("  task work area         {} sectors", c.taskWorkAreaSectors));
     line(fmt::format("  IPL type               {}", c.iplType));
     line(fmt::format("  IPL source             {}", c.iplSourceName));
+    line(fmt::format("  phase 1 load source    {}", c.loadSourceName));
 
     line("media:");
     line(fmt::format("  disk0                  {}  {}", displayPath(c.volumePath), fixedDiskMode(c)));

@@ -116,6 +116,7 @@ EmulatorConfig& EmulatorConfig::operator=(const EmulatorConfig& other)
 }
 
 bool EmulatorConfig::loadsFromDiskette() const { return equalsIgnoreCase(loadSourceName, "diskette"); }
+bool EmulatorConfig::loadsFromTape() const { return equalsIgnoreCase(loadSourceName, "tape"); }
 bool EmulatorConfig::iplRequestsReload() const { return IplSourceTable::requestsReload(iplSourceName); }
 int EmulatorConfig::iplSource() const { return IplSourceTable::encode(iplSourceName, iplType); }
 
@@ -271,9 +272,10 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
                 c.iplType = type;
             } else if (k == "ipl_source") c.iplSourceName = v;
             else if (k == "load_source") {
-                if (!equalsIgnoreCase(v, "disk") && !equalsIgnoreCase(v, "diskette"))
+                if (!equalsIgnoreCase(v, "disk") && !equalsIgnoreCase(v, "diskette") &&
+                    !equalsIgnoreCase(v, "tape"))
                     throw ConfigError(path, lineNo,
-                        "load_source must be 'disk' or 'diskette'; it selects where "
+                        "load_source must be 'disk', 'diskette', or 'tape'; it selects where "
                         "the control processor reads phase 1 from, which is not the "
                         "same as ipl_source (the reload source)");
                 c.loadSourceName = v;

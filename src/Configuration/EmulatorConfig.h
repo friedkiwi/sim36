@@ -97,7 +97,7 @@ public:
     // consults).
     std::string iplSourceName = "disk";
     // Where the CONTROL PROCESSOR gets phase 1: `disk` reads the boot record
-    // from sector 8191; `diskette` reads the diskette-resident phase 1.
+    // from sector 8191; removable media read the #IPLBOOT data set.
     std::string loadSourceName = "disk";
 
     // Machine identity is independent of the CSP implementation.  This lets
@@ -113,6 +113,7 @@ public:
     EmulatorConfig& operator=(const EmulatorConfig& other);
 
     bool loadsFromDiskette() const;
+    bool loadsFromTape() const;
     bool iplRequestsReload() const;
     int iplSource() const;
     CspKind cspKind() const { return CspTypeTable::kindOf(cspType); }
