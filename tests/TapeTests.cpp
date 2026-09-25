@@ -10,6 +10,7 @@
 #include "Storage/FolderTapeBackend.h"
 #include "Storage/SimhTapeBackend.h"
 #include "Storage/TapeBackend.h"
+#include "Storage/TapeBackendFactory.h"
 
 using namespace sim36;
 
@@ -254,4 +255,33 @@ TEST_CASE("SIMH tape overwrite erases forward and malformed records are refused"
     }
     CHECK(storage::SimhTapeBackend::open(path.string(), true, reason) == nullptr);
     CHECK(reason.find("marker mismatch") != std::string::npos);
+}
+
+TEST_CASE("tape backend selection is based only on directory versus file")
+{
+    std::string reason;
+    TapeFolder folder;
+    auto folderBackend = storage::openTapeBackend(folder.path.string(), true, reason);
+    REQUIRE(folderBackend != nullptr);
+    CHECK(dynamic_cast<storage::FolderTapeBackend*>(folderBackend.get()) != nullptr);
+
+    TapFile blank;
+    {
+        std::ofstream create(blank.path, std::ios::binary);
+    }
+    auto fileBackend = storage::openTapeBackend(blank.path.string(), true, reason);
+    REQUIRE(fileBackend != nullptr);
+    CHECK(dynamic_cast<storage::SimhTapeBackend*>(fileBackend.get()) != nullptr);
+
+    TapFile missing;
+    REQUIRE_FALSE(std::filesystem::exists(missing.path));
+    auto created = storage::openTapeBackend(missing.path.string(), false, reason);
+    REQUIRE(created != nullptr);
+    CHECK(dynamic_cast<storage::SimhTapeBackend*>(created.get()) != nullptr);
+    CHECK(std::filesystem::is_regular_file(missing.path));
+    CHECK(std::filesystem::file_size(missing.path) == 0);
+
+    TapFile missingReadOnly;
+    CHECK(storage::openTapeBackend(missingReadOnly.path.string(), true, reason) == nullptr);
+    CHECK_FALSE(std::filesystem::exists(missingReadOnly.path));
 }

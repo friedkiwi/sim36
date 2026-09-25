@@ -400,7 +400,7 @@ void MachineSnapshot::save(const std::string& path, const EmulatorConfig& defini
                        : definition.diskettePath);
             std::string tape = machine != nullptr && machine->devices().tape.medium() != nullptr
                                    ? machine->devices().tape.medium()->path()
-                                   : definition.tape == nullptr ? std::string() : definition.tape->folderPath;
+                                   : definition.tape == nullptr ? std::string() : definition.tape->path;
             w.directory(tape);
             if (machine != nullptr) writeRuntime(w, *machine);
             w.close();
@@ -437,7 +437,7 @@ MachineSnapshot::Loaded MachineSnapshot::load(const std::string& path)
         std::string tape = r.directory(media, "tape0");
         if (answer.config.tape == nullptr && !tape.empty()) answer.config.tape = std::make_unique<TapeConfig>();
         if (answer.config.tape != nullptr) {
-            answer.config.tape->folderPath = tape;
+            answer.config.tape->path = tape;
             answer.config.tape->readOnly = tapeReadOnly;
         }
         if (answer.powered) answer.runtime = std::make_unique<RuntimeState>(readRuntime(r));

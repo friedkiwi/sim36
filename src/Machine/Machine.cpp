@@ -1,5 +1,5 @@
 #include "Machine/Machine.h"
-#include "Storage/FolderTapeBackend.h"
+#include "Storage/TapeBackendFactory.h"
 #include "Storage/DisketteBackend.h"
 #include "Configuration/ConfigError.h"
 
@@ -73,13 +73,13 @@ Machine::Machine(const EmulatorConfig& cfg, const SessionBackends* sessionBacken
         if (!d) throw configuration::ConfigError(cfg.diskettePath, 0, "cannot be used as a diskette: " + why);
         devices_->diskette.insert(std::move(d));
     }
-    // A tape in the drive at power-on, if a tape device declared a folder:
-    // the container is opened and mounted here, and a bad folder is a
+    // A tape in the drive at power-on, if a tape device declared a path:
+    // the container is opened and mounted here, and bad media is a
     // configuration error the operator should see, not a silent empty drive.
-    if (cfg.tape && !cfg.tape->folderPath.empty()) {
+    if (cfg.tape && !cfg.tape->path.empty()) {
         std::string why;
-        auto t = storage::FolderTapeBackend::open(cfg.tape->folderPath, cfg.tape->readOnly, why);
-        if (!t) throw configuration::ConfigError(cfg.tape->folderPath, 0, "cannot be used as a tape: " + why);
+        auto t = storage::openTapeBackend(cfg.tape->path, cfg.tape->readOnly, why);
+        if (!t) throw configuration::ConfigError(cfg.tape->path, 0, "cannot be used as a tape: " + why);
         devices_->tape.load(std::move(t));
     }
 

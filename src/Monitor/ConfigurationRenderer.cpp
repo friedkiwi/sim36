@@ -65,10 +65,10 @@ std::string ConfigurationRenderer::renderHuman(const EmulatorConfig& c, bool lat
     else
         line(fmt::format("  diskette0              {}  {}", c.diskettePath,
                          c.disketteReadOnly ? "readonly" : "writable"));
-    if (!c.tape || c.tape->folderPath.empty())
+    if (!c.tape || c.tape->path.empty())
         line("  tape0                  (none)");
     else
-        line(fmt::format("  tape0                  {}  {}", c.tape->folderPath,
+        line(fmt::format("  tape0                  {}  {}", c.tape->path,
                          c.tape->readOnly ? "readonly" : "writable"));
 
     line("terminal:");
@@ -138,8 +138,8 @@ std::string ConfigurationRenderer::renderReplay(const EmulatorConfig& c)
         line(fmt::format("set diskette0 {}", c.disketteReadOnly ? "readonly" : "writable"));
 
     if (c.tape) {
-        if (!c.tape->folderPath.empty())
-            line(fmt::format("attach tape0 {} {}", quoteArgument(absolutePath(c.tape->folderPath)),
+        if (!c.tape->path.empty())
+            line(fmt::format("attach tape0 {} {}", quoteArgument(absolutePath(c.tape->path)),
                              c.tape->readOnly ? "ro" : "rw"));
         else
             line(fmt::format("set tape0 {}", c.tape->readOnly ? "readonly" : "writable"));

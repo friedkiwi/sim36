@@ -23,6 +23,7 @@
 #include "Processors/ControlStorage/ActionControlElement.h"
 #include "Storage/DisketteBackend.h"
 #include "Storage/FolderTapeBackend.h"
+#include "Storage/TapeBackendFactory.h"
 #include "Storage/TapeManifest.h"
 
 namespace sim36::monitor {
@@ -237,12 +238,12 @@ void MonitorCli::tape(const std::vector<std::string>& a)
 
     if (what == "load") {
         if (a.size() < 3) {
-            fmt::print("tape load <dir> [ro]\n");
+            fmt::print("tape load <path> [ro]\n");
             return;
         }
         bool ro = a.size() > 3 && isReadOnlyFlag(a[3]);
         std::string why;
-        auto back = FolderTapeBackend::open(a[2], ro, why);
+        auto back = storage::openTapeBackend(a[2], ro, why);
         if (!back) {
             // Refused, with the reason, rather than mounted blind: the same
             // answer `diskette insert` gives a bad container.
@@ -335,7 +336,7 @@ void MonitorCli::tape(const std::vector<std::string>& a)
                    medium->readPosition().toString());
         return;
     }
-    fmt::print("tape [load <dir> [ro] | unload | init <dir> <volid> [owner] | status | position | rewind | "
+    fmt::print("tape [load <path> [ro] | unload | init <path> <volid> [owner] | status | position | rewind | "
                "space <block|file> <count> | mark [count] | vtoc | files]\n");
 }
 

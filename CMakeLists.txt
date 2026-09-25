@@ -127,6 +127,7 @@ add_library(sim36core STATIC
     src/Storage/FolderTapeBackend.cpp
     src/Storage/SimhTapeBackend.cpp
     src/Storage/TapeBackend.cpp
+    src/Storage/TapeBackendFactory.cpp
     src/Storage/TapeManifest.cpp
     src/Storage/Ebcdic.cpp
     src/Storage/Library.cpp

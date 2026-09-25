@@ -329,11 +329,11 @@ EmulatorConfig EmulatorConfig::load(const std::string& path)
                     "implementation and its variant. Use 'model' and 'csp_type'.");
             else throw ConfigError(path, lineNo, "unknown machine key '" + k + "'");
         } else if (tape != nullptr) {
-            if (k == "folder") tape->folderPath = v;
+            if (k == "folder" || k == "path") tape->path = v;
             else if (k == "readonly") tape->readOnly = parseBool(v);
             else throw ConfigError(path, lineNo, fmt::format(
-                "unknown tape key '{}'; a [tape] section takes 'folder' (the tape "
-                "folder to mount at power-on) and 'readonly' (yes|no). "
+                "unknown tape key '{}'; a [tape] section takes 'path' (or legacy 'folder') "
+                "for media to mount at power-on and 'readonly' (yes|no). "
                 "docs/s36/tape-operator.md", k));
         } else if (station != nullptr) {
             if (k == "role") {

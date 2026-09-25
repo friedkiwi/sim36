@@ -38,11 +38,11 @@ struct StationConfig {
     static const std::vector<std::string>& roles();
 };
 
-// A tape drive: declares the drive and, optionally, a folder to mount at
-// power-on.  A tape's container is a FOLDER (a manifest plus one blob per
-// tape file).  Leave folderPath empty for an EMPTY drive.
+// A tape drive and, optionally, media to mount at power-on.  A directory is
+// a legacy folder container; a regular or missing writable path is SIMH TAP.
+// Leave path empty for an EMPTY drive.
 struct TapeConfig {
-    std::string folderPath;
+    std::string path;
     // Writable by default: a tape's whole purpose is save/restore, and a save
     // writes it.
     bool readOnly = false;

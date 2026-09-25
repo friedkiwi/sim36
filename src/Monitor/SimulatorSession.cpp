@@ -844,10 +844,10 @@ std::vector<std::string> SimulatorSession::mediaLines()
     if (!definition_.diskettePath.empty())
         lines.push_back("Diskette: " + mediaName(definition_.diskettePath) + "  " + fileSize(definition_.diskettePath) +
                         (definition_.disketteReadOnly ? " readonly" : ""));
-    if (definition_.tape && !definition_.tape->folderPath.empty()) {
-        std::string folder = definition_.tape->folderPath;
-        while (!folder.empty() && (folder.back() == '/' || folder.back() == '\\')) folder.pop_back();
-        lines.push_back("Tape: " + mediaName(folder) + (definition_.tape->readOnly ? " readonly" : ""));
+    if (definition_.tape && !definition_.tape->path.empty()) {
+        std::string path = definition_.tape->path;
+        while (!path.empty() && (path.back() == '/' || path.back() == '\\')) path.pop_back();
+        lines.push_back("Tape: " + mediaName(path) + (definition_.tape->readOnly ? " readonly" : ""));
     }
     return lines;
 }
@@ -969,16 +969,16 @@ void SimulatorSession::media(const Args& a)
     if (target == "tape0") {
         if (!definition_.tape) definition_.tape = std::make_unique<TapeConfig>();
         if (attach) {
-            need(a, 3, "attach tape0 <folder> [ro|rw]");
+            need(a, 3, "attach tape0 <path> [ro|rw]");
             std::string path = resolvePath(a[2]);
             if (a.size() > 3) definition_.tape->readOnly = parseMode(a[3]);
-            definition_.tape->folderPath = path;
+            definition_.tape->path = path;
             if (machine_) {
                 if (definition_.tape->readOnly) monitor_->executeTokens({"tape", "load", path, "ro"});
                 else monitor_->executeTokens({"tape", "load", path});
             }
         } else {
-            definition_.tape->folderPath.clear();
+            definition_.tape->path.clear();
             if (machine_) monitor_->executeTokens({"tape", "unload"});
         }
         return;
