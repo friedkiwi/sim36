@@ -196,34 +196,32 @@ for r in records:
 s.close()
 PYEOF
 
-# The emulator is driven through a FIFO so it stays alive while the client is
-# attached: a script argument runs to the end and exits.
-mkfifo "$TMP/in"
-sleep 60 > "$TMP/in" &
-hold=$!
+# Feed the monitor through an ordinary pipe.  MSYS FIFOs cannot be consumed
+# reliably by a native Windows executable, while anonymous stdin pipes work on
+# both Windows and POSIX hosts.  The delays leave the client attached while the
+# guest-side printer commands run.
+feed_live_monitor() {
+    echo "ipl pause"
+    sleep 6
+    echo "boot"
+    sleep 2
+    echo "prtwrite 0.4 C1C2C3"
+    sleep 2
+    echo "prtend 0.4"
+    sleep 3
+    echo "quit"
+}
 
-"$SIM36" -c "$TMP/printer.conf" -t ws < "$TMP/in" > "$TMP/live.out" 2>&1 &
+feed_live_monitor | "$SIM36" -c "$TMP/printer.conf" -t ws > "$TMP/live.out" 2>&1 &
 emu=$!
 sleep 3
 # The reference's copy lets the client negotiate before any machine exists:
 # the pending trace is not yet applied, the printer has not been created and
 # so still announces the backend's default object name, and `boot` is refused.
 # The machine is constructed first here, before the client arrives.
-echo "ipl pause" > "$TMP/in" &
-sleep 2
-
 # Three records expected: the startup response, one print record, the null one.
-python3 "$TMP/client.py" 12394 3 > "$TMP/records" 2>"$TMP/client.err" &
-client=$!
-sleep 3
-
-{ echo "boot"; sleep 2; echo "prtwrite 0.4 C1C2C3"; sleep 2; echo "prtend 0.4"; } > "$TMP/in" &
-wait $client 2>/dev/null || true
-sleep 1
-echo "quit" > "$TMP/in" &
-sleep 2
-kill $hold $emu 2>/dev/null || true
-wait $emu 2>/dev/null || true
+python3 "$TMP/client.py" 12394 3 > "$TMP/records" 2>"$TMP/client.err" || true
+wait "$emu" 2>/dev/null || true
 
 # RFC 2877 section 9, figure 1 - IBM's own printed success response record, with
 # only the response code, the system name and the object name substituted. The
@@ -263,25 +261,21 @@ check "the startup response is sent once negotiation completes" "$TMP/live.out" 
 # bytes moved.
 # ---------------------------------------------------------------------------
 
-mkfifo "$TMP/in2"
-sleep 30 > "$TMP/in2" &
-hold2=$!
+feed_mismatch_monitor() {
+    echo "ipl pause"
+    sleep 7
+    echo "stations"
+    sleep 1
+    echo "quit"
+}
 
-"$SIM36" -c "$TMP/printer.conf" -t ws < "$TMP/in2" > "$TMP/mismatch.out" 2>&1 &
+feed_mismatch_monitor | "$SIM36" -c "$TMP/printer.conf" -t ws > "$TMP/mismatch.out" 2>&1 &
 emu2=$!
 sleep 3
 # As above: construct the machine before the client arrives.
-echo "ipl pause" > "$TMP/in2" &
-sleep 2
-
 # IBM-3180-2 is in RFC 1205 section 2's display list, and 12394 is the printer.
-python3 "$TMP/client.py" 12394 1 IBM-3180-2 > /dev/null 2>&1 &
-mm=$!
-sleep 4
-{ echo "stations"; sleep 1; echo "quit"; } > "$TMP/in2" &
-sleep 3
-kill $hold2 $emu2 $mm 2>/dev/null || true
-wait $emu2 2>/dev/null || true
+python3 "$TMP/client.py" 12394 1 IBM-3180-2 > /dev/null 2>&1 || true
+wait "$emu2" 2>/dev/null || true
 
 check "a display client at a printer slot is REFUSED" "$TMP/mismatch.out" \
       "this endpoint is a printer station and the client announced TERMINAL-TYPE IBM-3180-2"
