@@ -33,7 +33,7 @@ cd "$(dirname "$0")/.."
 # shipped config already points at.
 
 cat > "$TMP/ipl.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME overlay
 trace csp
 ipl pause
@@ -192,7 +192,7 @@ printf '\377\377\377' > "$TMP/badhandle.bin"
 
 # 0x0E00 + 56 = 0x0E38, the handle field of the request block csipl built.
 cat > "$TMP/bad.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl pause
 loadfile $TMP/vectors.bin 0C00

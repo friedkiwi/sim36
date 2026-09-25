@@ -18,7 +18,7 @@ open(sys.argv[2], 'wb').write(bytes.fromhex('F400500A4000'))
 PY
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl pause
 loadfile $TMP/trb.bin 0C00

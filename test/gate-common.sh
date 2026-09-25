@@ -15,7 +15,15 @@ if [ ! -x "$SIM36" ]; then
   echo "SKIP: no sim36 executable at $SIM36 (set SIM36)"
   exit 77
 fi
+ROOT=$PWD
 TMP=$(mktemp -d)
+# CTest runs these POSIX shell gates through Git for Windows.  Paths embedded
+# in simulator command files are consumed by the native executable, so give
+# it Windows paths rather than MSYS /d/... paths.
+if command -v cygpath >/dev/null 2>&1; then
+  ROOT=$(cygpath -m "$ROOT")
+  TMP=$(cygpath -m "$TMP")
+fi
 trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 check() {   # check <name> <fixed-string pattern>

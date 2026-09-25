@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 
 snapshot="$TMP/machine.s36"
 cat >"$TMP/snapshot.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl
 wait idle 30

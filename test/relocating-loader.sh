@@ -28,7 +28,7 @@ python3 test/build-loader-vectors.py \
 . "$TMP/expected.sh"
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $TMP/vol.img rw
 ipl pause
 loadfile $TMP/vectors.bin 0C00

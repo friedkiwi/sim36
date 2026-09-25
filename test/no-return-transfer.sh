@@ -9,7 +9,7 @@ python3 test/build-no-return-transfer-vectors.py \
     "$TMP/blocks.bin" "$TMP/code.bin" "$TMP/target.bin"
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME overlay
 ipl pause
 loadfile $TMP/blocks.bin 0C00

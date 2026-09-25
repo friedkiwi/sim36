@@ -16,7 +16,7 @@ python3 test/build-print-vectors.py \
         "$TMP/blocks.bin" "$TMP/buffers.bin" "$TMP/program.bin"
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl pause
 loadfile $TMP/blocks.bin 4540

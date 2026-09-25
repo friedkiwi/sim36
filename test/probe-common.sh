@@ -1,7 +1,7 @@
 # Shared preamble for the probe gates: a command-file template (test/<name>.sim.in)
 # is instantiated into $TMP with @HERE@, @VOLUME@ and @TMP@ substituted, then run.
 . test/gate-common.sh
-here=$PWD
+here=$ROOT
 instantiate() {   # instantiate <name>  -> $TMP/<name>.sim
   sed "s#@HERE@#$here#g; s#@VOLUME@#$SIM36_VOLUME#g; s#@TMP@#$TMP#g" "test/$1.sim.in" > "$TMP/$1.sim"
 }

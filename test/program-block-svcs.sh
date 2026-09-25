@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 python3 test/build-program-block-vectors.py "$TMP/vectors.bin" "$TMP/program.bin"
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl pause
 loadfile $TMP/vectors.bin 0C00

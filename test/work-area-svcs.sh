@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 python3 test/build-work-area-vectors.py "$TMP/anchor.bin" "$TMP/vectors.bin" "$TMP/program.bin"
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 # NuTwaClearAction is part of allocation/deallocation, so this fixture needs a
 # writable device view. Overlay keeps the distribution image untouched.
 attach disk0 $SIM36_VOLUME overlay
@@ -208,7 +208,7 @@ check "33  ...and cites the extendHeap poster" 'the only poster is extendHeap'"'
 # getHeap applies at c18b8700.
 # ---------------------------------------------------------------------------
 cat > "$TMP/ipl.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME overlay
 ipl pause
 loadfile $TMP/program.bin 1000

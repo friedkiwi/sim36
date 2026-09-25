@@ -26,7 +26,7 @@ end=$(python3 test/build-action-vectors.py "$TMP/code.bin")
 
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME overlay
 ipl pause
 loadfile $TMP/code.bin 1000

@@ -26,7 +26,7 @@ python3 test/build-task-creation-vectors.py \
 # with no change in task-creation behaviour at all. So: run once to find the
 # addresses, then assert every byte-level fact against them.
 cat > "$TMP/discover.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME overlay
 ipl pause
 loadfile $TMP/blocks.bin 0C00
@@ -63,7 +63,7 @@ ace2lo=$(printf '%02x' $(( (0x$TASK2 + 160) % 256 )))
 tb2row=$(printf '%04X' $(( 0x$TASK2 + 0x10 )) | tr 'A-Z' 'a-z')
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME overlay
 ipl pause
 loadfile $TMP/blocks.bin 0C00

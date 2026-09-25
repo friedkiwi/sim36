@@ -34,7 +34,7 @@ run() {     # run <ipl_source> [ipl_type]
   # Attached `overlay`: each run is a fresh process, so the volume starts clean
   # every time without a scratch copy.
   cat > "$TMP/start.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 set machine ipl-type ${2:-unattend}
 set machine ipl-source $1
 attach disk0 $SIM36_VOLUME overlay

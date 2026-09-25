@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 python3 test/build-sqs-vectors.py "$TMP/program.bin"
 
 cat > "$TMP/run.sim" <<EOF
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl pause
 loadfile $TMP/program.bin 1000

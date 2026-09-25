@@ -15,7 +15,7 @@ python3 test/build-storage-vectors.py "$TMP/vectors.bin" "$TMP/program.bin"
 # The volume is pinned READ-ONLY: these vectors only read, and one of them
 # asserts that a put to a read-only volume is refused.
 cat > "$TMP/run.sim" <<EOS
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 ipl pause
 loadfile $TMP/vectors.bin 0C00

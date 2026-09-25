@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 . test/gate-common.sh
 
 cat > "$TMP/run.sim" <<EOS
-do $PWD/test/advanced36-nolisten.sim
+do $ROOT/test/advanced36-nolisten.sim
 attach disk0 $SIM36_VOLUME ro
 trace csp
 ipl pause
