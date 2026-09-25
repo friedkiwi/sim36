@@ -145,7 +145,7 @@ jobs:
         # Keep a wedged platform-specific test from consuming the runner for
         # hours.  The longest non-STARTREK gate is about one minute on Linux;
         # STARTREK has its own explicit 2500-second CTest timeout.
-        run: ctest --preset windows-static --timeout 120
+        run: ctest --preset windows-static --timeout 120 --stop-on-failure
       - name: Remove AS/36 test volume
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
