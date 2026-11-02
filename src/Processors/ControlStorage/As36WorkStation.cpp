@@ -39,7 +39,30 @@ bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock)
 {
     if (unitBlock == 0 || m_.readHalf(unitBlock) != WorkStationIob::kUnitBlockEyecatcher) return false;
     const bool completesRetainedRead = devices_.hasPendingInputForUnitBlock(unitBlock);
+
+    // Type-ahead.  With no read outstanding, a response is reported to the
+    // command router below as unsolicited input.  But when the station's
+    // owning job task is still running (it is between its Put and its next
+    // read), the key belongs to that program: a router wake here starts the
+    // command processor, whose #MGRE message panel is written over the
+    // program's screen.  Leave the record unreported; the caller keeps its
+    // attention, and the program's next read or response wait takes it
+    // through the retained-operation path.  Once the owner waits, the
+    // unsolicited report below proceeds as before.
+    if (!completesRetainedRead) {
+        const int owner = m_.readAddr24(unitBlock + devices::UnitBlock::kOffOwningJobTask);
+        if (owner != 0 && TaskBlock::isTaskBlock(m_, owner) && !TaskBlock::isWaiting(m_, owner)) {
+            if (typeAheadHeldTub_ != unitBlock)
+                trace_.csp("work-station input for TU {:06X} held as type-ahead: owning job task {:04X} is running and "
+                           "has not yet issued its read",
+                           unitBlock, owner);
+            typeAheadHeldTub_ = unitBlock;
+            return false;
+        }
+    }
+
     if (!devices_.tryDeliverInputStatus(unitBlock)) return false;
+    if (typeAheadHeldTub_ == unitBlock) typeAheadHeldTub_ = 0;
 
     // A response to an already-retained Put/Get or Read Input Fields has an
     // ACE of its own. completePendingWorkStationInput(), called immediately
@@ -1029,7 +1052,15 @@ bool As36ControlStorageProcessor::postTypedEventToTask(int taskBlock, uint16_t e
                unitBlock);
     bool ok = completeToTask(ace, 0, call);
     if (ok) {
-        restoreRegisters(currentRequestBlock_);
+        // Load the dispatched task's registers only when the MSP is parked.
+        // The host pump also delivers keystroke status at preemption points,
+        // with a task executing; completeToTask accepts the element even when
+        // the router is not in an event wait (it stays queued for the next
+        // SVC 02), and nothing is dispatched.  An unconditional reload then
+        // rewound the running task to its last request block - a level-5
+        // check at IAR 0000 under fast paging.  With the MSP running, a real
+        // dispatch has already swapped the live registers itself.
+        if (!inSupervisorCall_ && msp_ != nullptr && msp_->stopped()) restoreRegisters(currentRequestBlock_);
         enableDispatching(call, "typed-event resume");
     }
     return ok;

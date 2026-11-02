@@ -1,0 +1,375 @@
+diff --git a/src/Devices/DeviceSet.cpp b/src/Devices/DeviceSet.cpp
+index 433c76e..79dc5d3 100644
+--- a/src/Devices/DeviceSet.cpp
++++ b/src/Devices/DeviceSet.cpp
+@@ -608,7 +608,7 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
+     for (auto& p : pendingInputReads_.items()) {
+         const InputResponseStatus* status = inputResponseStatus_.find(p.second->slot->unitAddress());
+         if (status == nullptr || status->unitBlock != p.second->unitBlock) continue;
+-        if (p.second->slot->backend()->pendingInput() == 0) continue;
++        if (!p.second->slot->backend()->inputReadable()) continue;
+         int cmd = p.second->command;
+         if (cmd != 0x32 && cmd != 0x42) {
+             trace_.ws("  pending Read Input Fields IOB {:06X} command {:02X}: response retained; command 22 cursor/SBA "
+diff --git a/src/Devices/IWorkStationBackend.cpp b/src/Devices/IWorkStationBackend.cpp
+index a572d1c..56d24f8 100644
+--- a/src/Devices/IWorkStationBackend.cpp
++++ b/src/Devices/IWorkStationBackend.cpp
+@@ -37,6 +37,10 @@ bool VirtualWorkstationBackend::tryTakeInputFields(uint8_t command, std::vector<
+     return ws_.tryTakeInputFields(command, stream);
+ }
+ int VirtualWorkstationBackend::pendingInput() const { return ws_.pendingInput(); }
++bool VirtualWorkstationBackend::inputReadable() const
++{
++    return ws_.retainedDeviceInput() || (ws_.pendingWireInput() > 0 && !ws_.inputStatusPending());
++}
+ 
+ std::string VirtualPrinterBackend::name() const { return p_.id(); }
+ bool VirtualPrinterBackend::attached() const { return p_.attached(); }
+diff --git a/src/Devices/IWorkStationBackend.h b/src/Devices/IWorkStationBackend.h
+index 39e026b..d3200df 100644
+--- a/src/Devices/IWorkStationBackend.h
++++ b/src/Devices/IWorkStationBackend.h
+@@ -42,6 +42,9 @@ public:
+     virtual bool tryTakeInput(std::vector<uint8_t>& stream) = 0;
+     virtual bool tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream) = 0;
+     virtual int pendingInput() const = 0;
++    // Input a read may consume now: retained, or on the wire with its status
++    // already reported.
++    virtual bool inputReadable() const = 0;
+ };
+ 
+ // The printer's side of the seam.  Hand a data stream over verbatim, and
+@@ -88,6 +91,7 @@ public:
+     bool tryTakeInput(std::vector<uint8_t>& stream) override;
+     bool tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream) override;
+     int pendingInput() const override;
++    bool inputReadable() const override;
+ 
+ private:
+     VirtualWorkstation& ws_;
+diff --git a/src/Devices/VirtualWorkstation.cpp b/src/Devices/VirtualWorkstation.cpp
+index 37b8b2a..4bb689a 100644
+--- a/src/Devices/VirtualWorkstation.cpp
++++ b/src/Devices/VirtualWorkstation.cpp
+@@ -302,6 +302,9 @@ bool VirtualWorkstation::tryTakeInput(std::vector<uint8_t>& stream)
+ bool VirtualWorkstation::tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream)
+ {
+     const uint8_t responseMode = hasRetainedInput_ ? retainedReadMode_ : activeReadMode_;
++    // A wire record that superseded the one whose AID the guest was told
++    // about is not this read's answer until its own status has been reported.
++    if (!hasRetainedInput_ && backend_->inputStatusPending()) return false;
+     if (!tryTakeInput(stream)) return false;
+     retainedReadMode_ = 0;
+     if (command == 0x42 && responseMode != 0x21) {
+@@ -329,6 +332,10 @@ bool VirtualWorkstation::tryTakeInputStatus(uint16_t& cursor, uint8_t& aid)
+ bool VirtualWorkstation::tryCompleteInviteResponse()
+ {
+     std::vector<uint8_t> response;
++    // A keystroke that arrived after the reported one replaced it on the
++    // wire.  Claiming it now would pair its fields with the earlier AID and
++    // strand its own attention; it completes the invite once reported.
++    if (backend_->inputStatusPending()) return false;
+     if (!backend_->tryTakeInput(response)) return false;
+     bool superseded = hasRetainedInput_;
+     retainedDeviceInput_ = std::move(response);
+@@ -345,6 +352,7 @@ bool VirtualWorkstation::tryCompleteInviteResponse()
+ bool VirtualWorkstation::pendingInputHasFields() const { return backend_->pendingInputHasFields(); }
+ bool VirtualWorkstation::inviteResponsePending() const { return backend_->pendingInput() != 0; }
+ int VirtualWorkstation::pendingWireInput() const { return backend_->pendingInput(); }
++bool VirtualWorkstation::inputStatusPending() const { return backend_->inputStatusPending(); }
+ int VirtualWorkstation::pendingInput() const { return backend_->pendingInput() + (hasRetainedInput_ ? 1 : 0); }
+ 
+ bool VirtualWorkstation::beginSaveScreen()
+diff --git a/src/Devices/VirtualWorkstation.h b/src/Devices/VirtualWorkstation.h
+index bc37a76..18534c7 100644
+--- a/src/Devices/VirtualWorkstation.h
++++ b/src/Devices/VirtualWorkstation.h
+@@ -131,6 +131,7 @@ public:
+     bool retainedInputHasFields() const { return hasRetainedInput_ && retainedDeviceInput_.size() > 3; }
+     bool inviteResponsePending() const;
+     int pendingWireInput() const;
++    bool inputStatusPending() const;
+     bool retainedDeviceInput() const { return hasRetainedInput_; }
+     int pendingInput() const;
+     uint8_t savedReadMode() const { return inviteOutstanding_ ? activeReadMode_ : static_cast<uint8_t>(0); }
+diff --git a/src/Host/StationBackend.cpp b/src/Host/StationBackend.cpp
+index 8fe6487..477898e 100644
+--- a/src/Host/StationBackend.cpp
++++ b/src/Host/StationBackend.cpp
+@@ -674,6 +674,12 @@ bool WorkstationBackend::tryTakeInputStatus(uint16_t& cursor, uint8_t& aid)
+     return true;
+ }
+ 
++bool WorkstationBackend::inputStatusPending() const
++{
++    std::lock_guard<std::mutex> lock(gate_);
++    return !headStatusTaken_ && !inbound_.empty() && inbound_.front().data.size() >= 3;
++}
++
+ bool WorkstationBackend::tryReceive(WorkstationRecord& record)
+ {
+     std::lock_guard<std::mutex> lock(gate_);
+diff --git a/src/Host/StationBackend.h b/src/Host/StationBackend.h
+index dc0f79e..c80cc81 100644
+--- a/src/Host/StationBackend.h
++++ b/src/Host/StationBackend.h
+@@ -254,6 +254,10 @@ public:
+     bool pendingInputHasFields() const;
+     // Return cursor/AID from the head record once, without dequeuing it.
+     bool tryTakeInputStatus(uint16_t& cursor, uint8_t& aid);
++    // True while the head record carries a cursor/AID status that has not
++    // been reported yet.  Until it has, the record must not be consumed and
++    // its attention must not be dropped.
++    bool inputStatusPending() const;
+     // Take an out-of-band RFC 1205 Attention/System Request control.  These
+     // are not cursor/AID input and must never occupy the input-field park.
+     bool tryTakeUnsolicitedRequest(WorkstationRecordFlags& flags);
+diff --git a/src/Monitor/MonitorCli.h b/src/Monitor/MonitorCli.h
+index d1010e6..0380faa 100644
+--- a/src/Monitor/MonitorCli.h
++++ b/src/Monitor/MonitorCli.h
+@@ -172,7 +172,8 @@ private:
+     bool refuseWhileRunning(const char* verb);
+     static std::string exceptionMessage(const std::exception_ptr& e);
+     bool deliverPendingAttentions(processors::controlstorage::As36ControlStorageProcessor& csp);
+-    bool deliverPendingInputStatuses(processors::controlstorage::As36ControlStorageProcessor& csp);
++    bool deliverPendingInputStatuses(processors::controlstorage::As36ControlStorageProcessor& csp,
++                                     bool* wokeGuest = nullptr);
+     bool powerOffStation(processors::controlstorage::As36ControlStorageProcessor& csp, devices::VirtualWorkstation& s);
+     void resetHostEventState();
+ 
+diff --git a/src/Monitor/MonitorCliLive.cpp b/src/Monitor/MonitorCliLive.cpp
+index ad9d2ac..22e7a60 100644
+--- a/src/Monitor/MonitorCliLive.cpp
++++ b/src/Monitor/MonitorCliLive.cpp
+@@ -344,8 +344,16 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
+                 if (liveStopRequested_.load()) break;
+                 armPendingMemberBreaks();
+                 recordWorkstationNativeState("preemption");
+-                const bool inputStatusWork = deliverPendingInputStatuses(*csp);
++                bool inputStatusWoke = false;
++                const bool inputStatusWork = deliverPendingInputStatuses(*csp, &inputStatusWoke);
+                 const bool inputCompletionWork = csp->completePendingWorkStationInput();
++                // A status whose retained read could not complete yet woke
++                // nothing (see the idle boundary below); never restart a
++                // stopped MSP for it.
++                if (inputStatusWork && !inputStatusWoke && !inputCompletionWork && m_.msp().stopped()) {
++                    csp->signalNewWork("work-station input status");
++                    continue;
++                }
+                 if (inputStatusWork || inputCompletionWork || deliverPendingAttentions(*csp)) {
+                     // Every enqueue raises the new-work flag.
+                     csp->signalNewWork("host event at preemption point");
+@@ -403,13 +411,21 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
+         // One real response is consumed in reference order: first its
+         // one-shot status half into the unit block, then (if the guest has
+         // issued a decoded 32/42 read) its retained SVC-43 action.
+-        const bool idleInputStatusWork = deliverPendingInputStatuses(*csp);
++        bool idleInputStatusWoke = false;
++        const bool idleInputStatusWork = deliverPendingInputStatuses(*csp, &idleInputStatusWoke);
+         const bool idleInputCompletionWork = csp->completePendingWorkStationInput();
+-        if (idleInputStatusWork || idleInputCompletionWork) {
++        if (idleInputStatusWoke || idleInputCompletionWork) {
+             csp->signalNewWork("work-station input completion");
+             m_.msp().start();
+             continue;
+         }
++        // A status reported for a retained read posts nothing itself: the
++        // read's completion is the wake.  When a newer keystroke superseded
++        // that status before the completion could run, nothing is dispatched,
++        // and starting the MSP would resume it from stale registers.  Leave
++        // it stopped and take another pass: the newer keystroke's status and
++        // the completion follow.
++        if (idleInputStatusWork) continue;
+         if (!wsContractTraceStation_.empty()) wsContractSnapshot(wsContractTraceStation_, "driver-idle");
+         if (deliverPendingAttentions(*csp)) {
+             csp->signalNewWork("work-station attention");
+@@ -533,10 +549,12 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
+                 !csp.idleEventWait())
+                 continue;
+ 
++            bool boundThisPass = false;
+             if (configuredTub != 0 && !csp.isM36WorkStationTransferReady(configuredTub, autoSignOn)) {
+                 bool bindPending = false;
+                 if (csp.beginM36WorkStationTransfer(configuredTub, autoSignOn, !pendingWsEntryUnits_.empty(),
+                                                     "station " + s.id() + " negotiated-session bind", bindPending)) {
++                    boundThisPass = !bindPending;
+                     if (bindPending) {
+                         fmt::print("station {}: session waiting for workstation controller ({} request(s) ahead)\n",
+                                    s.id(), pendingWsEntryUnits_.size());
+@@ -548,14 +566,18 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
+                 s.tubAddress != configuredTub) {
+                 if (nativeSlot != nullptr) nativeSlot->bindTransferRenderer();
+                 s.tubAddress = configuredTub;
++                boundThisPass = true;
+                 fmt::print("station {}: session bound to TU {:06X}\n", s.id(), configuredTub);
+             }
+ 
+             // The action-0 response can run the dispatcher immediately and
+             // dispatch a real SSP task while the MSP still carries the stop
+             // latch from the preceding no-task exit.  This applies to the
+-            // console as well as ordinary stations.
+-            any = any || csp.lastM36WorkStationTransferPostedGuestWork();
++            // console as well as ordinary stations.  The flag describes the
++            // last bind, not this pass: a keystroke on a long-bound station
++            // must not read it, or every pass restarts a stopped MSP with no
++            // task dispatched (stale registers, a level-5 SRC at IAR 0000).
++            if (boundThisPass) any = any || csp.lastM36WorkStationTransferPostedGuestWork();
+ 
+             // Action 0 binds the native display and calls its power-on
+             // virtual.  Its ordinary response tail scans the native
+@@ -563,6 +585,10 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
+             // the resulting BA.20 activation status.  FF is not a guest IOB
+             // and no guest Invite is a prerequisite here.
+             if (!s.isConsole() && configuredTub != 0 && s.tubAddress == configuredTub) {
++                // On a bound station a keystroke whose AID has not reached the
++                // guest is input, not a bind: deliverPendingInputStatuses()
++                // owns its latch and retries it on the next pass.
++                if (s.inputStatusPending()) continue;
+                 s.takeAttentionPending();
+                 fmt::print("station {}: bind/powerOn complete for TU {:06X}\n", s.id(), configuredTub);
+                 // Binding alone is not a guest attention.  But action 0's
+@@ -662,9 +688,14 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
+                        "to router task {:04X}\n", s.id(), tub, unit,
+                        processors::controlstorage::GuestLowStorage::kTaskBlock);
+             any = true;
++        } else if (s.inputStatusPending()) {
++            // A keystroke not yet reported to the guest (its unit block may be
++            // momentarily off the shared queue).  Dropping the latch here would
++            // strand it; the status path retries it on the next pass.
++            continue;
+         } else if (s.takeAttentionPending()) {
+-            fmt::print("station {}: I/O attention, but no producer-wired owner task (only the console is wired "
+-                       "today; ws_interactive is off) - ignored\n", s.id());
++            fmt::print("station {}: I/O attention with no unreported input and no owner task to deliver it to "
++                       "(ws_interactive is off) - ignored\n", s.id());
+         }
+     }
+     return any;
+@@ -673,15 +704,18 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
+ // Deliver the byte-exact status half of queued terminal responses.  The
+ // later retained Read uses the same record's field half and its
+ // already-owned SVC-43 element.
+-bool MonitorCli::deliverPendingInputStatuses(As36ControlStorageProcessor& csp)
++bool MonitorCli::deliverPendingInputStatuses(As36ControlStorageProcessor& csp, bool* wokeGuest)
+ {
+     bool posted = false;
++    if (wokeGuest != nullptr) *wokeGuest = false;
+     for (auto& sp : m_.stations()) {
+         devices::VirtualWorkstation& s = *sp;
+         if (s.isPrinter() || s.tubAddress == 0 || !s.attentionPending()) continue;
+-        if (csp.deliverWorkStationInputStatus(s.tubAddress)) {
++        bool woke = false;
++        if (csp.deliverWorkStationInputStatus(s.tubAddress, &woke)) {
+             s.takeAttentionPending();
+             posted = true;
++            if (wokeGuest != nullptr && woke) *wokeGuest = true;
+         }
+     }
+     return posted;
+diff --git a/src/Processors/ControlStorage/As36WorkStation.cpp b/src/Processors/ControlStorage/As36WorkStation.cpp
+index f0088fd..fa7cc3f 100644
+--- a/src/Processors/ControlStorage/As36WorkStation.cpp
++++ b/src/Processors/ControlStorage/As36WorkStation.cpp
+@@ -35,8 +35,9 @@ bool As36ControlStorageProcessor::observePendingDeviceInput()
+     return devices_.tryFindPendingInput(iob) && pendingDeviceAces_.count(iob) != 0;
+ }
+ 
+-bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock)
++bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock, bool* wokeGuest)
+ {
++    if (wokeGuest != nullptr) *wokeGuest = false;
+     if (unitBlock == 0 || m_.readHalf(unitBlock) != WorkStationIob::kUnitBlockEyecatcher) return false;
+     const bool completesRetainedRead = devices_.hasPendingInputForUnitBlock(unitBlock);
+     if (!devices_.tryDeliverInputStatus(unitBlock)) return false;
+@@ -62,6 +63,7 @@ bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock)
+         trace_.csp("work-station input status reached TU {:06X}, but command-router task {:04X} is not present; status "
+                    "remains in the TU for SSP to inspect",
+                    unitBlock, kConsoleOwnerTaskId);
++        if (wokeGuest != nullptr) *wokeGuest = true;   // unchanged: the driver has always resumed here
+         return true;
+     }
+ 
+@@ -69,6 +71,7 @@ bool As36ControlStorageProcessor::deliverWorkStationInputStatus(int unitBlock)
+                                                 "work-station input status");
+     trace_.csp("work-station input status: TU {:06X} -> command-router task {:04X}, event {:04X} ({})",
+                unitBlock, owner, kWorkStationDeviceStatusEvent, accepted ? "accepted" : "not accepted");
++    if (wokeGuest != nullptr) *wokeGuest = true;
+     return true;
+ }
+ 
+diff --git a/src/Processors/ControlStorage/As36WorkStation.members.inc b/src/Processors/ControlStorage/As36WorkStation.members.inc
+index c4a777f..fb24f61 100644
+--- a/src/Processors/ControlStorage/As36WorkStation.members.inc
++++ b/src/Processors/ControlStorage/As36WorkStation.members.inc
+@@ -13,8 +13,10 @@ public:
+     // Observe a transport response behind a controller-owned action without
+     // consuming it.
+     bool observePendingDeviceInput();
+-    // Apply the status half of a real terminal response; posts no task event.
+-    bool deliverWorkStationInputStatus(int unitBlock);
++    // Apply the status half of a real terminal response.  *wokeGuest says
++    // whether it posted the command router; a status for a retained read
++    // leaves the wake to that read's completion.
++    bool deliverWorkStationInputStatus(int unitBlock, bool* wokeGuest = nullptr);
+     // Complete a retained work-station action through its own SVC-43 element.
+     bool completePendingWorkStationInput();
+     // Retained printer output completes when the guest gives the processor
+diff --git a/tests/VirtualWorkstationTests.cpp b/tests/VirtualWorkstationTests.cpp
+index faff3fc..85f6dfa 100644
+--- a/tests/VirtualWorkstationTests.cpp
++++ b/tests/VirtualWorkstationTests.cpp
+@@ -49,6 +49,9 @@ TEST_CASE("workstation: Controller Text Assist selects and preserves the D932 re
+     };
+     terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None,
+                                                   response));
++    uint16_t cursor = 0;
++    uint8_t aid = 0;
++    REQUIRE(station.tryTakeInputStatus(cursor, aid));
+     REQUIRE(station.tryCompleteInviteResponse());
+     std::vector<uint8_t> copied;
+     REQUIRE(station.tryTakeInputFields(0x42, copied));
+@@ -76,6 +79,42 @@ TEST_CASE("workstation: Text Assist family tables do not falsely enter WP mode")
+     CHECK(station.inviteReadMode() == devices::PutWithInviteReadMode::ReadInputFields20);
+ }
+ 
++TEST_CASE("workstation: a keystroke that supersedes a reported one is not read until its own status is reported")
++{
++    monitor::Tracer trace;
++    host::WorkstationBackend terminal("127.0.0.1", 0, "test station", &trace, [] {});
++    terminal.attachConsole();
++    configuration::StationConfig config;
++    devices::VirtualWorkstation station(config, terminal, trace, false);
++    REQUIRE(station.invite());
++
++    // Roll Up is reported to the guest; before the invite completes, a
++    // second Roll Up replaces it in the one-record park.
++    const std::vector<uint8_t> first = {0x01, 0x01, 0xF4};
++    const std::vector<uint8_t> second = {0x02, 0x02, 0xF4};
++    terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None, first));
++    uint16_t cursor = 0;
++    uint8_t aid = 0;
++    REQUIRE(station.tryTakeInputStatus(cursor, aid));
++    CHECK(cursor == 0x0101);
++    terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None, second));
++
++    // Its attention must survive and the invite must not claim it yet: doing
++    // so would pair the second record with the first record's status.
++    CHECK(terminal.attentionPending());
++    CHECK(station.inputStatusPending());
++    CHECK_FALSE(station.tryCompleteInviteResponse());
++    std::vector<uint8_t> copied;
++    CHECK_FALSE(station.tryTakeInputFields(0x32, copied));
++
++    REQUIRE(station.tryTakeInputStatus(cursor, aid));
++    CHECK(cursor == 0x0202);
++    CHECK_FALSE(station.inputStatusPending());
++    REQUIRE(station.tryCompleteInviteResponse());
++    REQUIRE(station.tryTakeInputFields(0x32, copied));
++    CHECK(copied == second);
++}
++
+ TEST_CASE("workstation: DP invite establishes Read MDT and control keys bypass field input")
+ {
+     monitor::Tracer trace;

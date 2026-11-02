@@ -608,7 +608,7 @@ bool DeviceSet::tryCompletePendingInput(int& completedIob)
     for (auto& p : pendingInputReads_.items()) {
         const InputResponseStatus* status = inputResponseStatus_.find(p.second->slot->unitAddress());
         if (status == nullptr || status->unitBlock != p.second->unitBlock) continue;
-        if (p.second->slot->backend()->pendingInput() == 0) continue;
+        if (!p.second->slot->backend()->inputReadable()) continue;
         int cmd = p.second->command;
         if (cmd != 0x32 && cmd != 0x42) {
             trace_.ws("  pending Read Input Fields IOB {:06X} command {:02X}: response retained; command 22 cursor/SBA "

@@ -131,6 +131,7 @@ public:
     bool retainedInputHasFields() const { return hasRetainedInput_ && retainedDeviceInput_.size() > 3; }
     bool inviteResponsePending() const;
     int pendingWireInput() const;
+    bool inputStatusPending() const;
     bool retainedDeviceInput() const { return hasRetainedInput_; }
     int pendingInput() const;
     uint8_t savedReadMode() const { return inviteOutstanding_ ? activeReadMode_ : static_cast<uint8_t>(0); }

@@ -674,6 +674,12 @@ bool WorkstationBackend::tryTakeInputStatus(uint16_t& cursor, uint8_t& aid)
     return true;
 }
 
+bool WorkstationBackend::inputStatusPending() const
+{
+    std::lock_guard<std::mutex> lock(gate_);
+    return !headStatusTaken_ && !inbound_.empty() && inbound_.front().data.size() >= 3;
+}
+
 bool WorkstationBackend::tryReceive(WorkstationRecord& record)
 {
     std::lock_guard<std::mutex> lock(gate_);

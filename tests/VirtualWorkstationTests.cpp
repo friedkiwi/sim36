@@ -49,6 +49,9 @@ TEST_CASE("workstation: Controller Text Assist selects and preserves the D932 re
     };
     terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None,
                                                   response));
+    uint16_t cursor = 0;
+    uint8_t aid = 0;
+    REQUIRE(station.tryTakeInputStatus(cursor, aid));
     REQUIRE(station.tryCompleteInviteResponse());
     std::vector<uint8_t> copied;
     REQUIRE(station.tryTakeInputFields(0x42, copied));
@@ -74,6 +77,42 @@ TEST_CASE("workstation: Text Assist family tables do not falsely enter WP mode")
     const std::vector<uint8_t> audit = {0x04, 0xF3, 0x00, 0x08, 0xD9, 0x30, 0xD9, 0x34, 0x00, 0x00};
     REQUIRE(station.outputData(audit.data(), 0, static_cast<int>(audit.size())));
     CHECK(station.inviteReadMode() == devices::PutWithInviteReadMode::ReadInputFields20);
+}
+
+TEST_CASE("workstation: a keystroke that supersedes a reported one is not read until its own status is reported")
+{
+    monitor::Tracer trace;
+    host::WorkstationBackend terminal("127.0.0.1", 0, "test station", &trace, [] {});
+    terminal.attachConsole();
+    configuration::StationConfig config;
+    devices::VirtualWorkstation station(config, terminal, trace, false);
+    REQUIRE(station.invite());
+
+    // Roll Up is reported to the guest; before the invite completes, a
+    // second Roll Up replaces it in the one-record park.
+    const std::vector<uint8_t> first = {0x01, 0x01, 0xF4};
+    const std::vector<uint8_t> second = {0x02, 0x02, 0xF4};
+    terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None, first));
+    uint16_t cursor = 0;
+    uint8_t aid = 0;
+    REQUIRE(station.tryTakeInputStatus(cursor, aid));
+    CHECK(cursor == 0x0101);
+    terminal.injectInput(host::WorkstationRecord(host::WorkstationOpcode::PutGet, host::WorkstationRecordFlags::None, second));
+
+    // Its attention must survive and the invite must not claim it yet: doing
+    // so would pair the second record with the first record's status.
+    CHECK(terminal.attentionPending());
+    CHECK(station.inputStatusPending());
+    CHECK_FALSE(station.tryCompleteInviteResponse());
+    std::vector<uint8_t> copied;
+    CHECK_FALSE(station.tryTakeInputFields(0x32, copied));
+
+    REQUIRE(station.tryTakeInputStatus(cursor, aid));
+    CHECK(cursor == 0x0202);
+    CHECK_FALSE(station.inputStatusPending());
+    REQUIRE(station.tryCompleteInviteResponse());
+    REQUIRE(station.tryTakeInputFields(0x32, copied));
+    CHECK(copied == second);
 }
 
 TEST_CASE("workstation: DP invite establishes Read MDT and control keys bypass field input")

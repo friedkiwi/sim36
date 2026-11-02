@@ -302,6 +302,9 @@ bool VirtualWorkstation::tryTakeInput(std::vector<uint8_t>& stream)
 bool VirtualWorkstation::tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream)
 {
     const uint8_t responseMode = hasRetainedInput_ ? retainedReadMode_ : activeReadMode_;
+    // A wire record that superseded the one whose AID the guest was told
+    // about is not this read's answer until its own status has been reported.
+    if (!hasRetainedInput_ && backend_->inputStatusPending()) return false;
     if (!tryTakeInput(stream)) return false;
     retainedReadMode_ = 0;
     if (command == 0x42 && responseMode != 0x21) {
@@ -329,6 +332,10 @@ bool VirtualWorkstation::tryTakeInputStatus(uint16_t& cursor, uint8_t& aid)
 bool VirtualWorkstation::tryCompleteInviteResponse()
 {
     std::vector<uint8_t> response;
+    // A keystroke that arrived after the reported one replaced it on the
+    // wire.  Claiming it now would pair its fields with the earlier AID and
+    // strand its own attention; it completes the invite once reported.
+    if (backend_->inputStatusPending()) return false;
     if (!backend_->tryTakeInput(response)) return false;
     bool superseded = hasRetainedInput_;
     retainedDeviceInput_ = std::move(response);
@@ -345,6 +352,7 @@ bool VirtualWorkstation::tryCompleteInviteResponse()
 bool VirtualWorkstation::pendingInputHasFields() const { return backend_->pendingInputHasFields(); }
 bool VirtualWorkstation::inviteResponsePending() const { return backend_->pendingInput() != 0; }
 int VirtualWorkstation::pendingWireInput() const { return backend_->pendingInput(); }
+bool VirtualWorkstation::inputStatusPending() const { return backend_->inputStatusPending(); }
 int VirtualWorkstation::pendingInput() const { return backend_->pendingInput() + (hasRetainedInput_ ? 1 : 0); }
 
 bool VirtualWorkstation::beginSaveScreen()

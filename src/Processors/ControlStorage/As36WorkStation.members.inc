@@ -138,6 +138,8 @@ private:
     int pendingTransferredWorkStationTub_ = 0;
     bool pendingTransferAutoSignOn_ = false;
     bool lastM36WorkStationTransferPostedGuestWork_ = false;
+    // The TU whose type-ahead is being held, so the hold is traced once.
+    int typeAheadHeldTub_ = 0;
     int pendingCnfwsPowerOnTub_ = 0;
     // Retained for checkpoint compatibility; new runs leave them zero.
     int wsDeviceStatusPending_ = 0;
