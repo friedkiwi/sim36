@@ -318,6 +318,13 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
     long long total = 0;
     const bool hasDeadline = pollSeconds > 0;
     const clock::time_point deadline = hasDeadline ? clock::now() + std::chrono::seconds(pollSeconds) : clock::time_point::max();
+    // Host work restarts the MSP only when a task is dispatched to run on it;
+    // a stopped MSP at the no-task exit holds no runnable register state.
+    auto resumeAfterHostWork = [&](const char* why) {
+        if (!csp->prepareResumeFromIdle(why)) return false;
+        m_.msp().start();
+        return true;
+    };
     while (total < cap) {
         while (total < cap && m_.msp().step()) {
             total++;
@@ -357,8 +364,9 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
                     // already resumes after the same native completion; do so
                     // here as well.  Otherwise a real listener attach requires
                     // an unrelated manual `start` before the guest can consume
-                    // its F7.
-                    m_.msp().start();
+                    // its F7.  When the MSP is stopped at that exit, only a
+                    // dispatched task may resume it.
+                    resumeAfterHostWork("host event at preemption point");
                     continue;
                 }
                 // Do not let a few tens of thousands of interpreted
@@ -390,15 +398,14 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
         // A deferred configure power-on AID is released here: the guest has
         // reached its all-tasks-waiting boundary, i.e. it is ready to
         // receive the wake a slow real device would only now be delivering.
-        if (csp->flushDeferredCnfwsPowerOnAid()) {
-            m_.msp().start();
-            continue;
-        }
+        // Each arm below resumes only through resumeAfterHostWork(): work
+        // that dispatched nothing falls through to the next arm and, in the
+        // end, to the native-event wait.
+        if (csp->flushDeferredCnfwsPowerOnAid() && resumeAfterHostWork("deferred cnfws power-on AID")) continue;
         int expiredTimers = 0;
         if (csp->serviceDueNativeTimers(expiredTimers)) {
             csp->signalNewWork("native timer expiry");
-            m_.msp().start();
-            continue;
+            if (resumeAfterHostWork("native timer expiry")) continue;
         }
         // One real response is consumed in reference order: first its
         // one-shot status half into the unit block, then (if the guest has
@@ -407,15 +414,13 @@ long long MonitorCli::driveMachine(As36ControlStorageProcessor* csp, long long c
         const bool idleInputCompletionWork = csp->completePendingWorkStationInput();
         if (idleInputStatusWork || idleInputCompletionWork) {
             csp->signalNewWork("work-station input completion");
-            m_.msp().start();
-            continue;
+            if (resumeAfterHostWork("work-station input completion")) continue;
         }
         if (!wsContractTraceStation_.empty()) wsContractSnapshot(wsContractTraceStation_, "driver-idle");
         if (deliverPendingAttentions(*csp)) {
             csp->signalNewWork("work-station attention");
             if (!wsContractTraceStation_.empty()) wsContractSnapshot(wsContractTraceStation_, "attention-delivered");
-            m_.msp().start();
-            continue;
+            if (resumeAfterHostWork("work-station attention")) continue;
         }
         if (pollSeconds == 0 || (hasDeadline && clock::now() >= deadline)) break;
         int waitMilliseconds = -1;
@@ -533,10 +538,12 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
                 !csp.idleEventWait())
                 continue;
 
+            bool boundThisPass = false;
             if (configuredTub != 0 && !csp.isM36WorkStationTransferReady(configuredTub, autoSignOn)) {
                 bool bindPending = false;
                 if (csp.beginM36WorkStationTransfer(configuredTub, autoSignOn, !pendingWsEntryUnits_.empty(),
                                                     "station " + s.id() + " negotiated-session bind", bindPending)) {
+                    boundThisPass = !bindPending;
                     if (bindPending) {
                         fmt::print("station {}: session waiting for workstation controller ({} request(s) ahead)\n",
                                    s.id(), pendingWsEntryUnits_.size());
@@ -548,14 +555,17 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
                 s.tubAddress != configuredTub) {
                 if (nativeSlot != nullptr) nativeSlot->bindTransferRenderer();
                 s.tubAddress = configuredTub;
+                boundThisPass = true;
                 fmt::print("station {}: session bound to TU {:06X}\n", s.id(), configuredTub);
             }
 
             // The action-0 response can run the dispatcher immediately and
             // dispatch a real SSP task while the MSP still carries the stop
             // latch from the preceding no-task exit.  This applies to the
-            // console as well as ordinary stations.
-            any = any || csp.lastM36WorkStationTransferPostedGuestWork();
+            // console as well as ordinary stations.  The flag describes the
+            // last bind, not this pass, so a keystroke on a long-bound
+            // station must not read it.
+            if (boundThisPass) any = any || csp.lastM36WorkStationTransferPostedGuestWork();
 
             // Action 0 binds the native display and calls its power-on
             // virtual.  Its ordinary response tail scans the native
@@ -563,6 +573,10 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
             // the resulting BA.20 activation status.  FF is not a guest IOB
             // and no guest Invite is a prerequisite here.
             if (!s.isConsole() && configuredTub != 0 && s.tubAddress == configuredTub) {
+                // On a bound station a keystroke whose AID has not reached the
+                // guest is input, not a bind: deliverPendingInputStatuses()
+                // owns its latch and retries it on the next pass.
+                if (s.inputStatusPending()) continue;
                 s.takeAttentionPending();
                 fmt::print("station {}: bind/powerOn complete for TU {:06X}\n", s.id(), configuredTub);
                 // Binding alone is not a guest attention.  But action 0's
@@ -662,9 +676,14 @@ bool MonitorCli::deliverPendingAttentions(As36ControlStorageProcessor& csp)
                        "to router task {:04X}\n", s.id(), tub, unit,
                        processors::controlstorage::GuestLowStorage::kTaskBlock);
             any = true;
+        } else if (s.inputStatusPending()) {
+            // A keystroke not yet reported to the guest (its unit block may be
+            // momentarily off the shared queue).  Dropping the latch here would
+            // strand it; the status path retries it on the next pass.
+            continue;
         } else if (s.takeAttentionPending()) {
-            fmt::print("station {}: I/O attention, but no producer-wired owner task (only the console is wired "
-                       "today; ws_interactive is off) - ignored\n", s.id());
+            fmt::print("station {}: I/O attention with no unreported input and no owner task to deliver it to "
+                       "(ws_interactive is off) - ignored\n", s.id());
         }
     }
     return any;

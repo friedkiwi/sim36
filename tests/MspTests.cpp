@@ -278,3 +278,126 @@ TEST_CASE("msp: a protected page is a level 5 interrupt, and an unmapped survivo
     CHECK(m.readByte(0x8000 + 0x7FE) == 0);
     CHECK(m.readByte(0x8000 + 0x7FF) == 0);
 }
+
+TEST_CASE("msp: soft stop follows only a change of flow (SY31-9035 T20D5)")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    const uint8_t code[] = {
+        0x38, 0x01, 0x20, 0x00,         // 1000 TBN  - not a stop point
+        0xF2, 0x81, 0x04,               // 1004 JC on Equal, not taken (PSR is High)
+        0xF2, 0x84, 0x02,               // 1007 JC on High, taken to 100C
+        0x00, 0x00,
+        0xC2, 0x01, 0x12, 0x34,         // 100C LA XR1 - not a stop point
+        0xC2, 0x10, 0x10, 0x20,         // 1010 LA IAR - a branch, a stop point
+    };
+    m.write(0x1000, code, sizeof code);
+    m.msp.loadPsr(0x04);
+    m.msp.iar = 0x1000;
+
+    // The emulator's host-work boundary is broader: each of these is one.
+    REQUIRE(msp.step());
+    CHECK(msp.atPreemptionPoint());
+    CHECK_FALSE(msp.atSoftStopPoint());
+    REQUIRE(msp.step());
+    CHECK(m.msp.iar == 0x1007);
+    CHECK(msp.atPreemptionPoint());
+    CHECK_FALSE(msp.atSoftStopPoint());
+    REQUIRE(msp.step());
+    CHECK(m.msp.iar == 0x100C);
+    CHECK(msp.atSoftStopPoint());
+    REQUIRE(msp.step());
+    CHECK(m.msp.xr1 == 0x1234);
+    CHECK(msp.atPreemptionPoint());
+    CHECK_FALSE(msp.atSoftStopPoint());
+    REQUIRE(msp.step());
+    CHECK(m.msp.iar == 0x1020);
+    CHECK(msp.atSoftStopPoint());
+}
+
+TEST_CASE("msp: a PACT load in problem state is a storage exception")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    // L A1 from the 3-byte field ending at 2002, then LPMR.
+    const uint8_t code[] = {0x35, 0xA1, 0x20, 0x02, 0xF6, 0x00, 0x00};
+    const uint8_t field[] = {0x05, 0x12, 0x34};
+    m.write(0x1000, code, sizeof code);
+    m.write(0x2000, field, sizeof field);
+
+    m.msp.setPmr(0x01);                 // not privileged
+    m.msp.iar = 0x1000;
+    CHECK_FALSE(msp.step());            // the test CSP has no task to dispatch
+    CHECK(msp.stopped());
+    CHECK(msp.stopReason().find("level 5 interrupt") != std::string::npos);
+    CHECK(m.msp.pactXr1 == 0);
+    CHECK(m.msp.xr1 == 0);
+
+    msp.start();
+    m.msp.iar = 0x1004;
+    CHECK_FALSE(msp.step());
+    CHECK(msp.stopReason().find("level 5 interrupt") != std::string::npos);
+    CHECK(m.msp.pmr() == 0x01);
+
+    msp.start();
+    m.msp.setPmr(0x00);                 // privileged: the load happens
+    m.msp.iar = 0x1000;
+    REQUIRE(msp.step());
+    CHECK(m.msp.pactXr1 == 0x05);
+    CHECK(m.msp.xr1 == 0x1234);
+}
+
+TEST_CASE("msp: ED sets the status byte only under SY31-9035's conditions")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    const uint8_t code[] = {0x0A, 0x02, 0x20, 0x02, 0x20, 0x11};   // ED op1 2000-2002, op2 ends 2011
+    const uint8_t zero[] = {0xF0, 0xF0};
+    m.write(0x1000, code, sizeof code);
+    m.write(0x2010, zero, sizeof zero);
+
+    // Low-order byte of operand 1 is not 20, operand 2 is zero, Equal off:
+    // the PSR is unchanged.
+    const uint8_t maskA[] = {0x20, 0x20, 0x5C};
+    m.write(0x2000, maskA, sizeof maskA);
+    m.msp.loadPsr(0x02);
+    m.msp.iar = 0x1000;
+    REQUIRE(msp.step());
+    CHECK(m.readByte(0x2000) == 0xF0);
+    CHECK(m.msp.psr() == 0x02);
+
+    // Low-order byte of operand 1 is 20: the status byte says operand 2 is zero.
+    const uint8_t maskB[] = {0x40, 0x20, 0x20};
+    m.write(0x2000, maskB, sizeof maskB);
+    m.msp.loadPsr(0x02);
+    m.msp.iar = 0x1000;
+    REQUIRE(msp.step());
+    CHECK(m.msp.psr() == 0x01);
+}
+
+TEST_CASE("msp: every instruction byte is translated through PIAR on its own")
+{
+    machine::MachineState m(64 * 1024);
+    monitor::Tracer t;
+    RefusingCsp csp(m, t);
+    MainStorageProcessor& msp = csp.mainStorage();
+    // MVI $2000 at logical 07FE straddles logical pages 0 and 1, which map
+    // to frames 2 (real 1000) and 5 (real 2800): not adjacent.
+    m.atr[machine::MachineState::kAtrTaskGroup0 + 0] = 0x0002;
+    m.atr[machine::MachineState::kAtrTaskGroup0 + 1] = 0x0005;
+    m.writeByte(0x17FE, 0x3C);
+    m.writeByte(0x17FF, 0x5A);
+    m.writeByte(0x2800, 0x20);
+    m.writeByte(0x2801, 0x00);
+    m.msp.pactIar = 0x80;
+    m.msp.iar = 0x07FE;
+    REQUIRE(msp.step());
+    CHECK(m.readByte(0x2000) == 0x5A);
+    CHECK(m.msp.iar == 0x0802);
+}

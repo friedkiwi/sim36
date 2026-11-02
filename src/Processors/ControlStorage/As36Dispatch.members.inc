@@ -105,6 +105,7 @@
     void readyPendingAsyncChildren(const std::string& call);
     bool waitAndDispatch(int tb, const std::string& call);
     bool idleEventWait() const { return idleEventWait_; }
+    bool prepareResumeFromIdle(const std::string& call);
     void signalNewWork(const std::string& call);
     void enableDispatching(const std::string& call, const std::string& site);
 

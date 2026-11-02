@@ -152,7 +152,7 @@ void MainStorageProcessor::reset()
     m_.msp.reset();
     stopped_ = false;
     stopReason_.clear();
-    atPreemptionPoint_ = true;
+    atPreemptionPoint_ = atSoftStopPoint_ = true;
     instructions_ = 0;
 }
 
@@ -162,7 +162,7 @@ void MainStorageProcessor::restoreCheckpoint(bool stopped, const std::string& re
     stopped_ = stopped;
     stopReason_ = reason;
     instructions_ = instructions;
-    atPreemptionPoint_ = atPreemptionPoint;
+    atPreemptionPoint_ = atSoftStopPoint_ = atPreemptionPoint;
     iarWritten_ = false;
     haveResumePastBreak_ = false;
     lastBreakpointDescription_.clear();
@@ -203,7 +203,7 @@ std::string MainStorageProcessor::protectionStop() const
 bool MainStorageProcessor::recoverProtection()
 {
     if (csp_.raiseStorageProtection(protectionFault_.address, protectionFault_.forWrite)) {
-        atPreemptionPoint_ = true;   // a task switch is an architected preemption point
+        atPreemptionPoint_ = atSoftStopPoint_ = true;   // a task switch is an architected preemption point
         return true;
     }
     stop(protectionStop());
@@ -221,27 +221,30 @@ bool MainStorageProcessor::finishAbort()
 
 // ---- decode ----------------------------------------------------------------
 
-int MainStorageProcessor::readWidth(int addr, int width)
-{
-    return width == 2 ? m_.readHalf(addr) : m_.readByte(addr);
-}
-
 Instruction MainStorageProcessor::decode(int address)
 {
+    return decodeFrom(address, [this, address](int offset) { return m_.readByte(address + offset); });
+}
+
+Instruction MainStorageProcessor::decodeFrom(int address, const std::function<uint8_t(int)>& byteAt)
+{
     Instruction insn;
-    const uint8_t opcode = m_.readByte(address);
-    const uint8_t q = m_.readByte(address + 1);
-    const int rByte = InstructionSet::isSvc(opcode) ? m_.readByte(address + 2) : -1;
+    const uint8_t opcode = byteAt(0);
+    const uint8_t q = byteAt(1);
+    const int rByte = InstructionSet::isSvc(opcode) ? byteAt(2) : -1;
     const int len = InstructionSet::length(opcode, rByte);
 
     int w1, w2;
     InstructionSet::operandWidths(opcode, w1, w2);
-    int p = address + 2;
-    if (w1 > 0) { insn.operand1 = readWidth(p, w1); p += w1; }
-    if (w2 > 0) { insn.operand2 = readWidth(p, w2); p += w2; }
+    auto field = [&](int offset, int width) {
+        return width == 2 ? (byteAt(offset) << 8) | byteAt(offset + 1) : static_cast<int>(byteAt(offset));
+    };
+    int p = 2;
+    if (w1 > 0) { insn.operand1 = field(p, w1); p += w1; }
+    if (w2 > 0) { insn.operand2 = field(p, w2); p += w2; }
 
     insn.raw.resize(static_cast<std::size_t>(len));
-    for (int i = 0; i < len; ++i) insn.raw[static_cast<std::size_t>(i)] = m_.readByte(address + i);
+    for (int i = 0; i < len; ++i) insn.raw[static_cast<std::size_t>(i)] = byteAt(i);
 
     insn.address = address;
     insn.opcode = opcode;
@@ -308,14 +311,26 @@ bool MainStorageProcessor::step()
     if (onBeforeInstruction) onBeforeInstruction(static_cast<uint16_t>(iar));
 
     // Instruction fetch goes through PIAR, its own addressing path.  The IAR
-    // itself stays LOGICAL; only the read is resolved.
+    // itself stays LOGICAL; every fetched byte is translated on its own, as
+    // the hardware increments the IAR per byte (SY31-9035 10-860), so an
+    // instruction may straddle two pages whose frames are not adjacent.
     int fetch = 0;
     if (!m_.resolve(static_cast<uint16_t>(iar), m_.msp.pactIar, MachineState::kAtrTaskGroup0, false, fetch,
                     &protectionFault_))
         return recoverProtection();
-    Instruction insn = decode(fetch);
+    bool fetchProtected = false;
+    Instruction insn = decodeFrom(iar, [&](int offset) -> uint8_t {
+        int real = 0;
+        if (fetchProtected) return 0;
+        if (!m_.resolve(static_cast<uint16_t>((iar + offset) & 0xFFFF), m_.msp.pactIar, MachineState::kAtrTaskGroup0,
+                        false, real, &protectionFault_)) {
+            fetchProtected = true;
+            return 0;
+        }
+        return m_.readByte(real);
+    });
+    if (fetchProtected) { m_.clearFault(); return recoverProtection(); }
     if (m_.faulted()) { stopAddressing(); return false; }
-    insn.address = iar;
 
     if (!insn.valid()) {
         const int logicalPage = iar >> MachineState::kPageShift;
@@ -335,7 +350,7 @@ bool MainStorageProcessor::step()
         m_.msp.iar = resumeIar;
         if (!csp_.consumeInvalidOpcodeCheck(resumeIar)) {
             ++instructions_;
-            atPreemptionPoint_ = true;
+            atPreemptionPoint_ = atSoftStopPoint_ = true;
             trace_.msp(iar, "unassigned opcode {:02X} is a SLIC burst exit; resume at {:04X}",
                        insn.opcode, resumeIar);
             return true;
@@ -359,7 +374,7 @@ bool MainStorageProcessor::step()
                    rg.psr(), rg.wr[6]);
     }
     const int next = (iar + insn.length) & 0xFFFF;
-    atPreemptionPoint_ = false;
+    atPreemptionPoint_ = atSoftStopPoint_ = false;
     iarWritten_ = false;
 
     OperandMode m1, m2;
@@ -416,7 +431,7 @@ bool MainStorageProcessor::step()
         int lav = insn.operand2 ? *insn.operand2 : *insn.operand1;
         uint8_t lapact;
         uint16_t lalog = logical(lam, lav, lapact);
-        loadAddress(insn.q, (lapact << 16) | lalog);
+        if (!privilegedPactChange(insn.q)) loadAddress(insn.q, (lapact << 16) | lalog);
         atPreemptionPoint_ = true;
     }
     else if (mn == "BC") {
@@ -436,12 +451,16 @@ bool MainStorageProcessor::step()
     if (m_.faulted()) { stopAddressing(); return false; }
 
     // An instruction whose Q-byte selected the IAR has already branched:
-    // `LA q=10 <addr>` is the machine's unconditional branch.
+    // `LA q=10 <addr>` is the machine's unconditional branch, and a change
+    // of flow is a soft-stop point (SY31-9035 T20D5).
     if (!iarWritten_) {
         m_.msp.iar = static_cast<uint16_t>(next);
-    } else if (trace_.flowOn()) {
-        const std::string mem = memberResolver ? memberResolver() : std::string();
-        trace_.flow("{:04X} -> {:04X}  {:<4}{}", iar, m_.msp.iar, mn, mem.empty() ? "" : "  " + mem);
+    } else {
+        atSoftStopPoint_ = true;
+        if (trace_.flowOn()) {
+            const std::string mem = memberResolver ? memberResolver() : std::string();
+            trace_.flow("{:04X} -> {:04X}  {:<4}{}", iar, m_.msp.iar, mn, mem.empty() ? "" : "  " + mem);
+        }
     }
     ++instructions_;
     return true;
@@ -469,7 +488,7 @@ bool MainStorageProcessor::executeSvc(const Instruction& insn, int next)
     m_.msp.iar = static_cast<uint16_t>(next);
     const bool serviced = csp_.svc(req);
     ++instructions_;
-    atPreemptionPoint_ = true;      // SVC is an architectural preemption point
+    atPreemptionPoint_ = atSoftStopPoint_ = true;      // SVC is an architectural preemption point
 
     // A call the control processor could not service must STOP the machine;
     // continuing runs phase 1 on state the supervisor never produced.  The
@@ -732,10 +751,15 @@ void MainStorageProcessor::shiftRightCharacter(uint8_t q)
 
 // Edit: replace every hex 20 in operand 1 with a character from operand 2,
 // right to left in both, setting the zone of each replaced byte to F.  The
-// status byte reflects operand 2 as a zoned field (SA21-9436 3-23).
+// status byte reflects operand 2 as a zoned field (SA21-9436 3-23), but only
+// when Equal was on before the instruction, the low-order byte of operand 1
+// is hex 20, or operand 2 is not zero; otherwise the PSR is unchanged
+// (SY31-9035 10-650, PSR table note).
 void MainStorageProcessor::edit(uint8_t q)
 {
     const int len = count(q);
+    const bool equalBefore = (m_.msp.psr() & kPsrEqual) != 0;
+    const bool lowOrderIs20 = readOperand(true, 0) == 0x20;
     int taken = 0;
     for (int i = 0; i < len; ++i) {
         if (readOperand(true, -i) != 0x20) continue;
@@ -744,11 +768,11 @@ void MainStorageProcessor::edit(uint8_t q)
         ++taken;
     }
     if (abort_ != Abort::None) return;
-    uint8_t p = static_cast<uint8_t>(m_.msp.psr() & ~(kPsrHigh | kPsrLow | kPsrEqual));
-    if (taken == 0) { m_.msp.loadPsr(p); return; }
-    bool neg;
-    const long long v2 = readZoned(false, taken, neg);
+    bool neg = false;
+    const long long v2 = taken == 0 ? 0 : readZoned(false, taken, neg);
     if (abort_ != Abort::None) return;
+    if (!equalBefore && !lowOrderIs20 && v2 == 0) return;
+    uint8_t p = static_cast<uint8_t>(m_.msp.psr() & ~(kPsrHigh | kPsrLow | kPsrEqual));
     if (v2 == 0) p |= kPsrEqual;
     else if (v2 < 0) p |= kPsrLow;
     else p |= kPsrHigh;
@@ -785,7 +809,7 @@ bool MainStorageProcessor::transfer(const Instruction& insn)
     trace_.msp(insn.address, "XFER q={:02X} r={:02X} - transfer to emulated control storage", insn.q, r);
     m_.msp.iar = static_cast<uint16_t>((insn.address + insn.length) & 0xFFFF);
     ++instructions_;
-    atPreemptionPoint_ = true;
+    atPreemptionPoint_ = atSoftStopPoint_ = true;
     if (csp_.extendedControlStore(insn.q, r, static_cast<uint16_t>(insn.address))) return true;
     const std::string why = csp_.lastRefusal();
     const std::string tail = why.empty() ? std::string(" - the control storage processor gave no reason")
@@ -856,9 +880,24 @@ uint16_t MainStorageProcessor::getSelected(uint8_t q, uint8_t& pact, bool& hasPa
 
 void MainStorageProcessor::loadRegister(uint8_t q)
 {
+    if (privilegedPactChange(q)) return;
     const uint16_t v = readField();
     if (abort_ != Abort::None) return;
     setSelected(q, v);
+}
+
+// In problem state an instruction that would change a PACT register is a
+// storage exception (SY31-9035 10-568, SB5 bit 7): the level 5 interrupt,
+// the same disposition as a protected page.  L and LA with A0-A3 are the
+// instructions that load a PACT; A and S change only the 2-byte register.
+bool MainStorageProcessor::privilegedPactChange(uint8_t q)
+{
+    if (!threeByteForm(q) || m_.msp.privileged()) return false;
+    protectionFault_.address = m_.msp.iar;
+    protectionFault_.forWrite = true;
+    abort_ = Abort::Protection;
+    trace_.msp(m_.msp.iar, "PACT load (Q {:02X}) while not privileged - storage exception", q);
+    return true;
 }
 
 void MainStorageProcessor::storeRegister(uint8_t q)
@@ -935,17 +974,23 @@ void MainStorageProcessor::addToRegister(uint8_t q, bool subtract)
     if (q != 0x04) m_.msp.loadPsr(p);                  // else the PSR is the target
 }
 
-// Load Program Mode Register.  Privileged.  Q of 80 replaces PMR bits 0 and
-// 7 only; Q of 00 replaces all eight bits and the PACT bits with them; any
-// other Q is treated as an invalid op code (SA21-9436 3-34).
+// Load Program Mode Register.  Privileged: in problem state it is a storage
+// exception, delivered to the control processor as level 5 (SY31-9035
+// 10-560 SB5 bit 7).  Q of 80 replaces PMR bits 0 and 7 only; Q of 00
+// replaces all eight bits and the PACT bits with them; any other Q is
+// treated as an invalid op code (SA21-9436 3-34).  LPMR is not a soft-stop
+// point (SY31-9035 T20D5).
 bool MainStorageProcessor::loadProgramModeRegister(const Instruction& insn, int next)
 {
     const uint8_t r = insn.operand2 ? static_cast<uint8_t>(*insn.operand2) : 0;
     MspRegisters& regs = m_.msp;
 
     if (!regs.privileged()) {
-        stop(fmt::format("LPMR at {:04X} while not privileged - storage exception check", insn.address));
-        return false;
+        trace_.msp(insn.address, "LPMR at {:04X} while not privileged - storage exception", insn.address);
+        protectionFault_.address = static_cast<uint16_t>(insn.address);
+        protectionFault_.forWrite = true;
+        abort_ = Abort::Protection;
+        return finishAbort();
     }
 
     if (insn.q == 0x80) {
@@ -974,10 +1019,12 @@ bool MainStorageProcessor::loadProgramModeRegister(const Instruction& insn, int 
 // branch, which is how return addresses are kept.
 bool MainStorageProcessor::branchOnCondition(const Instruction& insn, int next, int target)
 {
+    // Only a taken branch is a soft-stop point (SY31-9035 T20D5).
     atPreemptionPoint_ = true;
     if (conditionTrue(insn.q)) {
         m_.msp.arr = static_cast<uint16_t>(next);
         m_.msp.iar = static_cast<uint16_t>(target);
+        atSoftStopPoint_ = true;
     } else {
         m_.msp.iar = static_cast<uint16_t>(next);
     }
@@ -989,11 +1036,13 @@ bool MainStorageProcessor::branchOnCondition(const Instruction& insn, int next, 
 // jump forwards, F1 backwards (SA21-9436 3-28).
 bool MainStorageProcessor::jumpOnCondition(const Instruction& insn, int next)
 {
-    atPreemptionPoint_ = true;
     const int disp = insn.operand2 ? *insn.operand2 : 0;
     const bool backwards = insn.opcode == InstructionSet::kJumpBackwardOpcode;
     const int target = (backwards ? next - disp : next + disp) & 0xFFFF;
-    m_.msp.iar = static_cast<uint16_t>(conditionTrue(insn.q) ? target : next);
+    const bool taken = conditionTrue(insn.q);
+    m_.msp.iar = static_cast<uint16_t>(taken ? target : next);
+    atPreemptionPoint_ = true;
+    atSoftStopPoint_ = taken;       // only a taken jump is a soft-stop point
     ++instructions_;
     return true;
 }

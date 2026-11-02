@@ -274,6 +274,10 @@ private:
     struct InputResponseStatus {
         int unitBlock = 0;
         std::vector<uint8_t> bytes;
+        // A C1 pass has imported this status into the unit block.  It is not
+        // imported again (that would replay the key), but it still admits
+        // the Read Input Fields that consumes its field record.
+        bool imported = false;
     };
     struct PendingC1Completion {
         int unit = 0;
@@ -298,6 +302,7 @@ private:
     bool restoreScreen(int iob, WorkStationSlot& slot);
     bool outputData(int iob, WorkStationSlot& slot, bool withInvite);
     void applyC1Response(int iob, const std::vector<uint8_t>& responseStatus);
+    void retireC1ResponseStatus(int unit);
     bool readCurrentConfiguration(int iob);
     bool configureNewWorkStations(int iob);
     bool captureBuffer(int bufferField, int length, bool forWrite, std::vector<int>& addresses);

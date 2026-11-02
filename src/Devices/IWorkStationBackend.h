@@ -42,6 +42,9 @@ public:
     virtual bool tryTakeInput(std::vector<uint8_t>& stream) = 0;
     virtual bool tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream) = 0;
     virtual int pendingInput() const = 0;
+    // Input a read may consume now: retained, or on the wire with its status
+    // already reported.
+    virtual bool inputReadable() const = 0;
 };
 
 // The printer's side of the seam.  Hand a data stream over verbatim, and
@@ -88,6 +91,7 @@ public:
     bool tryTakeInput(std::vector<uint8_t>& stream) override;
     bool tryTakeInputFields(uint8_t command, std::vector<uint8_t>& stream) override;
     int pendingInput() const override;
+    bool inputReadable() const override;
 
 private:
     VirtualWorkstation& ws_;

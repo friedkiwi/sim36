@@ -34,10 +34,17 @@ public:
     bool stopped() const { return stopped_; }
     const std::string& stopReason() const { return stopReason_; }
     long long instructionsExecuted() const { return instructions_; }
-    // Softstop is honoured only after branch, jump and other instructions
-    // that modify neither instructions nor data.  SSP mutates shared data
-    // without locks and relies on this.
+    // The emulator's host-work boundary: after branch, jump and other
+    // instructions that modify neither instructions nor data, where the
+    // monitor may deliver host events to the guest.  SSP mutates shared
+    // data without locks and relies on this.
     bool atPreemptionPoint() const { return atPreemptionPoint_; }
+    // The architected soft-stop point, a subset of the above: after an
+    // instruction that changed the flow of control - a BC or JC whose
+    // condition was met, or an LA, L, A or S that loaded the IAR
+    // (SY31-9035 T20D5) - or where the control processor had control (SVC,
+    // XFER, the unassigned-opcode escape, a level 5 task switch).
+    bool atSoftStopPoint() const { return atSoftStopPoint_; }
 
     // Read-only monitor observation immediately before instruction fetch.
     std::function<void(uint16_t)> onBeforeInstruction;
@@ -83,13 +90,16 @@ public:
     void start() { stopped_ = false; stopReason_.clear(); }
     void restoreCheckpoint(bool stopped, const std::string& reason, long long instructions, bool atPreemptionPoint);
     void hardstop() { stop("hardstop"); }
-    void softstop() { if (atPreemptionPoint_) stop("softstop"); }
+    void softstop() { if (atSoftStopPoint_) stop("softstop"); }
     // Stop with a stated reason: the control processor owns every
     // transition out of Running, including "nothing left to dispatch".
     void halt(const std::string& why) { stop(why); }
 
     // Decode at a guest (real) address without executing or advancing.
     Instruction decode(int address);
+    // Decode from a byte source indexed by offset within the instruction,
+    // so the fetch can translate every byte through PIAR independently.
+    Instruction decodeFrom(int address, const std::function<uint8_t(int)>& byteAt);
 
     // Execute one instruction.  False when the processor stopped.
     bool step();
@@ -106,12 +116,12 @@ private:
     std::string protectionStop() const;
     bool finishAbort();
 
-    int readWidth(int addr, int width);
     uint16_t logical(OperandMode mode, int value, uint8_t& pact) const;
     uint16_t logicalOperand(OperandMode mode, int value) const;
     bool effective(OperandMode mode, int value, int& real);
 
     bool executeSvc(const Instruction& insn, int next);
+    bool privilegedPactChange(uint8_t q);
     int count(uint8_t q) const { return q + 1; }
     bool operandByte(bool first, int displacement, bool forWrite, int& real);
     uint8_t readOperand(bool first, int displacement);
@@ -164,6 +174,7 @@ private:
     std::string stopReason_;
     long long instructions_ = 0;
     bool atPreemptionPoint_ = true;
+    bool atSoftStopPoint_ = true;
     bool iarWritten_ = false;
     // Multi-byte operands are logical ranges: keep the logical rightmost
     // address and PACT for both operands so every byte is translated

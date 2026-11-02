@@ -482,6 +482,30 @@ void As36ControlStorageProcessor::signalNewWork(const std::string& call)
     redispatch_ = true;
 }
 
+// The host event pump restarts a stopped MSP after it has delivered work.
+// At nudspchA's no-task exit that is meaningful only once a task has been
+// dispatched.  A post can be accepted without one (a target that is not in
+// an event wait keeps the element on its queue for its next SVC 02), and
+// resuming then runs whatever registers were last loaded: a level-5 check at
+// IAR 0000.  Dispatch a task the work readied, or report that the machine
+// stays idle.  Every dispatch clears idleEventWait_, so a delivery that
+// already dispatched resumes as before.
+bool As36ControlStorageProcessor::prepareResumeFromIdle(const std::string& call)
+{
+    if (msp_ == nullptr || !msp_->stopped() || !idleEventWait_) return true;
+    if (dispatch(call) && !idleEventWait_) {
+        restoreRegisters(currentRequestBlock_);
+        trace_.csp("{}: host work readied a task without dispatching it; dispatched now, registers loaded from request "
+                   "block {:06X}",
+                   call, currentRequestBlock_);
+        return true;
+    }
+    trace_.csp("{}: host work dispatched no task; the MSP stays at nudspchA's no-task exit rather than resuming stale "
+               "registers",
+               call);
+    return false;
+}
+
 // The preemption point SA21-9436 3-67 names: after every serviced call, a
 // task readied by a post reaches the processor as soon as its priority
 // entitles it to.  Nothing happens unless a wait or a post asked.

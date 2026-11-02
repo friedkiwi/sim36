@@ -21,19 +21,30 @@ TEST_CASE("psr: loading normalises bits 5, 6 and 7")
     CHECK(r.psr() == 0x02);
     r.loadPsr(0x20 | 0x02);     // binary overflow survives
     CHECK(r.psr() == 0x22);
+    r.loadPsr(0xC0 | 0x02);     // bits 0 and 1 do not exist
+    CHECK(r.psr() == 0x02);
 }
 
-TEST_CASE("psr: WMPR load uses only bits 5 and 7")
+TEST_CASE("psr: reset value is Equal")
 {
     MspRegisters r;
-    r.loadPsr(0x04);
+    CHECK(r.psr() == 0x01);
+    r.loadPsr(0x3C);
+    r.reset();
+    CHECK(r.psr() == 0x01);     // SY31-9035 10-650: reset sets hex 01
+}
+
+TEST_CASE("psr: control processor load follows SY31-9035 T20F2")
+{
+    MspRegisters r;
+    r.loadPsrFromWmpr(0xFF);
+    CHECK(r.psr() == 0x39);
+    r.loadPsrFromWmpr(0x00);    // neither Equal nor High -> Low
+    CHECK(r.psr() == 0x02);
+    r.loadPsrFromWmpr(0x3C);
+    CHECK(r.psr() == 0x3C);
     r.loadPsrFromWmpr(0x01);
     CHECK(r.psr() == 0x01);
-    r.loadPsrFromWmpr(0x00);    // bits 5 and 7 off -> low on
-    CHECK((r.psr() & 0x02) != 0);
-    CHECK((r.psr() & 0x01) == 0);
-    r.loadPsrFromWmpr(0x04);    // bit 5 on, 7 off -> low off
-    CHECK((r.psr() & 0x02) == 0);
 }
 
 TEST_CASE("pmr: bits 3-6 are projected from the PACT bytes")

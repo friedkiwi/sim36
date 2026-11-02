@@ -4,7 +4,7 @@ namespace sim36::machine {
 
 void MspRegisters::loadPsr(uint8_t value)
 {
-    uint8_t v = value;
+    uint8_t v = static_cast<uint8_t>(value & 0x3F);   // bits 0 and 1 do not exist
     if ((v & 0x01) != 0)            // bit 7 on -> 5 and 6 forced off
         v = static_cast<uint8_t>((v & ~0x06) | 0x01);
     else if ((v & 0x02) == 0)       // bits 6 and 7 off -> bit 5 on
@@ -16,11 +16,8 @@ void MspRegisters::loadPsr(uint8_t value)
 
 void MspRegisters::loadPsrFromWmpr(uint8_t wmpr)
 {
-    const bool b7 = (wmpr & 0x01) != 0;
-    const bool b5 = (wmpr & 0x04) != 0;
-    if (b7) psr_ = static_cast<uint8_t>((psr_ & ~0x06) | 0x01);
-    else if (!b5) psr_ = static_cast<uint8_t>((psr_ & ~0x01) | 0x02);
-    else psr_ = static_cast<uint8_t>(psr_ & ~0x02);
+    const uint8_t condition = (wmpr & 0x01) != 0 ? 0x01 : (wmpr & 0x04) != 0 ? 0x04 : 0x02;
+    psr_ = static_cast<uint8_t>((wmpr & 0x38) | condition);
 }
 
 uint8_t MspRegisters::pmr() const
@@ -51,7 +48,7 @@ void MspRegisters::setTranslatedAddressing(bool on)
 void MspRegisters::reset()
 {
     iar = arr = xr1 = xr2 = 0;
-    psr_ = 0;
+    psr_ = 0x01;   // Equal: reset MSP or system reset (SY31-9035 10-650)
     pactDir = pactXr1 = pactXr2 = pactIar = pactCsp = 0;   // untranslated
     pactReg = pactAtr = 0;
     pmrOwnBits_ = cmr = 0;

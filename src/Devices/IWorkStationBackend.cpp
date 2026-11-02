@@ -37,6 +37,10 @@ bool VirtualWorkstationBackend::tryTakeInputFields(uint8_t command, std::vector<
     return ws_.tryTakeInputFields(command, stream);
 }
 int VirtualWorkstationBackend::pendingInput() const { return ws_.pendingInput(); }
+bool VirtualWorkstationBackend::inputReadable() const
+{
+    return ws_.retainedDeviceInput() || (ws_.pendingWireInput() > 0 && !ws_.inputStatusPending());
+}
 
 std::string VirtualPrinterBackend::name() const { return p_.id(); }
 bool VirtualPrinterBackend::attached() const { return p_.attached(); }

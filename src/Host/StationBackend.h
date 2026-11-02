@@ -254,6 +254,10 @@ public:
     bool pendingInputHasFields() const;
     // Return cursor/AID from the head record once, without dequeuing it.
     bool tryTakeInputStatus(uint16_t& cursor, uint8_t& aid);
+    // True while the head record carries a cursor/AID status that has not
+    // been reported yet.  Until it has, the record must not be consumed and
+    // its attention must not be dropped.
+    bool inputStatusPending() const;
     // Take an out-of-band RFC 1205 Attention/System Request control.  These
     // are not cursor/AID input and must never occupy the input-field park.
     bool tryTakeUnsolicitedRequest(WorkstationRecordFlags& flags);

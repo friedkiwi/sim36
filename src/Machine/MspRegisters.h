@@ -20,13 +20,15 @@ public:
     // Program status register.  Read freely; load through loadPsr.
     uint8_t psr() const { return psr_; }
 
-    // Load the PSR the way the hardware does: bits 5, 6 and 7 cannot be
-    // loaded at the same time.  Bit 7 on forces 5 and 6 off; bits 6 and 7
-    // off forces 5 on; bit 6 on with 7 off forces 5 off.
+    // Load the PSR the way the MSP does: bits 5, 6 and 7 cannot be loaded
+    // at the same time.  Bit 7 on forces 5 and 6 off; bits 6 and 7 off
+    // forces 5 on; bit 6 on with 7 off forces 5 off.  Bits 0 and 1 do not
+    // exist (SY31-9035 10-650).
     void loadPsr(uint8_t value);
 
-    // Load the PSR from the control processor's WMPR instruction: only WMPR
-    // bits 5 and 7 participate.
+    // Load the PSR from the control processor (write MSP register).  Bits
+    // 2-4 load directly; bit 7 on gives Equal, else bit 5 on gives High,
+    // else Low.  SY31-9035 T20F2: FF senses 39, 00 senses 02, 3C senses 3C.
     void loadPsrFromWmpr(uint8_t wmpr);
 
     // ---- PACT: one register per addressing path ------------------------
@@ -84,7 +86,7 @@ private:
     {
         return static_cast<uint8_t>(on ? (v | kPactPmrBit) : (v & ~kPactPmrBit));
     }
-    uint8_t psr_ = 0;
+    uint8_t psr_ = 0x01;   // the reset value, Equal
     uint8_t pmrOwnBits_ = 0;   // bits 0 and 7, which live only here
 };
 
