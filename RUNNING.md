@@ -8,7 +8,7 @@ into).
 ## 1. Build
 
 ```sh
-cmake --preset linux           # or: linux-make, windows-static
+cmake --preset linux           # or: linux-make, macos, macos-make, windows-static
 cmake --build --preset linux
 ctest --preset linux           # the volume gates skip until a volume is given
 ```
@@ -26,7 +26,7 @@ fetches and bootstraps the vcpkg version pinned by `vcpkg.json` inside the
 chosen build directory.
 
 The traditional flow writes `build/sim36`.  With presets, the binary is
-`build/linux/sim36` (`build\windows-static\Release\sim36.exe` on Windows).
+`build/<preset>/sim36` (`build\windows-static\Release\sim36.exe` on Windows).
 The packaged archives on the releases page contain the same binary with
 `etc/`, `README.md`, this file and `THIRD_PARTY_NOTICES`.
 
