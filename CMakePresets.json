@@ -23,6 +23,16 @@
       "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-linux" }
     },
     {
+      "name": "macos",
+      "inherits": "base",
+      "generator": "Ninja"
+    },
+    {
+      "name": "macos-make",
+      "inherits": "base",
+      "generator": "Unix Makefiles"
+    },
+    {
       "name": "windows-static",
       "inherits": "base",
       "generator": "Visual Studio 17 2022",
@@ -37,11 +47,15 @@
   "buildPresets": [
     { "name": "linux", "configurePreset": "linux" },
     { "name": "linux-make", "configurePreset": "linux-make" },
+    { "name": "macos", "configurePreset": "macos" },
+    { "name": "macos-make", "configurePreset": "macos-make" },
     { "name": "windows-static", "configurePreset": "windows-static", "configuration": "Release" }
   ],
   "testPresets": [
     { "name": "linux", "configurePreset": "linux", "output": { "outputOnFailure": true } },
     { "name": "linux-make", "configurePreset": "linux-make", "output": { "outputOnFailure": true } },
+    { "name": "macos", "configurePreset": "macos", "output": { "outputOnFailure": true } },
+    { "name": "macos-make", "configurePreset": "macos-make", "output": { "outputOnFailure": true } },
     { "name": "windows-static", "configurePreset": "windows-static", "configuration": "Release", "output": { "outputOnFailure": true } }
   ]
 }
